@@ -7,6 +7,7 @@ permissions:
   issues: write
 concurrency:
   group: opencode-${{ github.event.issue.number }}
+  cancel-in-progress: false
 jobs:
   run:
     if: >-
@@ -29,7 +30,7 @@ jobs:
           mkdir -p "$W" && cd "$W"
           git config --global user.name "siedler-agent"
           git config --global user.email "Kofi55533@users.noreply.github.com"
-          git clone -q --depth 1 --filter=blob:limit=5m "https://x-access-token:${T}@github.com/Kofi55533/siedler-sim-rs.git" siedler-sim-rs
+          git clone -q --depth 1 --no-single-branch "https://x-access-token:${T}@github.com/Kofi55533/siedler-sim-rs.git" siedler-sim-rs
           git clone -q --depth 1 --filter=blob:limit=5m --no-checkout "https://x-access-token:${T}@github.com/Kofi55533/siedler-forschung.git" siedler-forschung
           git -C siedler-forschung sparse-checkout set --no-cone '/*' '!/cloud-re/'
           git -C siedler-forschung checkout -q main
@@ -56,7 +57,7 @@ jobs:
           J
           TASK="${BODY#*/opencode}"
           cat > "$RUNNER_TEMP/prompt.txt" <<P
-          You work in $W containing private repos siedler-sim-rs/ and siedler-forschung/ (shallow partial clones; blobs >5MB missing; siedler-forschung/cloud-re is excluded via sparse-checkout).
+          You work in $W containing private repos siedler-sim-rs/ and siedler-forschung/ (shallow clones, all branch tips of siedler-sim-rs fetched; forschung blobs >5MB missing; siedler-forschung/cloud-re is excluded via sparse-checkout).
           RULES: Push results ONLY as new branches (prefix agent/) to those private repos and open DRAFT PRs with gh (never merge, never push to main).
           Never commit or copy private content anywhere else. When finished, you MUST write (with a shell command) a SHORT plain-text summary (max 5 lines, no code, no file contents, no secrets)
           to $W/summary.txt. If no changes are requested, make none.
