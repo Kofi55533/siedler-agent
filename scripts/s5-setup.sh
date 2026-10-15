@@ -17,16 +17,16 @@ mkdir -p $S5/dl $S5/data/game $S5/data/art $S5/data/fixtures
 export GH_TOKEN=$T
 td=$(date +%s)
 gh release download data-v2 -R Kofi55533/siedler-data -D $S5/dl -p '*.tzst*' >/dev/null
-cat $S5/dl/game.tzst.* | zstd -dcq | tar -xf - -C $S5/data/game &
-zstd -dcq $S5/dl/art.tzst | tar -xf - -C $S5/data/art &
-zstd -dcq $S5/dl/fixtures.tzst | tar -xf - -C $S5/data/fixtures &
-zstd -dcq $S5/dl/gen.tzst | tar -xf - -C $S5_REPO/recomp &
-wait
+cat $S5/dl/game.tzst.* | zstd -dcq | tar -xf - -C $S5/data/game & P1=$!
+zstd -dcq $S5/dl/art.tzst | tar -xf - -C $S5/data/art & P2=$!
+zstd -dcq $S5/dl/fixtures.tzst | tar -xf - -C $S5/data/fixtures & P3=$!
+zstd -dcq $S5/dl/gen.tzst | tar -xf - -C $S5_REPO/recomp & P4=$!
+wait $P1 $P2 $P3 $P4
 rm -f $S5/dl/*.tzst*
 echo "s5-setup: data-v2 download+extract secs=$(( $(date +%s)-td ))"
 cp $S5_ARTIFACTS/lift/gen.closure.pkl $S5_REPO/recomp/ 2>/dev/null || true
 (python3.11 -m venv $S5/py311 2>/dev/null || python3 -m venv $S5/py311) && $S5/py311/bin/pip -q install unicorn==2.1.4 >/dev/null 2>&1
-wait $RUST
+wait $RUST 2>/dev/null || true
 CSHA=""
 if [ "$CACHE" = 1 ] && gh release view build-cache -R Kofi55533/siedler-data >/dev/null 2>&1; then
   gh release download build-cache -R Kofi55533/siedler-data -D $S5/dl >/dev/null
