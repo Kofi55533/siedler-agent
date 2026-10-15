@@ -1,0 +1,39 @@
+name: build-cache
+on:
+  workflow_dispatch:
+    inputs:
+      ref: { description: 'siedler-sim-rs ref to build', default: 'codex/clean-commands' }
+permissions:
+  contents: read
+jobs:
+  build:
+    if: github.actor == 'Kofi55533'
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - name: Setup (quiet)
+        env: { T: '${{ secrets.PRIVATE_REPO_TOKEN }}' }
+        run: scripts/s5-setup.sh "${{ inputs.ref }}" 0
+      - name: Build (quiet)
+        run: |
+          echo "nproc=$(nproc)"; free -h | sed -n 2p
+          scripts/s5-build.sh || { echo "build failed; last error lines suppressed (private)"; grep -c '^error' /opt/s5/build.log; exit 1; }
+          source scripts/s5-env.sh; du -sh $S5_REPO/recomp/target | cut -f1
+      - name: Smoke live wintersturm
+        run: scripts/s5-live.sh wintersturm || true
+      - name: Upload cache to private release
+        env: { GH_TOKEN: '${{ secrets.PRIVATE_REPO_TOKEN }}' }
+        run: |
+          source scripts/s5-env.sh
+          SHA=$(git -C $S5_REPO rev-parse HEAD); cd /tmp
+          echo "$SHA" > cache-sha.txt
+          find $S5_REPO/recomp/target/release -maxdepth 1 -type f -perm -u+x ! -name s5verify ! -name s5check -delete
+          rm -rf $S5_REPO/recomp/target/verify
+          tar -cf - -P $S5_REPO/recomp/target $S5_REPO/recomp/gen $HOME/.cargo/registry | zstd -q -T0 -3 | split -b 1900M - target.tzst.
+          ls -la target.tzst.* | awk '{s+=$5} END{print "cache bytes", s}'
+          gh release delete build-cache -R Kofi55533/siedler-data -y --cleanup-tag >/dev/null 2>&1 || true
+          gh release create build-cache -R Kofi55533/siedler-data -t build-cache -n "target cache @ $SHA" cache-sha.txt target.tzst.* >/dev/null
+          echo uploaded

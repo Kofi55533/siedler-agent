@@ -22,7 +22,16 @@ jobs:
         run: |
           echo "W=$RUNNER_TEMP/work" >> "$GITHUB_ENV"
           echo "nproc=$(nproc)"; free -h | head -2
-      - name: Clone private repos (quiet)
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - name: Setup game data, toolchain, build cache (quiet)
+        env:
+          T: ${{ secrets.PRIVATE_REPO_TOKEN }}
+        run: |
+          scripts/s5-setup.sh opus/clean-rewrite 1
+          echo "S5_SCRIPTS=$GITHUB_WORKSPACE/scripts" >> "$GITHUB_ENV"
+      - name: Clone siedler-forschung (quiet, sparse)
         env:
           T: ${{ secrets.PRIVATE_REPO_TOKEN }}
           GIT_LFS_SKIP_SMUDGE: "1"
@@ -30,14 +39,13 @@ jobs:
           mkdir -p "$W" && cd "$W"
           git config --global user.name "siedler-agent"
           git config --global user.email "Kofi55533@users.noreply.github.com"
-          git clone -q --depth 1 --no-single-branch "https://x-access-token:${T}@github.com/Kofi55533/siedler-sim-rs.git" siedler-sim-rs
+          ln -s /opt/s5/siedler-sim-rs siedler-sim-rs
           git clone -q --depth 1 --filter=blob:limit=5m --no-checkout "https://x-access-token:${T}@github.com/Kofi55533/siedler-forschung.git" siedler-forschung
           git -C siedler-forschung sparse-checkout set --no-cone '/*' '!/cloud-re/'
           git -C siedler-forschung checkout -q main
-          du -sh "$W"/* | sed "s#$W/##"
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: actions/setup-python@v5
-        with: { python-version: '3.12' }
+          df -h / | awk 'NR==2{print "disk_free="$4}'
+      - name: Baseline build (quiet)
+        run: $S5_SCRIPTS/s5-build.sh || true
       - name: Install opencode
         run: npm i -g opencode-ai >/dev/null 2>&1 && opencode --version
       - name: Run opencode (output not shown, not uploaded)
@@ -57,10 +65,17 @@ jobs:
           J
           TASK="${BODY#*/opencode}"
           cat > "$RUNNER_TEMP/prompt.txt" <<P
-          You work in $W containing private repos siedler-sim-rs/ and siedler-forschung/ (shallow clones, all branch tips of siedler-sim-rs fetched; forschung blobs >5MB missing; siedler-forschung/cloud-re is excluded via sparse-checkout).
+          You work in $W containing private repos siedler-sim-rs/ (symlink) and siedler-forschung/ (shallow; all branch tips of siedler-sim-rs fetched; forschung cloud-re excluded).
           RULES: Push results ONLY as new branches (prefix agent/) to those private repos and open DRAFT PRs with gh (never merge, never push to main).
-          Never commit or copy private content anywhere else. When finished, you MUST write (with a shell command) a SHORT plain-text summary (max 5 lines, no code, no file contents, no secrets)
-          to $W/summary.txt. If no changes are requested, make none.
+          Never commit or copy private content anywhere else. siedler-sim-rs real path is /opt/s5/siedler-sim-rs (cargo cache is valid only there).
+          LIVE VERIFICATION (mandatory for code changes): game data, recomp artifacts and fixtures are installed. Scripts in $S5_SCRIPTS:
+            source $S5_SCRIPTS/s5-env.sh ; $S5_SCRIPTS/s5-build.sh (incremental s5verify build, ~minutes) ;
+            $S5_SCRIPTS/s5-live.sh <wintersturm|economy|wsecon|build|production|combat|bc-full> (full output in /opt/s5/live/<f>.log).
+          Run s5-live for the relevant fixture(s) BEFORE your change (baseline) and AFTER. Only open a PR if the gates pass
+          (cd crates/s5clean && cargo test) AND the first divergence turn is unchanged-or-later for every fixture you ran and strictly later
+          (or IDENTICAL) for the target fixture; otherwise push only the analysis doc and say so. Never paste live log contents or game data into PRs/comments.
+          When finished, you MUST write (with a shell command) a SHORT plain-text summary (max 5 lines, no code, no file contents, no secrets)
+          to $W/summary.txt including 'live <fixture>: before turn X -> after turn Y'. If no changes are requested, make none.
           Issue: $TITLE
           $IBODY
           Task: $TASK
