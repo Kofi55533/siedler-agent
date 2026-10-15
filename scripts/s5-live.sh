@@ -15,5 +15,6 @@ export S5_REMAP=$(python -c "import verify; print(verify.remap_for('$img', 'targ
 [ "$f" = economy ] && export S5_CLEAN_MAP_DIR=$S5_V/maps/economy/maps/externalmap
 ./target/release/s5verify live ../data/scope/schema.json $S5_V/fixtures/$f/scenario.json "$img" "$a" > $S5/live/$f.log 2>&1
 rc=$?
-echo "live $f exit=$rc $(grep -m1 -oE '(IDENTICAL|DIVERGENT)[^:]*|loader unavailable' $S5/live/$f.log)"
+m=$(grep -m1 -oE 'DIVERGENT turn [0-9]+|loader unavailable' $S5/live/$f.log); [ -z "$m" ] && m=$(grep -oE 'IDENTICAL[^:(]*' $S5/live/$f.log | tail -n1)
+echo "live $f exit=$rc ${m}"
 exit $rc
