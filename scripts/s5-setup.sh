@@ -15,12 +15,15 @@ git clone -q --depth 1 --no-single-branch "https://x-access-token:${T}@github.co
 wait $APT
 mkdir -p $S5/dl $S5/data/game $S5/data/art $S5/data/fixtures
 export GH_TOKEN=$T
-gh release download data-v1 -R Kofi55533/siedler-data -D $S5/dl -p '*.tzst' >/dev/null
-zstd -dcq $S5/dl/game.tzst | tar -xf - -C $S5/data/game
-zstd -dcq $S5/dl/art.tzst | tar -xf - -C $S5/data/art
-zstd -dcq $S5/dl/fixtures.tzst | tar -xf - -C $S5/data/fixtures
-zstd -dcq $S5/dl/gen.tzst | tar -xf - -C $S5_REPO/recomp
-rm -f $S5/dl/game.tzst $S5/data/../dl/art.tzst $S5/dl/fixtures.tzst $S5/dl/gen.tzst
+td=$(date +%s)
+gh release download data-v2 -R Kofi55533/siedler-data -D $S5/dl -p '*.tzst*' >/dev/null
+cat $S5/dl/game.tzst.* | zstd -dcq | tar -xf - -C $S5/data/game &
+zstd -dcq $S5/dl/art.tzst | tar -xf - -C $S5/data/art &
+zstd -dcq $S5/dl/fixtures.tzst | tar -xf - -C $S5/data/fixtures &
+zstd -dcq $S5/dl/gen.tzst | tar -xf - -C $S5_REPO/recomp &
+wait
+rm -f $S5/dl/*.tzst*
+echo "s5-setup: data-v2 download+extract secs=$(( $(date +%s)-td ))"
 cp $S5_ARTIFACTS/lift/gen.closure.pkl $S5_REPO/recomp/ 2>/dev/null || true
 (python3.11 -m venv $S5/py311 2>/dev/null || python3 -m venv $S5/py311) && $S5/py311/bin/pip -q install unicorn==2.1.4 >/dev/null 2>&1
 wait $RUST
