@@ -1,0 +1,78 @@
+name: opencode
+on:
+  issue_comment:
+    types: [created]
+permissions:
+  contents: read
+  issues: write
+concurrency:
+  group: opencode-${{ github.event.issue.number }}
+jobs:
+  run:
+    if: >-
+      contains(github.event.comment.body, '/opencode') &&
+      github.event.comment.user.login == 'Kofi55533' &&
+      github.event.issue.user.login == 'Kofi55533' &&
+      github.event.issue.pull_request == null
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - name: Runner specs
+        run: |
+          echo "W=$RUNNER_TEMP/work" >> "$GITHUB_ENV"
+          echo "nproc=$(nproc)"; free -h | head -2
+      - name: Clone private repos (quiet)
+        env:
+          T: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          GIT_LFS_SKIP_SMUDGE: "1"
+        run: |
+          mkdir -p "$W" && cd "$W"
+          git config --global user.name "siedler-agent"
+          git config --global user.email "Kofi55533@users.noreply.github.com"
+          git clone -q --depth 50 "https://x-access-token:${T}@github.com/Kofi55533/siedler-sim-rs.git" siedler-sim-rs
+          git clone -q --depth 1 --filter=blob:limit=5m "https://x-access-token:${T}@github.com/Kofi55533/siedler-forschung.git" siedler-forschung
+          du -sh "$W"/* | cut -f1
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - name: Install opencode
+        run: npm i -g opencode-ai >/dev/null 2>&1 && opencode --version
+      - name: Run opencode (output not shown, not uploaded)
+        env:
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          BODY: ${{ github.event.comment.body }}
+          TITLE: ${{ github.event.issue.title }}
+          IBODY: ${{ github.event.issue.body }}
+        run: |
+          mkdir -p ~/.local/share/opencode
+          umask 077
+          printf '{"opencode":{"type":"api","key":"%s"}}' "$OPENCODE_API_KEY" > ~/.local/share/opencode/auth.json
+          unset OPENCODE_API_KEY
+          cat > "$W/opencode.json" <<'J'
+          {"$schema":"https://opencode.ai/config.json","permission":{"edit":"allow","bash":"allow","webfetch":"allow"}}
+          J
+          TASK="${BODY#*/opencode}"
+          cat > "$RUNNER_TEMP/prompt.txt" <<P
+          You work in $W containing private repos siedler-sim-rs/ and siedler-forschung/ (forschung is a shallow partial clone; blobs >5MB missing).
+          RULES: Push results ONLY as new branches (prefix agent/) to those private repos and open DRAFT PRs with gh (never merge, never push to main).
+          Never commit or copy private content anywhere else. When finished, write a SHORT plain-text summary (max 5 lines, no code, no file contents, no secrets)
+          to $RUNNER_TEMP/summary.txt. If no changes are requested, make none.
+          Issue: $TITLE
+          $IBODY
+          Task: $TASK
+          P
+          cd "$W"
+          set +e
+          timeout 280m opencode run -m opencode/muse-spark-1.3-contributor-free "$(cat "$RUNNER_TEMP/prompt.txt")" > "$RUNNER_TEMP/opencode.log" 2>&1
+          echo "exit=$? log_lines=$(wc -l < "$RUNNER_TEMP/opencode.log")"
+          rm -f ~/.local/share/opencode/auth.json
+      - name: Post summary
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          N: ${{ github.event.issue.number }}
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          S="$(head -c 800 "$RUNNER_TEMP/summary.txt" 2>/dev/null || echo 'No summary produced.')"
+          gh issue comment "$N" -R "$GITHUB_REPOSITORY" --body "$(printf '%s\n\n[run](%s)' "$S" "$RUN")"
