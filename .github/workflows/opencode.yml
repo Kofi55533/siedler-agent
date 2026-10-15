@@ -53,7 +53,7 @@ jobs:
           printf '{"opencode":{"type":"api","key":"%s"}}' "$OPENCODE_API_KEY" > ~/.local/share/opencode/auth.json
           unset OPENCODE_API_KEY
           cat > "$W/opencode.json" <<'J'
-          {"$schema":"https://opencode.ai/config.json","permission":{"edit":"allow","bash":"allow","webfetch":"allow"}}
+          {"$schema":"https://opencode.ai/config.json","permission":{"edit":"allow","bash":"allow","webfetch":"allow","external_directory":"allow"}}
           J
           TASK="${BODY#*/opencode}"
           cat > "$RUNNER_TEMP/prompt.txt" <<P
