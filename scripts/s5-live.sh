@@ -12,7 +12,7 @@ case $f in
 esac
 mkdir -p $S5/live; cd $S5_REPO/recomp
 export S5_REMAP=$(python -c "import verify; print(verify.remap_for('$img', 'target/verify/live-$f'))")
-export S5_CLEAN_MAP_DIR=$S5_V/maps/economy/maps/externalmap
+[ "$f" = economy ] && export S5_CLEAN_MAP_DIR=$S5_V/maps/economy/maps/externalmap
 ./target/release/s5verify live ../data/scope/schema.json $S5_V/fixtures/$f/scenario.json "$img" "$a" > $S5/live/$f.log 2>&1
 rc=$?
 echo "live $f exit=$rc $(grep -m1 -oE '(IDENTICAL|DIVERGENT)[^:]*|loader unavailable' $S5/live/$f.log)"
