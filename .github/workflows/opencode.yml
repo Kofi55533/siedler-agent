@@ -29,7 +29,7 @@ jobs:
           mkdir -p "$W" && cd "$W"
           git config --global user.name "siedler-agent"
           git config --global user.email "Kofi55533@users.noreply.github.com"
-          git clone -q --depth 50 "https://x-access-token:${T}@github.com/Kofi55533/siedler-sim-rs.git" siedler-sim-rs
+          git clone -q --depth 1 --filter=blob:limit=5m "https://x-access-token:${T}@github.com/Kofi55533/siedler-sim-rs.git" siedler-sim-rs
           git clone -q --depth 1 --filter=blob:limit=5m "https://x-access-token:${T}@github.com/Kofi55533/siedler-forschung.git" siedler-forschung
           du -sh "$W"/* | cut -f1
       - uses: dtolnay/rust-toolchain@stable
@@ -56,7 +56,7 @@ jobs:
           cat > "$RUNNER_TEMP/prompt.txt" <<P
           You work in $W containing private repos siedler-sim-rs/ and siedler-forschung/ (forschung is a shallow partial clone; blobs >5MB missing).
           RULES: Push results ONLY as new branches (prefix agent/) to those private repos and open DRAFT PRs with gh (never merge, never push to main).
-          Never commit or copy private content anywhere else. When finished, write a SHORT plain-text summary (max 5 lines, no code, no file contents, no secrets)
+          Never commit or copy private content anywhere else. When finished, you MUST write (with a shell command) a SHORT plain-text summary (max 5 lines, no code, no file contents, no secrets)
           to $RUNNER_TEMP/summary.txt. If no changes are requested, make none.
           Issue: $TITLE
           $IBODY
@@ -74,5 +74,7 @@ jobs:
           N: ${{ github.event.issue.number }}
           RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          S="$(head -c 800 "$RUNNER_TEMP/summary.txt" 2>/dev/null || echo 'No summary produced.')"
+          if [ -s "$RUNNER_TEMP/summary.txt" ]; then S="$(head -c 800 "$RUNNER_TEMP/summary.txt")"
+          elif [ -s "$RUNNER_TEMP/opencode.log" ]; then S="$(sed 's/\x1b\[[0-9;]*m//g' "$RUNNER_TEMP/opencode.log" | grep -v '^\s*$' | tail -n 3 | head -c 500)"
+          else S='No summary produced.'; fi
           gh issue comment "$N" -R "$GITHUB_REPOSITORY" --body "$(printf '%s\n\n[run](%s)' "$S" "$RUN")"
