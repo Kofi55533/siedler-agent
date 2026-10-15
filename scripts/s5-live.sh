@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# s5-live.sh <fixture> [adapter]  -> prints IDENTICAL/DIVERGENT summary; full output in $S5/live/<fixture>.log (never upload)
+# s5-live.sh <fixture> [adapter]  (adapter default: map recipe for wintersturm/economy, "image" = imported mid-game state otherwise; "reference-self" = reference vs itself)
 # fixtures: wintersturm economy wsecon build production combat bc-full
 set -uo pipefail
 source "$(dirname "$0")/s5-env.sh"
-f=$1; a=${2:-$1}
+f=$1; case $f in wintersturm|economy) d=$f ;; *) d=image ;; esac; a=${2:-$d}
 case $f in
   bc-full) img=$S5_ARTIFACTS/bc/gs_h.img ;;
   build|production) img=$S5_V/images/wsecon/start.img ;;
