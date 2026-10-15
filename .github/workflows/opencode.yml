@@ -29,7 +29,7 @@ jobs:
         env:
           T: ${{ secrets.PRIVATE_REPO_TOKEN }}
         run: |
-          scripts/s5-setup.sh opus/clean-rewrite 1
+          scripts/s5-setup.sh codex/clean-commands 1
           echo "S5_SCRIPTS=$GITHUB_WORKSPACE/scripts" >> "$GITHUB_ENV"
       - name: Clone siedler-forschung (quiet, sparse)
         env:
@@ -67,7 +67,7 @@ jobs:
           cat > "$RUNNER_TEMP/prompt.txt" <<P
           You work in $W containing private repos siedler-sim-rs/ (symlink) and siedler-forschung/ (shallow; all branch tips of siedler-sim-rs fetched; forschung cloud-re excluded).
           RULES: Push results ONLY as new branches (prefix agent/) to those private repos and open DRAFT PRs with gh (never merge, never push to main).
-          Never commit or copy private content anywhere else. siedler-sim-rs real path is /opt/s5/siedler-sim-rs (cargo cache is valid only there).
+          Never commit or copy private content anywhere else. siedler-sim-rs real path is /opt/s5/siedler-sim-rs, checked out at codex/clean-commands with a warm build (s5verify does not exist on opus/clean-rewrite; switching branches triggers a ~6 min rebuild).
           LIVE VERIFICATION (mandatory for code changes): game data, recomp artifacts and fixtures are installed. Scripts in $S5_SCRIPTS:
             source $S5_SCRIPTS/s5-env.sh ; $S5_SCRIPTS/s5-build.sh (incremental s5verify build, ~minutes) ;
             $S5_SCRIPTS/s5-live.sh <wintersturm|economy|wsecon|build|production|combat|bc-full> (full output in /opt/s5/live/<f>.log).
