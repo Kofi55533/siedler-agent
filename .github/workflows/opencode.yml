@@ -69,26 +69,34 @@ jobs:
           You work in $W containing private repos siedler-sim-rs/ (symlink) and siedler-forschung/ (shallow; all branch tips of siedler-sim-rs fetched; forschung cloud-re excluded).
           RULES: Push results ONLY as new branches (prefix agent/) to those private repos and open DRAFT PRs with gh (never merge, never push to main).
           Never commit or copy private content anywhere else. siedler-sim-rs real path is /opt/s5/siedler-sim-rs, checked out at codex/clean-commands with a warm build (s5verify does not exist on opus/clean-rewrite; switching branches triggers a ~6 min rebuild).
+          TOP PRIORITY (Dominic 2026-10-17 00:11): progress is measured ONLY by first-divergence turns moving forward on the live scenarios
+          (bc-full 170, wintersturm 1021, economy 3, wsecon 233, build/production 216, combat 167, ai-long/late-ai 166, late-economy 222,
+          camp-crawford 25, winterisland 3000 identical — read current numbers from docs/AGENT_BOARD.md / live). Every run MUST target the
+          current first divergence of ONE scenario: find the root cause at that turn and land a WIRED fix (hooked into World tick/dispatch)
+          that moves that boundary. No doc-only analysis PRs. No unwired helpers. If the needed wiring sits in a Codex/Opus-claimed area
+          (muse-claims.txt / board lanes), do not touch it — post an explicit wiring request on docs/AGENT_BOARD.md naming the helper,
+          the tick/dispatch call site, and the target fixture+turn. Prefer reworking already-merged unwired helpers into wired boundary movers.
           LIVE VERIFICATION (mandatory for code changes): game data, recomp artifacts and fixtures are installed. Scripts in $S5_SCRIPTS:
             source $S5_SCRIPTS/s5-env.sh ; $S5_SCRIPTS/s5-build.sh (incremental s5verify build, ~minutes) ;
             $S5_SCRIPTS/s5-live.sh <fixture> (full output in /opt/s5/live/<f>.log); fixtures: bc-full wintersturm economy wsecon build production combat combat-waves combat-big combat-long ai-long late-ai late-economy camp-crawford map-winterisland wintersturm-mapstart economy-mapstart
             (all Codex box fixtures incl. ai-long, late-ai, late-economy, camp-crawford, map-winterisland, combat-waves/big/long).
-          SELF-MERGE GATE: after you open your draft PR (base clean/integration), the workflow runs $S5_SCRIPTS/s5-gate.sh on it:
+          SELF-MERGE GATE (intent: land only non-regressing, preferably boundary-moving wired fixes; criterion still no-regression):
+          after you open your draft PR (base clean/integration), the workflow runs $S5_SCRIPTS/s5-gate.sh on it:
           it squash-merges into clean/integration ONLY if s5verify builds, crates/s5clean tests pass, every fixture's first divergence
           is >= the clean/integration baseline, and no file in $S5_SCRIPTS/muse-claims.txt is touched (Opus/Codex lanes: recomp/, loader/lifecycle,
           command dispatch, animal flee, economy/workers incl. 69657 extraction, script runtime, verify tools, agent-queue). Base your branch on
           origin/clean/integration, keep PRs small, never touch claimed paths, never merge yourself and never target main.
+          Open a code PR only when the target fixture's first divergence moves later (or becomes IDENTICAL) with a wired World tick/dispatch fix
+          and no other fixture moves earlier. Do not open doc-only or unwired-helper PRs; if blocked on claimed wiring, board-request only.
           COORDINATION (mandatory, every run; Opus > Codex > Muse): first read siedler-sim-rs docs/AGENT_BOARD.md and docs/agent-queue/ (incl. started/)
           on origin/clean/integration. Before working, CLAIM your task: for a queue task use the file already moved to started/ (or move it there);
           append a one-line claim to docs/AGENT_BOARD.md ('<date> Muse claim: <task/fixture/subsystem> on agent/<branch>, issue #<n>'), commit and push
           to clean/integration (fetch+rebase and retry on conflict). If an equal or overlapping claim by Opus, Codex or another Muse instance exists
           and is not marked done, do NOT duplicate: pick nothing and say so in summary. Lanes/claims by Opus or Codex on the board always win.
           At the end append real findings/handoffs (not routine status) to the board the same way. The gate announces self-merges on the board.
-          Run s5-live for the relevant fixture(s) BEFORE your change (baseline) and AFTER. Only open a PR if the gates pass
-          (cd crates/s5clean && cargo test) AND the first divergence turn is unchanged-or-later for every fixture you ran and strictly later
-          (or IDENTICAL) for the target fixture; otherwise push only the analysis doc and say so. Never paste live log contents or game data into PRs/comments.
+          Run s5-live for the relevant fixture(s) BEFORE your change (baseline) and AFTER. Never paste live log contents or game data into PRs/comments.
           When finished, you MUST write (with a shell command) a SHORT plain-text summary (max 5 lines, no code, no file contents, no secrets)
-          to $W/summary.txt including 'live <fixture>: before turn X -> after turn Y'. If no changes are requested, make none.
+          to $W/summary.txt including 'live <fixture>: before turn X -> after turn Y' (boundary move required for a successful code PR). If no changes are requested, make none.
           Issue: $TITLE
           $IBODY
           Task: $TASK

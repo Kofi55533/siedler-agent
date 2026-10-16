@@ -12,3 +12,11 @@ draft PRs to the private repos; this repo contains only the workflow, and commen
   s5verify builds, `crates/s5clean` tests pass, every fixture's first divergence >= clean/integration baseline, and no
   path/topic in `scripts/muse-claims.txt` (Opus/Codex lanes) is touched. Runs inline in `opencode.yml` and manually via `muse-gate.yml`.
   Never targets main.
+
+## Priority rule (Dominic 2026-10-17 00:11)
+Progress is measured ONLY by first-divergence turns moving forward on the live scenarios.
+Every OpenCode run must target the current first divergence of one scenario, find the root cause at that turn,
+and land a **wired** fix (hooked into World tick/dispatch) that moves that boundary.
+No doc-only analysis PRs and no unwired helpers. If wiring is in a Codex/Opus-claimed area, post an explicit
+wiring request on `docs/AGENT_BOARD.md` instead. Self-merge gate criterion remains no-regression.
+

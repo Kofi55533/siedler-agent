@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # s5-gate.sh <pr-number> [--dry-run]
 # Muse self-merge gate for Kofi55533/siedler-sim-rs PRs into clean/integration.
+# Intent (Dominic 2026-10-17): progress is measured by first-divergence turns moving forward; Muse runs should land
+# WIRED World tick/dispatch fixes that move a scenario boundary. This gate's merge criterion remains no-regression:
 # Merges (squash) only if: base is clean/integration, head is agent/*, no claimed path/topic touched (muse-claims.txt),
 # recomp s5verify builds, crates/s5clean cargo test passes, and for EVERY live fixture in $S5_GATE_FIXTURES the
 # first-divergence turn of (PR merged onto current clean/integration) >= the same on clean/integration itself.
@@ -80,7 +82,7 @@ t=$(gh pr view "$PR" -R $R --json title -q .title)
 for i in 1 2 3; do
   [ -f .git/shallow ] && { git fetch -q --unshallow origin 2>/dev/null || git fetch -q --deepen=5000 origin; }
 git fetch -q origin "+refs/heads/$BASE:refs/remotes/origin/$BASE" && git checkout -q --detach origin/$BASE || break
-  printf '\n## %s Muse self-merge\n\n#%s `%s` (%s) squash-merged by s5-gate: build+s5clean tests green, no first divergence earlier.\n%s\n' \
+  printf '\n## %s Muse self-merge\n\n#%s `%s` (%s) squash-merged by s5-gate: build+s5clean tests green, no first divergence earlier (no-regression gate; progress = boundary moves).\n%s\n' \
     "$(TZ=Europe/Berlin date '+%Y-%m-%d %H:%M') Berlin —" "$PR" "$h" "$t" \
     "$(grep -E ' (better|same)$' "$G/report.txt" | awk '$NF=="better"{printf "%s %s->%s; ",$1,$3,$5}')" >> docs/AGENT_BOARD.md
   git -c user.name=siedler-agent -c user.email=Kofi55533@users.noreply.github.com commit -qam "board: Muse self-merge #$PR" &&
