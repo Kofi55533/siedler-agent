@@ -98,14 +98,24 @@ jobs:
           timeout 200m opencode run -m opencode/muse-spark-1.3-contributor-free "$(cat "$RUNNER_TEMP/prompt.txt")" > "$RUNNER_TEMP/opencode.log" 2>&1
           echo "exit=$? log_lines=$(wc -l < "$RUNNER_TEMP/opencode.log")"
           rm -f ~/.local/share/opencode/auth.json
-      - name: Self-merge gate (PRs opened by this run)
+      - name: Self-merge gate (PRs opened or updated by this run)
         if: always()
         env:
           GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
         run: |
           [ -x /opt/s5/siedler-sim-rs/recomp/target/release/s5verify ] || exit 0
-          for n in $(gh pr list -R Kofi55533/siedler-sim-rs --state open --base clean/integration --author @me --json number,headRefName,createdAt \
-              -q "[.[] | select(.createdAt >= \"$T0\" and (.headRefName|startswith(\"agent/\")))] | .[].number"); do
+          R=Kofi55533/siedler-sim-rs
+          new=$(gh pr list -R $R --state open --base clean/integration --author @me --json number,headRefName,createdAt \
+              -q "[.[] | select(.createdAt >= \"$T0\" and (.headRefName|startswith(\"agent/\")))] | .[].number")
+          # Rework/rebase tasks name an existing PR in the issue title ("Rebase PR #351 ..."); gate it too if this run pushed to it.
+          upd=
+          for m in $(printf '%s' "$ISSUE_TITLE" | grep -oE 'PR #[0-9]+' | grep -oE '[0-9]+'); do
+            d=$(gh pr view "$m" -R $R --json state,baseRefName,headRefName,commits \
+                -q 'select(.state=="OPEN" and .baseRefName=="clean/integration" and (.headRefName|startswith("agent/"))) | .commits[-1].committedDate' 2>/dev/null) || continue
+            if [ -n "$d" ] && [[ ! "$d" < "$T0" ]]; then upd="$upd $m"; fi
+          done
+          for n in $(printf '%s\n' $new $upd | sort -un); do
             S5_LIVE_TIMEOUT=900 timeout 75m $S5_SCRIPTS/s5-gate.sh "$n" >> "$W/gate.txt" 2>&1 || true
             sed -n 's/^### Muse self-merge gate: /gate #'"$n"': /p' "$W/gate.txt" | tail -n1 >> "$W/summary.txt"
           done
