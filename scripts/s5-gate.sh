@@ -63,4 +63,15 @@ done < "$G/base.tsv"
 if [ $DRY = 1 ]; then echo "all gates green" >> "$G/report.txt"; finish 0; fi
 gh pr ready "$PR" -R $R >/dev/null 2>&1
 gh pr merge "$PR" -R $R --squash --match-head-commit "$hs" >/dev/null 2>&1 || fail "gh pr merge refused"
-echo "merged into $BASE" >> "$G/report.txt"; finish 0
+echo "merged into $BASE" >> "$G/report.txt"
+# announce on the shared board (Opus > Codex > Muse); retry on concurrent pushes
+t=$(gh pr view "$PR" -R $R --json title -q .title)
+for i in 1 2 3; do
+  git fetch -q origin "+refs/heads/$BASE:refs/remotes/origin/$BASE" && git checkout -q --detach origin/$BASE || break
+  printf '\n## %s Muse self-merge\n\n#%s `%s` (%s) squash-merged by s5-gate: build+s5clean tests green, no first divergence earlier.\n%s\n' \
+    "$(TZ=Europe/Berlin date '+%Y-%m-%d %H:%M') Berlin —" "$PR" "$h" "$t" \
+    "$(grep -E ' (better|same)$' "$G/report.txt" | awk '$NF=="better"{printf "%s %s->%s; ",$1,$3,$5}')" >> docs/AGENT_BOARD.md
+  git -c user.name=siedler-agent -c user.email=Kofi55533@users.noreply.github.com commit -qam "board: Muse self-merge #$PR" &&
+    git push -q origin HEAD:refs/heads/$BASE && { echo "board: announced" >> "$G/report.txt"; break; }
+  git reset -q --hard origin/$BASE; done
+finish 0

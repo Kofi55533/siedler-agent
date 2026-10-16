@@ -78,6 +78,12 @@ jobs:
           is >= the clean/integration baseline, and no file in $S5_SCRIPTS/muse-claims.txt is touched (Opus/Codex lanes: recomp/, loader/lifecycle,
           command dispatch, animal flee, economy/workers incl. 69657 extraction, script runtime, verify tools, agent-queue). Base your branch on
           origin/clean/integration, keep PRs small, never touch claimed paths, never merge yourself and never target main.
+          COORDINATION (mandatory, every run; Opus > Codex > Muse): first read siedler-sim-rs docs/AGENT_BOARD.md and docs/agent-queue/ (incl. started/)
+          on origin/clean/integration. Before working, CLAIM your task: for a queue task use the file already moved to started/ (or move it there);
+          append a one-line claim to docs/AGENT_BOARD.md ('<date> Muse claim: <task/fixture/subsystem> on agent/<branch>, issue #<n>'), commit and push
+          to clean/integration (fetch+rebase and retry on conflict). If an equal or overlapping claim by Opus, Codex or another Muse instance exists
+          and is not marked done, do NOT duplicate: pick nothing and say so in summary. Lanes/claims by Opus or Codex on the board always win.
+          At the end append real findings/handoffs (not routine status) to the board the same way. The gate announces self-merges on the board.
           Run s5-live for the relevant fixture(s) BEFORE your change (baseline) and AFTER. Only open a PR if the gates pass
           (cd crates/s5clean && cargo test) AND the first divergence turn is unchanged-or-later for every fixture you ran and strictly later
           (or IDENTICAL) for the target fixture; otherwise push only the analysis doc and say so. Never paste live log contents or game data into PRs/comments.
