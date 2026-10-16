@@ -63,7 +63,14 @@ while read -r f n0; do n1=$(awk -v f="$f" '$1==f{print $2}' "$G/pr.tsv")
   printf '%-22s base %-12s pr %-12s %s\n' "$f" "$(show $n0)" "$(show $n1)" "$s" >> "$G/report.txt"
 done < "$G/base.tsv"
 [ $reg = 0 ] || fail "first divergence earlier on at least one fixture"
-[ "$(git ls-remote origin refs/heads/$BASE | cut -f1)" = "$bs" ] || fail "$BASE moved during gate; re-run"
+# base moved meanwhile: still valid if every new base commit only touched docs/*.md (board, notes) -> measured code unchanged
+nb=$(git ls-remote origin refs/heads/$BASE | cut -f1)
+if [ "$nb" != "$bs" ]; then
+  git fetch -q origin "+refs/heads/$BASE:refs/remotes/origin/$BASE" || fail "fetch moved base"
+  nd=$(git diff --name-only "$bs" "$nb" | grep -vcE '^docs/.*\.md$')
+  [ "$nd" = 0 ] || fail "$BASE moved during gate (code changed); re-run"
+  echo "base moved to ${nb:0:8} (docs/*.md only, code unchanged)" >> "$G/report.txt"
+fi
 if [ $DRY = 1 ]; then echo "all gates green" >> "$G/report.txt"; finish 0; fi
 gh pr ready "$PR" -R $R >/dev/null 2>&1
 gh pr merge "$PR" -R $R --squash --match-head-commit "$hs" >/dev/null 2>&1 || fail "gh pr merge refused"
