@@ -1,0 +1,33 @@
+name: muse-gate
+# Self-merge gate for Muse PRs into clean/integration (see scripts/s5-gate.sh). Manual / dry-run entry point;
+# opencode.yml runs the same gate inline after each run for PRs it opened.
+on:
+  workflow_dispatch:
+    inputs:
+      pr: { description: 'siedler-sim-rs PR number', required: true }
+      dry_run: { description: 'true = report only, never merge', default: 'true' }
+permissions:
+  contents: read
+concurrency:
+  group: muse-gate-merge
+  cancel-in-progress: false
+jobs:
+  gate:
+    if: github.actor == 'Kofi55533'
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - name: Setup game data, toolchain, build cache (quiet)
+        env: { T: '${{ secrets.PRIVATE_REPO_TOKEN }}' }
+        run: scripts/s5-setup.sh clean/integration 1
+      - name: Gate
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          PR: ${{ inputs.pr }}
+          DRY: ${{ inputs.dry_run }}
+        run: |
+          [ "$DRY" = false ] && a= || a=--dry-run
+          scripts/s5-gate.sh "$PR" $a

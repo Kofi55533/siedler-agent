@@ -1,0 +1,16 @@
+# Paths Muse may NOT self-merge (claimed by Opus/Codex; hierarchy Opus > Codex > Muse). ERE, matched against changed paths.
+# Opus/Codex can edit this list; a PR touching any of these stays a draft for Codex/Opus review.
+^recomp/
+^crates/s5clean/src/lifecycle/
+^crates/s5clean/src/net/commands\.rs$
+^crates/s5clean/src/world/commands\.rs$
+^crates/s5clean/src/entity/animal\.rs$
+^crates/s5clean/src/economy/
+^crates/s5clean/src/workers/
+^crates/s5clean/src/scenario\.rs$
+^crates/s5clean/src/script/
+^crates/s5verify|^crates/s5diff/
+^docs/agent-queue/
+^\.github/
+# Added-line markers for claimed topics (69657 extraction routing = Opus; loader/dispatch = Codex)
+@@ 69657|ExtractResource|NetEventExtract

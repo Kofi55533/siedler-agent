@@ -21,7 +21,10 @@ cat $S5/dl/game.tzst.* | zstd -dcq | tar -xf - -C $S5/data/game & P1=$!
 zstd -dcq $S5/dl/art.tzst | tar -xf - -C $S5/data/art & P2=$!
 zstd -dcq $S5/dl/fixtures.tzst | tar -xf - -C $S5/data/fixtures & P3=$!
 zstd -dcq $S5/dl/gen.tzst | tar -xf - -C $S5_REPO/recomp & P4=$!
-wait $P1 $P2 $P3 $P4
+mkdir -p $S5_NF && zstd -dcq $S5/dl/newfix.tzst | tar -xf - -C $S5_NF & P5=$!
+wait $P1 $P2 $P3 $P4 $P5
+# box-absolute image paths in the extra fixtures -> runner paths
+sed -i -e "s#/workspace/siedler/artifacts/new-fixtures#$S5_NF#g" -e "s#/workspace/siedler/artifacts/codex-verify-infra#$S5_V#g" $S5_NF/fixtures/*/scenario.json
 rm -f $S5/dl/*.tzst*
 echo "s5-setup: data-v2 download+extract secs=$(( $(date +%s)-td ))"
 cp $S5_ARTIFACTS/lift/gen.closure.pkl $S5_REPO/recomp/ 2>/dev/null || true

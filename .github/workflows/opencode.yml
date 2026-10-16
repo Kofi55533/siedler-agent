@@ -20,6 +20,7 @@ jobs:
     steps:
       - name: Runner specs
         run: |
+          echo "T0=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
           echo "W=$RUNNER_TEMP/work" >> "$GITHUB_ENV"
           echo "nproc=$(nproc)"; free -h | head -2
       - uses: actions/checkout@v4
@@ -70,7 +71,13 @@ jobs:
           Never commit or copy private content anywhere else. siedler-sim-rs real path is /opt/s5/siedler-sim-rs, checked out at codex/clean-commands with a warm build (s5verify does not exist on opus/clean-rewrite; switching branches triggers a ~6 min rebuild).
           LIVE VERIFICATION (mandatory for code changes): game data, recomp artifacts and fixtures are installed. Scripts in $S5_SCRIPTS:
             source $S5_SCRIPTS/s5-env.sh ; $S5_SCRIPTS/s5-build.sh (incremental s5verify build, ~minutes) ;
-            $S5_SCRIPTS/s5-live.sh <wintersturm|economy|wsecon|build|production|combat|bc-full> (full output in /opt/s5/live/<f>.log).
+            $S5_SCRIPTS/s5-live.sh <fixture> (full output in /opt/s5/live/<f>.log); fixtures: bc-full wintersturm economy wsecon build production combat combat-waves combat-big combat-long ai-long late-ai late-economy camp-crawford map-winterisland wintersturm-mapstart economy-mapstart
+            (all Codex box fixtures incl. ai-long, late-ai, late-economy, camp-crawford, map-winterisland, combat-waves/big/long).
+          SELF-MERGE GATE: after you open your draft PR (base clean/integration), the workflow runs $S5_SCRIPTS/s5-gate.sh on it:
+          it squash-merges into clean/integration ONLY if s5verify builds, crates/s5clean tests pass, every fixture's first divergence
+          is >= the clean/integration baseline, and no file in $S5_SCRIPTS/muse-claims.txt is touched (Opus/Codex lanes: recomp/, loader/lifecycle,
+          command dispatch, animal flee, economy/workers incl. 69657 extraction, script runtime, verify tools, agent-queue). Base your branch on
+          origin/clean/integration, keep PRs small, never touch claimed paths, never merge yourself and never target main.
           Run s5-live for the relevant fixture(s) BEFORE your change (baseline) and AFTER. Only open a PR if the gates pass
           (cd crates/s5clean && cargo test) AND the first divergence turn is unchanged-or-later for every fixture you ran and strictly later
           (or IDENTICAL) for the target fixture; otherwise push only the analysis doc and say so. Never paste live log contents or game data into PRs/comments.
@@ -82,9 +89,20 @@ jobs:
           P
           cd "$W"
           set +e
-          timeout 280m opencode run -m opencode/muse-spark-1.3-contributor-free "$(cat "$RUNNER_TEMP/prompt.txt")" > "$RUNNER_TEMP/opencode.log" 2>&1
+          timeout 200m opencode run -m opencode/muse-spark-1.3-contributor-free "$(cat "$RUNNER_TEMP/prompt.txt")" > "$RUNNER_TEMP/opencode.log" 2>&1
           echo "exit=$? log_lines=$(wc -l < "$RUNNER_TEMP/opencode.log")"
           rm -f ~/.local/share/opencode/auth.json
+      - name: Self-merge gate (PRs opened by this run)
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+        run: |
+          [ -x /opt/s5/siedler-sim-rs/recomp/target/release/s5verify ] || exit 0
+          for n in $(gh pr list -R Kofi55533/siedler-sim-rs --state open --base clean/integration --author @me --json number,headRefName,createdAt \
+              -q "[.[] | select(.createdAt >= \"$T0\" and (.headRefName|startswith(\"agent/\")))] | .[].number"); do
+            S5_LIVE_TIMEOUT=900 timeout 75m $S5_SCRIPTS/s5-gate.sh "$n" >> "$W/gate.txt" 2>&1 || true
+            sed -n 's/^### Muse self-merge gate: /gate #'"$n"': /p' "$W/gate.txt" | tail -n1 >> "$W/summary.txt"
+          done
       - name: Post summary
         if: always()
         env:
