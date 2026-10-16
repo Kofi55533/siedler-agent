@@ -23,15 +23,19 @@ read -r b h hs st x < <(python -c "import json,sys;d=json.loads(sys.argv[1]);pri
 [ "$st" = OPEN ] && [ "$x" = False ] || fail "state=$st cross=$x"
 case $h in agent/*) ;; *) fail "head $h is not agent/*" ;; esac
 cd $S5_REPO
+[ -f .git/shallow ] && { git fetch -q --unshallow origin 2>/dev/null || git fetch -q --deepen=5000 origin; }
 git fetch -q origin "+refs/heads/$BASE:refs/remotes/origin/$BASE" "+refs/pull/$PR/head:refs/gate/pr" || fail "fetch"
 bs=$(git rev-parse origin/$BASE); [ "$(git rev-parse refs/gate/pr)" = "$hs" ] || fail "head moved"
 echo "pr=#$PR head=$h@${hs:0:8} base=$BASE@${bs:0:8}" >> "$G/report.txt"
 # claims
-git diff --name-only "$bs...$hs" > "$G/files.txt"
+# authoritative file list/diff from GitHub (independent of local history depth)
+python -c "import json,sys;[print(f['path']) for f in json.loads(sys.argv[1])['files']]" "$j" > "$G/files.txt"
+[ -s "$G/files.txt" ] || fail "empty file list"
+gh pr diff "$PR" -R $R > "$G/pr.diff" || fail "pr diff"
 grep -vE '^(#|@@|$)' "$D/muse-claims.txt" > "$G/paths.re"; grep '^@@ ' "$D/muse-claims.txt" | sed 's/^@@ //' > "$G/topics.re"
 c=$(grep -Ef "$G/paths.re" "$G/files.txt" | head -5 | tr '\n' ' ')
 [ -n "$c" ] && fail "touches claimed area (Opus/Codex): $c"
-t=$(git diff "$bs...$hs" | grep '^+' | grep -cEf "$G/topics.re"); [ "$t" != 0 ] && fail "adds claimed topic markers (69657/extraction): $t lines"
+t=$(grep '^+' "$G/pr.diff" | grep -cEf "$G/topics.re"); [ "$t" != 0 ] && fail "adds claimed topic markers (69657/extraction): $t lines"
 echo "claims: ok ($(wc -l < "$G/files.txt") files)" >> "$G/report.txt"
 suite(){ # $1=label -> $G/$1.tsv (fixture turn)
   : > "$G/$1.tsv"
@@ -67,7 +71,8 @@ echo "merged into $BASE" >> "$G/report.txt"
 # announce on the shared board (Opus > Codex > Muse); retry on concurrent pushes
 t=$(gh pr view "$PR" -R $R --json title -q .title)
 for i in 1 2 3; do
-  git fetch -q origin "+refs/heads/$BASE:refs/remotes/origin/$BASE" && git checkout -q --detach origin/$BASE || break
+  [ -f .git/shallow ] && { git fetch -q --unshallow origin 2>/dev/null || git fetch -q --deepen=5000 origin; }
+git fetch -q origin "+refs/heads/$BASE:refs/remotes/origin/$BASE" && git checkout -q --detach origin/$BASE || break
   printf '\n## %s Muse self-merge\n\n#%s `%s` (%s) squash-merged by s5-gate: build+s5clean tests green, no first divergence earlier.\n%s\n' \
     "$(TZ=Europe/Berlin date '+%Y-%m-%d %H:%M') Berlin —" "$PR" "$h" "$t" \
     "$(grep -E ' (better|same)$' "$G/report.txt" | awk '$NF=="better"{printf "%s %s->%s; ",$1,$3,$5}')" >> docs/AGENT_BOARD.md
