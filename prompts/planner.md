@@ -60,6 +60,7 @@ Then fill the remaining slots (use all N with distinct tasks) from any mix of:
 Every task must be DISTINCT from each other and from every active run, every open issue of the last 12h and every open agent/* PR
 (compare fixture + turn + subsystem; for coverage: area/map). If you cannot find N genuinely distinct tasks, create fewer. Never invent topics from other Settlers games
 (S5 has no bakery/woodcutter/forester); cite recomp/ functions or game data when naming a subsystem.
+Anti-stuck: before creating a task for a fixture+boundary, check recent issues/runs (last ~24h) on the same fixture+turn. If 2–3 runs already ended without moving that boundary, do NOT create another task for it; instead post a short handoff line on `docs/AGENT_BOARD.md` addressed to Opus (fixture, turn, what was tried, links) and use the slot for something else (different boundary or a new targeted fixture).
 
 ## 3. Rules every task text must carry (state them in the task)
 - Goal: a bit-identical clean Rust port (s5clean) of Settlers 5, verified turn by turn against the reference. You may choose your own approach, including generating new fixtures, if it serves the goal.
