@@ -220,7 +220,7 @@ def board_discover(entries):
     return {n for n in names if n not in SKIP_NAMES and not n.startswith("agent")}
 
 
-def board_value(entries, name):
+def board_value(entries, name, floor=0):
     """Newest board measurement for one fixture -> {turn, identical, time, line} or None.
     'live <name>: a -> N' takes N; a plain '<name> [DIVERGENT] [turn] N' / 'IDENTICAL [N]' takes the first value."""
     ne = re.escape(name)
@@ -231,7 +231,7 @@ def board_value(entries, name):
     ]
     for e in reversed(entries):
         t = clean_md(e["text"])
-        for p in pats:
+        for pi, p in enumerate(pats):
             mm = None
             for mm in p.finditer(t):
                 break
@@ -245,7 +245,10 @@ def board_value(entries, name):
                     if "IDENTICAL" in seg and not re.search(r"(?i)diverg|DIVERGENT", seg):
                         ident = True
                 n = int(mm.group(2)) if ident and mm.group(2) else (int(mm.group(3)) if mm.group(3) else None)
-                return {"turn": n, "identical": ident, "time": e["time"], "line": e["line"], "agent": e["agent"]}
+                if pi > 0 and not ident and (n or 0) < floor:
+                    continue  # loose mention below the known value (often another fixture's note) -> keep looking
+                return {"turn": n, "identical": ident, "time": e["time"], "line": e["line"], "agent": e["agent"],
+                        "explicit": pi == 0}
     return None
 
 
@@ -511,7 +514,9 @@ def main():
         v = matrix.get(name)
         vsrc, vwhen = ("Opus Live-Matrix", mtime) if v else (None, None)
         # a board measurement written after the live matrix is newer -> it wins (matrix can be hours old)
-        bv = board_value(entries, name)
+        # a loose mention ("wsecon 229" inside another fixture's note) may only raise the value;
+        # a drop needs an explicit "live <name>: a -> b" measurement
+        bv = board_value(entries, name, floor=(v or {}).get("turn") or 0)
         if bv and (not live or int(bv["line"]) > int(live[0]["line"])):
             v, vsrc, vwhen = bv, f"Board ({bv['agent']}, Zeile {bv['line']})", bv["time"]
         tk = tot.get(name) or tot.get(ALIAS_TOTAL.get(name, ""))
