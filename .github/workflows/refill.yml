@@ -14,7 +14,7 @@ on:
       target:
         description: 'Target number of active opencode runs'
         required: false
-        default: '15'
+        default: '20'
 permissions:
   contents: read
 concurrency:
@@ -29,7 +29,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
           R: ${{ github.repository }}
-          TARGET: ${{ github.event.inputs.target || '15' }}
+          TARGET: ${{ github.event.inputs.target || '20' }}
           GH_TIMEOUT: '60'
           GH_PROMPT_DISABLED: '1'
           GH_NO_UPDATE_NOTIFIER: '1'
@@ -76,3 +76,19 @@ jobs:
           [ -z "$n" ] && { log "issue create failed"; exit 1; }
           gh_ issue comment "$n" -R "$R" --body "/opencode PLANNER RUN N=$N. Read /home/runner/work/siedler-agent/siedler-agent/prompts/planner.md and follow it exactly (it overrides the coding-run instructions: no code, no PR, only create N task issues with label planner-task and start each with a /opencode comment)." >/dev/null \
             && log "active=$act -> planner #$n started N=$N" || { log "comment on #$n failed"; exit 1; }
+  rearm:
+    # GitHub's cron schedule for this workflow did not fire at all (19:30-20:33 Berlin, 17.10.2026),
+    # so each run re-dispatches itself ~13 min later. Extra runs collapse via the `refill` concurrency group
+    # (only one pending run is kept), so parallel chains cannot multiply.
+    needs: refill
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Re-dispatch refill in ~13 min
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          R: ${{ github.repository }}
+        run: |
+          sleep 780
+          gh workflow run refill.yml -R "$R" --ref main
