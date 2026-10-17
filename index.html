@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Siedler Scoreboard</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--ink:#1d2330;--mute:#6b7385;--ok:#1f9d55;--warn:#d97706;--bar:#e5e7eb;--acc:#2563eb}
+@media (prefers-color-scheme:dark){:root{--bg:#0f1218;--card:#181c25;--ink:#e6e8ee;--mute:#9aa3b5;--bar:#2a2f3b}}
+*{box-sizing:border-box}body{margin:0;font:15px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--ink)}
+main{max-width:980px;margin:0 auto;padding:14px}
+h1{font-size:1.5em;margin:.2em 0}h2{font-size:1.15em;margin:0 0 .6em}
+.card{background:var(--card);border-radius:12px;padding:14px;margin:12px 0;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.mute{color:var(--mute);font-size:.9em}.small{font-size:.82em}
+table{width:100%;border-collapse:collapse}td,th{padding:7px 6px;border-bottom:1px solid var(--bar);vertical-align:top;text-align:left}
+th{font-size:.82em;color:var(--mute);font-weight:600}
+.badge{display:inline-block;padding:2px 8px;border-radius:999px;font-weight:700;font-size:.85em;white-space:nowrap}
+.ok{background:#d1fae5;color:#065f46}.div{background:#fef3c7;color:#92400e}.na{background:var(--bar);color:var(--mute)}
+.bar{height:6px;background:var(--bar);border-radius:3px;margin-top:5px;overflow:hidden}.bar>i{display:block;height:100%;background:var(--acc)}
+.bar.full>i{background:var(--ok)}
+.name{font-weight:700;font-family:ui-monospace,Menlo,monospace;font-size:.92em}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px}
+.big{font-size:2em;font-weight:800}a{color:var(--acc)}
+ul{padding-left:1.1em;margin:.3em 0}li{margin:.25em 0}
+.sum{display:flex;gap:18px;flex-wrap:wrap}.sum div{min-width:90px}
+@media (max-width:600px){.hide-m{display:none}td,th{padding:6px 3px}}
+.pct{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}.pct .big{font-size:2.4em}
+.status{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px}
+.st{border-radius:12px;padding:12px 14px;color:#fff}.st .ag{font-size:.95em;opacity:.9}.st .lv{font-size:1.6em;font-weight:800;line-height:1.2}.st .dt{font-size:.85em;opacity:.95}
+.st.g{background:#16a34a}.st.y{background:#ca8a04}.st.r{background:#dc2626}.st.x{background:#6b7280}
+svg.spark{display:block;margin-top:3px}
+</style>
+</head>
+<body><main>
+<h1>🏰 Siedler Scoreboard</h1>
+<div class="mute" id="upd">Lade Daten …</div>
+<div class="card"><div class="status" id="status"></div></div>
+<div class="card" id="pct"></div>
+<div class="card"><div class="sum" id="sum"></div></div>
+<div class="card">
+<h2>Szenarien – wie weit läuft die neue Simulation identisch zum Original?</h2>
+<div class="mute small">„Identisch“ = jeder Zug stimmt mit dem Original überein. Sonst: der Zug, an dem zum ersten Mal ein Unterschied auftritt (höher ist besser).</div>
+<table><thead><tr><th>Szenario</th><th>Stand</th><th class="hide-m">Länge</th></tr></thead><tbody id="tb"></tbody></table>
+<div class="mute small" id="src"></div>
+</div>
+<div class="card">
+<h2>Neue Szenarien <span class="mute" id="newcount"></span></h2>
+<div class="mute small">Automatisch gefunden (index.json / scenario.json auf clean/integration und offenen Fixture-PR-Branches, Releases <code>fixtures-gen-*</code>, Board-Messungen). Neue tauchen ohne Code-Änderung auf.</div>
+<table><thead><tr><th>Szenario</th><th>Stand</th><th class="hide-m">Herkunft</th></tr></thead><tbody id="tbn"></tbody></table>
+</div>
+<div class="card" id="histcard" style="display:none"><h2>Verlauf</h2><div id="hist"></div></div>
+<h2 style="margin-top:18px">Agenten</h2>
+<div class="grid">
+<div class="card" id="opus"></div>
+<div class="card" id="ds"></div>
+<div class="card" id="codex"></div>
+</div>
+<div class="card" id="merged"></div>
+<div class="mute small" id="foot">Aktualisiert automatisch alle 15 Minuten (GitHub Actions). Nur Zahlen und Titel, kein Code.</div>
+</main>
+<script>
+const $=id=>document.getElementById(id);
+const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const fmt=n=>n==null?"–":Number(n).toLocaleString("de-DE");
+function dur(m){return m<60?m+" min":Math.floor(m/60)+" h "+(m%60)+" min"}
+function spark(name,hist){
+  const pts=hist.map(h=>h.values&&h.values[name]).filter(Boolean).map(v=>v.turn||0);
+  if(pts.length<2)return"";
+  const w=110,h=22,mx=Math.max(...pts),mn=Math.min(...pts),r=(mx-mn)||1;
+  const d=pts.map((v,i)=>(i*(w/(pts.length-1))).toFixed(1)+","+(h-2-(v-mn)/r*(h-4)).toFixed(1)).join(" ");
+  return `<svg class="spark" width="${w}" height="${h}"><polyline fill="none" stroke="currentColor" stroke-width="1.5" points="${d}"/></svg>`;
+}
+fetch("data.json?t="+Date.now()).then(r=>r.json()).then(d=>{
+  $("upd").innerHTML=`Zuletzt aktualisiert: <b>${esc(d.generated_berlin)}</b> (Berlin) · Stand <code>${esc(d.branch)}</code>${d.head?` @ <code>${esc(d.head.sha)}</code> (${esc(d.head.time)})`:""}`;
+  const now=Date.now();
+  const ago=u=>{const m=Math.max(0,Math.round((now-Date.parse(u))/60000));return m<60?m+" min":m<1440?Math.floor(m/60)+" h "+(m%60)+" min":Math.floor(m/1440)+" Tagen"};
+  function act(a){
+    if(!a||!a.activity)return{c:"r",l:"inaktiv",t:"keine Aktivität gefunden"};
+    const m=(now-Date.parse(a.activity.utc))/60000;
+    const t=`letzter Push vor ${ago(a.activity.utc)} <span style="opacity:.8">(${esc(a.activity.source)}, ${esc(a.activity.berlin)})</span>`;
+    return m<60?{c:"g",l:"aktiv",t}:m<=180?{c:"y",l:"ruhig",t}:{c:"r",l:"inaktiv",t};
+  }
+  const so=act(d.opus);
+  let sc=act(d.codex);
+  if(d.codex.paused_until_utc&&now<Date.parse(d.codex.paused_until_utc))sc={c:"x",l:"pausiert",t:`Limit bis 22.10. 15:57 · letzter Push vor ${d.codex.activity?ago(d.codex.activity.utc):"–"}`};
+  const dn=d.deepseek.count;
+  const sd={c:dn>=1?"g":"r",l:dn>=1?"aktiv":"inaktiv",t:`${dn} von ${d.deepseek.target} Läufen aktiv (${["Funktionen","Fehlersuche","Testszenario","Planer"].map(k=>`${(d.deepseek.kinds||{})[k]||0} ${k}`).join(", ")})${d.deepseek.queued?` · ${d.deepseek.queued} wartend`:""}`};
+  const badge=(n,s)=>`<div class="st ${s.c}"><div class="ag">${n}</div><div class="lv">● ${s.l}</div><div class="dt">${s.t}</div></div>`;
+  $("status").innerHTML=badge("🤖 Opus",so)+badge("🧠 Codex",sc)+badge("🐋 DeepSeek",sd);
+  const S=d.scenarios||[],hist=d.history||[];
+  const main=S.filter(s=>!s.new);
+  const ident=main.filter(s=>s.identical).length;
+  $("sum").innerHTML=`<div><div class="big">${ident}/${main.length}</div><div class="mute">Basis-Szenarien identisch</div></div>
+   <div><div class="big">${d.deepseek.count}/${d.deepseek.target}</div><div class="mute">DeepSeek-Läufe aktiv</div><div class="small">${["Funktionen","Fehlersuche","Testszenario","Planer"].map(k=>`${(d.deepseek.kinds||{})[k]||0} ${k}`).join(" · ")}</div></div>
+   <div><div class="big">${d.deepseek.merged_24h.length}</div><div class="mute">PRs gemergt (24 h)</div></div>`;
+  function stand(s){
+    let st;
+    if(!s.measured||(s.turn==null&&!s.identical)) st=`<span class="badge na">noch nicht gemessen</span>`;
+    else if(s.identical) st=`<span class="badge ok">✓ IDENTISCH</span>`;
+    else st=`<span class="badge div">Zug ${fmt(s.turn)}</span>`;
+    let pct=null;
+    if(s.identical)pct=100;else if(s.turn!=null&&s.total){const st0=(s.start!=null&&s.turn>=s.start)?s.start:0;pct=Math.max(0,Math.min(100,(s.turn-st0)/s.total*100));}
+    const bar=pct==null?"":`<div class="bar${pct>=100?" full":""}"><i style="width:${pct.toFixed(1)}%"></i></div>`;
+    return st+bar+spark(s.name,hist);
+  }
+  const len=s=>s.total?`${fmt(s.total)} Züge${s.start?` <span class="mute small">(ab Zug ${fmt(s.start)})</span>`:""}`:"<span class='mute'>unbekannt</span>";
+  let rows="";
+  for(const s of S.filter(s=>!s.new)){
+    rows+=`<tr><td><div class="name">${esc(s.name)}</div><div class="mute small">${esc(s.desc)}</div></td><td>${stand(s)}</td><td class="hide-m">${len(s)}</td></tr>`;
+  }
+  const N=S.filter(s=>s.new);
+  $("newcount").textContent=`(${N.length})`;
+  $("tbn").innerHTML=N.map(s=>`<tr><td><div class="name">${esc(s.name)}</div><div class="mute small">${esc(s.desc)}${s.commands!=null?` · ${fmt(s.commands)} Befehle gesamt`:""}</div></td>
+    <td>${stand(s)}${s.when?`<div class="mute small">gemessen: ${esc(s.when)}</div>`:""}${s.source?`<div class="mute small">Quelle: ${esc(s.source)}</div>`:""}</td>
+    <td class="hide-m small">${(s.origins||[]).map(esc).join("<br>")}${(s.issues||[]).length?"<br>Issue "+s.issues.map(i=>`<a href="${esc(i.url)}">#${i.n}</a>`).join(", "):""}</td></tr>`).join("");
+  const P=d.percent||{},pi=P.identical_turns||{},pc=P.coverage,wg=P.whole_game,ts=P.test_scope;
+  $("pct").innerHTML=`<div class="pct"><div><div class="big">${pi.pct!=null?pi.pct.toLocaleString("de-DE")+" %":"–"}</div><div><b>Identische Züge</b></div><div class="mute small">${fmt(pi.ok)} von ${fmt(pi.total)} Zügen über ${pi.scenarios} gemessene Szenarien identisch</div></div>`+
+    (pc?`<div><div class="big">${pc.pct.toLocaleString("de-DE")} %</div><div><b>Nur in Tests ausgeführte Logik</b></div><div class="mute small">${fmt(pc.cited)} von ${fmt(pc.executed)} Logik-Funktionen, die das Original in den Testszenarien tatsächlich ausführt, sind im Nachbau zitiert (COVERAGE.md, Stand ${esc(pc.as_of||"?")}). Misst nur den getesteten Ausschnitt, nicht das ganze Spiel.</div></div>`:"")+
+    (wg?`<div><div class="big">≈ ${wg.pct_logic.toLocaleString("de-DE")} %</div><div><b>Gesamte Spiellogik nachgebaut</b></div><div class="mute small">${fmt(wg.logic_hit)} von ${fmt(wg.logic_total)} Logik-Funktionen der ganzen EXE im Nachbau zitiert (ungefiltert: ${fmt(wg.functions_hit)} von ${fmt(wg.total)} = ${wg.pct_raw.toLocaleString("de-DE")} %). Näherung: Funktionsliste statisch (Ghidra-Export ${esc(wg.source_commit)}), ${fmt(wg.unclassified_kept_as_logic)} unklassifizierte Funktionen zählen als Logik.</div></div>`:"")+
+    (ts?`<div><div class="big">${ts.maps.tested}/${ts.maps.total} · ${ts.commands.tested}/${ts.commands.total}</div><div><b>Testabdeckung des Spiels</b></div><div class="mute small">Offizielle Karten mit mind. einem Szenario / Befehlstypen, die mind. ein Szenario sendet. Getestet: ${esc(ts.maps.tested_list.join(", "))}${ts.maps.other_tested.length?` (+ außerhalb der offiziellen Liste: ${esc(ts.maps.other_tested.join(", "))})`:""}.
+      <details><summary>Ungetestete Karten (${ts.maps.untested.length})</summary>${esc(ts.maps.untested.join(" · "))}</details>
+      <details><summary>Ungetestete Befehle (${ts.commands.untested.length})</summary>${esc(ts.commands.untested.join(" · "))}</details></div></div>`:"")+
+    `</div><div class="mute small" style="margin-top:8px">Alles Näherungen: ein echtes Prozent für das ganze Spiel gibt es nicht. (1) misst die Testszenarien, (2) den Nachbau nur der in Tests ausgeführten Funktionen, (3) den Nachbau gemessen an allen ${wg?fmt(wg.total):"?"} Funktionen der EXE (ohne DLLs), (4) wie viel vom Spiel überhaupt getestet wird.</div>`;
+  $("tb").innerHTML=rows;
+  const m=d.matrix_source;
+  $("src").innerHTML=m?`Quelle: <code>docs/AGENT_BOARD.md</code> Zeile ${m.line}, Eintrag „${esc(m.time)} Berlin — ${esc(m.agent)}“, gemessen auf <code>@${esc(m.sha)}</code>.<br><span class="small">${esc(m.excerpt)}</span>`:"Keine Live-Matrix im Board gefunden.";
+  if(hist.length>=1){
+    $("histcard").style.display="";
+    const ids=hist.map(h=>Object.values(h.values||{}).filter(v=>v.identical).length);
+    $("hist").innerHTML=`<table><thead><tr><th>Messung</th><th>Identische Züge</th><th>Logik (Tests)</th><th>Gesamtlogik</th><th class="hide-m">Karten · Befehle</th><th>Identisch</th><th class="hide-m">Commit</th></tr></thead><tbody>`+
+      hist.slice().reverse().slice(0,15).map((h,i)=>`<tr><td>${esc(h.recorded||h.time)}</td><td>${h.pct_identical!=null?h.pct_identical+" %":"–"}</td><td>${h.pct_coverage!=null?h.pct_coverage+" %":"–"}</td><td>${h.pct_whole_logic!=null?"≈ "+h.pct_whole_logic+" %":"–"}</td><td class="hide-m">${esc(h.maps_tested||"–")} · ${esc(h.commands_tested||"–")}</td><td>${Object.values(h.values||{}).filter(v=>v.identical).length} / ${Object.keys(h.values||{}).length}</td><td class="hide-m"><code>${esc(h.sha)}</code></td></tr>`).join("")+
+      `</tbody></table><div class="mute small">Ein Eintrag pro Änderung (neue Live-Matrix, Prozentwerte). Mini-Kurven in der Tabelle zeigen den Verlauf pro Szenario (ab 2 Messungen).</div>`;
+  }
+  const o=d.opus;
+  $("opus").innerHTML=`<h2>🤖 Opus (Cloud)</h2>`+
+    (o.last_commit?`<div><b>Letzter Commit:</b> ${esc(o.last_commit.time)}<br><code>${esc(o.last_commit.sha)}</code> ${esc(o.last_commit.subject)}</div>`:"<div class='mute'>kein Commit mit Claude-Session gefunden</div>")+
+    (o.last_board?`<div style="margin-top:8px"><b>Letzter Board-Eintrag:</b> ${esc(o.last_board.time)}<br><span class="small">${esc(o.last_board.summary)}</span></div>`:"");
+  const ds=d.deepseek;
+  $("ds").innerHTML=`<h2>🐋 DeepSeek</h2><div><b>${ds.count}</b> von Ziel <b>${ds.target}</b> Läufen aktiv${ds.queued?` · ${ds.queued} wartend`:""}</div><div class="small" style="margin-top:4px">`+
+    ["Funktionen","Fehlersuche","Testszenario","Planer"].map(k=>`<b>${(ds.kinds||{})[k]||0}</b> ${k==="Funktionen"?"Funktionen nachbauen (von 29.723)":k}`).join(" · ")+`</div><ul class="small">`+
+    ds.running.map(r=>`<li><span class="badge">${esc(r.kind||"")}</span> ${r.issue?`<a href="${esc(r.issue_url)}">#${r.issue}</a> `:""}${esc(r.title)} <span class="mute">– läuft seit ${dur(r.minutes)} (<a href="${esc(r.run_url)}">Run</a>)</span></li>`).join("")+`</ul>`;
+  const c=d.codex;
+  $("codex").innerHTML=`<h2>🧠 Codex</h2><div class="badge div">${esc(c.note)}</div>`+
+    (c.last_commit?`<div style="margin-top:8px"><b>Letzter Commit:</b> ${esc(c.last_commit.time)} <span class="mute small">(${esc(c.last_commit.branch)})</span><br><code>${esc(c.last_commit.sha)}</code> ${esc(c.last_commit.subject)}</div>`:"")+
+    (c.last_board?`<div style="margin-top:8px"><b>Letzter Board-Eintrag:</b> ${esc(c.last_board.time)}<br><span class="small">${esc(c.last_board.summary)}</span></div>`:"");
+  $("merged").innerHTML=`<h2>✅ Gemergte PRs in clean/integration (letzte 24 h): ${ds.merged_24h.length}</h2><ul class="small">`+
+    ds.merged_24h.map(p=>`<li><b>#${p.number}</b> ${esc(p.title)} <span class="mute">– ${esc(p.merged)}</span></li>`).join("")+`</ul>`;
+  if(d.errors&&d.errors.length)$("foot").innerHTML+=`<br>Hinweis: einige Daten fehlen (${esc(d.errors.join("; "))}).`;
+}).catch(e=>{$("upd").textContent="Daten konnten nicht geladen werden."});
+</script>
+</body></html>

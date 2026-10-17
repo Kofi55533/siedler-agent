@@ -1,0 +1,1841 @@
+[
+ {
+  "key": "2026-10-17 18:50|79dbeb2",
+  "time": "2026-10-17 18:50",
+  "sha": "79dbeb2",
+  "values": {
+   "bc-full": {
+    "turn": 602,
+    "identical": false
+   },
+   "build": {
+    "turn": 562,
+    "identical": false
+   },
+   "production": {
+    "turn": 559,
+    "identical": false
+   },
+   "late-economy": {
+    "turn": 562,
+    "identical": false
+   },
+   "camp-crawford": {
+    "turn": 733,
+    "identical": false
+   },
+   "combat": {
+    "turn": 167,
+    "identical": false
+   },
+   "combat-long": {
+    "turn": 167,
+    "identical": false
+   },
+   "combat-big": {
+    "turn": 167,
+    "identical": false
+   },
+   "combat-waves": {
+    "turn": 167,
+    "identical": false
+   },
+   "ai-long": {
+    "turn": 166,
+    "identical": false
+   },
+   "economy": {
+    "turn": 360,
+    "identical": true
+   },
+   "economy-mapstart": {
+    "turn": 360,
+    "identical": true
+   },
+   "wsecon": {
+    "turn": 320,
+    "identical": true
+   },
+   "wintersturm": {
+    "turn": 1021,
+    "identical": true
+   },
+   "wintersturm-mapstart": {
+    "turn": 1021,
+    "identical": true
+   },
+   "map-winterisland": {
+    "turn": 3000,
+    "identical": true
+   },
+   "late-ai": {
+    "turn": 36000,
+    "identical": true
+   }
+  }
+ },
+ {
+  "key": "2026-10-17 18:50|79dbeb2",
+  "time": "2026-10-17 18:50",
+  "sha": "79dbeb2",
+  "recorded": "2026-10-17 20:13",
+  "pct_identical": 29.1,
+  "pct_coverage": 30.1,
+  "values": {
+   "bc-full": {
+    "turn": 602,
+    "identical": false
+   },
+   "build": {
+    "turn": 562,
+    "identical": false
+   },
+   "production": {
+    "turn": 559,
+    "identical": false
+   },
+   "late-economy": {
+    "turn": 562,
+    "identical": false
+   },
+   "camp-crawford": {
+    "turn": 733,
+    "identical": false
+   },
+   "combat": {
+    "turn": 167,
+    "identical": false
+   },
+   "combat-long": {
+    "turn": 167,
+    "identical": false
+   },
+   "combat-big": {
+    "turn": 167,
+    "identical": false
+   },
+   "combat-waves": {
+    "turn": 167,
+    "identical": false
+   },
+   "ai-long": {
+    "turn": 166,
+    "identical": false
+   },
+   "economy": {
+    "turn": 360,
+    "identical": true
+   },
+   "economy-mapstart": {
+    "turn": 360,
+    "identical": true
+   },
+   "wsecon": {
+    "turn": 320,
+    "identical": true
+   },
+   "wintersturm": {
+    "turn": 1021,
+    "identical": true
+   },
+   "wintersturm-mapstart": {
+    "turn": 1021,
+    "identical": true
+   },
+   "map-winterisland": {
+    "turn": 3000,
+    "identical": true
+   },
+   "late-ai": {
+    "turn": 36000,
+    "identical": true
+   },
+   "gen-a-dunkelforst": {
+    "turn": 81,
+    "identical": false
+   },
+   "gen-a-dunkelforst-long": {
+    "turn": 81,
+    "identical": false
+   },
+   "gen-a-wintersturm": {
+    "turn": 781,
+    "identical": false
+   },
+   "gen-a-wintersturm-long": {
+    "turn": 781,
+    "identical": false
+   },
+   "genb-ailong-mixed": {
+    "turn": 166,
+    "identical": false
+   },
+   "genb-combat-ops": {
+    "turn": 167,
+    "identical": false
+   },
+   "genb-waves-assault": {
+    "turn": 167,
+    "identical": false
+   },
+   "genb-wi-mixed": {
+    "turn": 141,
+    "identical": false
+   },
+   "genb-wi-move": {
+    "turn": 3000,
+    "identical": true
+   },
+   "genc-campcrawford-5000": {
+    "turn": 23,
+    "identical": false
+   },
+   "genc-combatwaves-5000": {
+    "turn": 167,
+    "identical": false
+   },
+   "genc-winterisland-5000": {
+    "turn": 23,
+    "identical": false
+   },
+   "genc-wsecon-5000": {
+    "turn": 180,
+    "identical": false
+   }
+  }
+ },
+ {
+  "key": "2026-10-17 18:50|79dbeb2",
+  "time": "2026-10-17 18:50",
+  "sha": "79dbeb2",
+  "recorded": "2026-10-17 20:42",
+  "pct_identical": 29.1,
+  "pct_coverage": 30.1,
+  "pct_whole_logic": 2.94,
+  "pct_whole_raw": 2.25,
+  "maps_tested": "3/94",
+  "commands_tested": "22/73",
+  "values": {
+   "bc-full": {
+    "turn": 602,
+    "identical": false
+   },
+   "build": {
+    "turn": 562,
+    "identical": false
+   },
+   "production": {
+    "turn": 559,
+    "identical": false
+   },
+   "late-economy": {
+    "turn": 562,
+    "identical": false
+   },
+   "camp-crawford": {
+    "turn": 733,
+    "identical": false
+   },
+   "combat": {
+    "turn": 167,
+    "identical": false
+   },
+   "combat-long": {
+    "turn": 167,
+    "identical": false
+   },
+   "combat-big": {
+    "turn": 167,
+    "identical": false
+   },
+   "combat-waves": {
+    "turn": 167,
+    "identical": false
+   },
+   "ai-long": {
+    "turn": 166,
+    "identical": false
+   },
+   "economy": {
+    "turn": 360,
+    "identical": true
+   },
+   "economy-mapstart": {
+    "turn": 360,
+    "identical": true
+   },
+   "wsecon": {
+    "turn": 320,
+    "identical": true
+   },
+   "wintersturm": {
+    "turn": 1021,
+    "identical": true
+   },
+   "wintersturm-mapstart": {
+    "turn": 1021,
+    "identical": true
+   },
+   "map-winterisland": {
+    "turn": 3000,
+    "identical": true
+   },
+   "late-ai": {
+    "turn": 36000,
+    "identical": true
+   },
+   "gen-a-dunkelforst": {
+    "turn": 81,
+    "identical": false
+   },
+   "gen-a-dunkelforst-long": {
+    "turn": 81,
+    "identical": false
+   },
+   "gen-a-wintersturm": {
+    "turn": 781,
+    "identical": false
+   },
+   "gen-a-wintersturm-long": {
+    "turn": 781,
+    "identical": false
+   },
+   "genb-ailong-mixed": {
+    "turn": 166,
+    "identical": false
+   },
+   "genb-combat-ops": {
+    "turn": 167,
+    "identical": false
+   },
+   "genb-waves-assault": {
+    "turn": 167,
+    "identical": false
+   },
+   "genb-wi-mixed": {
+    "turn": 141,
+    "identical": false
+   },
+   "genb-wi-move": {
+    "turn": 3000,
+    "identical": true
+   },
+   "genc-campcrawford-5000": {
+    "turn": 36,
+    "identical": false
+   },
+   "genc-combatwaves-5000": {
+    "turn": 167,
+    "identical": false
+   },
+   "genc-winterisland-5000": {
+    "turn": 48,
+    "identical": false
+   },
+   "genc-wsecon-5000": {
+    "turn": 229,
+    "identical": false
+   }
+  }
+ },
+ {
+  "key": "2026-10-17 18:50|79dbeb2",
+  "time": "2026-10-17 18:50",
+  "sha": "79dbeb2",
+  "recorded": "2026-10-17 21:14",
+  "pct_identical": 27.1,
+  "pct_coverage": 30.1,
+  "pct_whole_logic": 2.94,
+  "pct_whole_raw": 2.25,
+  "maps_tested": "3/94",
+  "commands_tested": "25/73",
+  "values": {
+   "bc-full": {
+    "turn": 602,
+    "identical": false
+   },
+   "build": {
+    "turn": 562,
+    "identical": false
+   },
+   "production": {
+    "turn": 559,
+    "identical": false
+   },
+   "late-economy": {
+    "turn": 562,
+    "identical": false
+   },
+   "camp-crawford": {
+    "turn": 733,
+    "identical": false
+   },
+   "combat": {
+    "turn": 167,
+    "identical": false
+   },
+   "combat-long": {
+    "turn": 167,
+    "identical": false
+   },
+   "combat-big": {
+    "turn": 167,
+    "identical": false
+   },
+   "combat-waves": {
+    "turn": 167,
+    "identical": false
+   },
+   "ai-long": {
+    "turn": 166,
+    "identical": false
+   },
+   "economy": {
+    "turn": 360,
+    "identical": true
+   },
+   "economy-mapstart": {
+    "turn": 360,
+    "identical": true
+   },
+   "wsecon": {
+    "turn": 320,
+    "identical": true
+   },
+   "wintersturm": {
+    "turn": 1021,
+    "identical": true
+   },
+   "wintersturm-mapstart": {
+    "turn": 1021,
+    "identical": true
+   },
+   "map-winterisland": {
+    "turn": 3000,
+    "identical": true
+   },
+   "late-ai": {
+    "turn": 36000,
+    "identical": true
+   },
+   "gen-a-dunkelforst": {
+    "turn": 81,
+    "identical": false
+   },
+   "gen-a-dunkelforst-long": {
+    "turn": 81,
+    "identical": false
+   },
+   "gen-a-wintersturm": {
+    "turn": 841,
+    "identical": false
+   },
+   "gen-a-wintersturm-long": {
+    "turn": 841,
+    "identical": false
+   },
+   "gen-invalid-placement": {
+    "turn": 600,
+    "identical": true
+   },
+   "gen-recruit-attack": {
+    "turn": 31,
+    "identical": false
+   },
+   "gen-weather-time": {
+    "turn": 166,
+    "identical": false
+   },
+   "genb-ailong-mixed": {
+    "turn": 166,
+    "identical": false
+   },
+   "genb-combat-ops": {
+    "turn": 167,
+    "identical": false
+   },
+   "genb-waves-assault": {
+    "turn": 167,
+    "identical": false
+   },
+   "genb-wi-mixed": {
+    "turn": 141,
+    "identical": false
+   },
+   "genb-wi-move": {
+    "turn": 3000,
+    "identical": true
+   },
+   "genc-campcrawford-5000": {
+    "turn": 36,
+    "identical": false
+   },
+   "genc-combatwaves-5000": {
+    "turn": 167,
+    "identical": false
+   },
+   "genc-winterisland-5000": {
+    "turn": 48,
+    "identical": false
+   },
+   "genc-wsecon-5000": {
+    "turn": 229,
+    "identical": false
+   }
+  }
+ },
+ {
+  "key": "2026-10-17 18:50|79dbeb2",
+  "time": "2026-10-17 18:50",
+  "sha": "79dbeb2",
+  "recorded": "2026-10-17 21:28",
+  "pct_identical": 27.3,
+  "pct_coverage": 30.1,
+  "pct_whole_logic": 2.94,
+  "pct_whole_raw": 2.25,
+  "maps_tested": "3/94",
+  "commands_tested": "25/73",
+  "values": {
+   "bc-full": {
+    "turn": 602,
+    "identical": false
+   },
+   "build": {
+    "turn": 562,
+    "identical": false
+   },
+   "production": {
+    "turn": 559,
+    "identical": false
+   },
+   "late-economy": {
+    "turn": 562,
+    "identical": false
+   },
+   "camp-crawford": {
+    "turn": 733,
+    "identical": false
+   },
+   "combat": {
+    "turn": 167,
+    "identical": false
+   },
+   "combat-long": {
+    "turn": 167,
+    "identical": false
+   },
+   "combat-big": {
+    "turn": 167,
+    "identical": false
+   },
+   "combat-waves": {
+    "turn": 167,
+    "identical": false
+   },
+   "ai-long": {
+    "turn": 166,
+    "identical": false
+   },
+   "economy": {
+    "turn": 360,
+    "identical": true
+   },
+   "economy-mapstart": {
+    "turn": 360,
+    "identical": true
+   },
+   "wsecon": {
+    "turn": 320,
+    "identical": true
+   },
+   "wintersturm": {
+    "turn": 1021,
+    "identical": true
+   },
+   "wintersturm-mapstart": {
+    "turn": 1021,
+    "identical": true
+   },
+   "map-winterisland": {
+    "turn": 3000,
+    "identical": true
+   },
+   "late-ai": {
+    "turn": 36000,
+    "identical": true
+   },
+   "gen-a-dunkelforst": {
+    "turn": 331,
+    "identical": false
+   },
+   "gen-a-dunkelforst-long": {
+    "turn": 331,
+    "identical": false
+   },
+   "gen-a-wintersturm": {
+    "turn": 841,
+    "identical": false
+   },
+   "gen-a-wintersturm-long": {
+    "turn": 841,
+    "identical": false
+   },
+   "gen-invalid-placement": {
+    "turn": 600,
+    "identical": true
+   },
+   "gen-recruit-attack": {
+    "turn": 31,
+    "identical": false
+   },
+   "gen-weather-time": {
+    "turn": 166,
+    "identical": false
+   },
+   "genb-ailong-mixed": {
+    "turn": 166,
+    "identical": false
+   },
+   "genb-combat-ops": {
+    "turn": 167,
+    "identical": false
+   },
+   "genb-waves-assault": {
+    "turn": 167,
+    "identical": false
+   },
+   "genb-wi-mixed": {
+    "turn": 141,
+    "identical": false
+   },
+   "genb-wi-move": {
+    "turn": 3000,
+    "identical": true
+   },
+   "genc-campcrawford-5000": {
+    "turn": 36,
+    "identical": false
+   },
+   "genc-combatwaves-5000": {
+    "turn": 167,
+    "identical": false
+   },
+   "genc-winterisland-5000": {
+    "turn": 48,
+    "identical": false
+   },
+   "genc-wsecon-5000": {
+    "turn": 229,
+    "identical": false
+   }
+  }
+ },
+ {
+  "key": "2026-10-17 18:50|79dbeb2",
+  "time": "2026-10-17 18:50",
+  "sha": "79dbeb2",
+  "recorded": "2026-10-17 21:42",
+  "pct_identical": 28.9,
+  "pct_coverage": 30.1,
+  "pct_whole_logic": 2.94,
+  "pct_whole_raw": 2.25,
+  "maps_tested": "3/94",
+  "commands_tested": "25/73",
+  "values": {
+   "bc-full": {
+    "turn": 602,
+    "identical": false
+   },
+   "build": {
+    "turn": 562,
+    "identical": false
+   },
+   "production": {
+    "turn": 559,
+    "identical": false
+   },
+   "late-economy": {
+    "turn": 562,
+    "identical": false
+   },
+   "camp-crawford": {
+    "turn": 733,
+    "identical": false
+   },
+   "combat": {
+    "turn": 167,
+    "identical": false
+   },
+   "combat-long": {
+    "turn": 167,
+    "identical": false
+   },
+   "combat-big": {
+    "turn": 167,
+    "identical": false
+   },
+   "combat-waves": {
+    "turn": 167,
+    "identical": false
+   },
+   "ai-long": {
+    "turn": 166,
+    "identical": false
+   },
+   "economy": {
+    "turn": 360,
+    "identical": true
+   },
+   "economy-mapstart": {
+    "turn": 360,
+    "identical": true
+   },
+   "wsecon": {
+    "turn": 320,
+    "identical": true
+   },
+   "wintersturm": {
+    "turn": 1021,
+    "identical": true
+   },
+   "wintersturm-mapstart": {
+    "turn": 1021,
+    "identical": true
+   },
+   "map-winterisland": {
+    "turn": 3000,
+    "identical": true
+   },
+   "late-ai": {
+    "turn": 36000,
+    "identical": true
+   },
+   "gen-a-dunkelforst": {
+    "turn": 331,
+    "identical": false
+   },
+   "gen-a-dunkelforst-long": {
+    "turn": 331,
+    "identical": false
+   },
+   "gen-a-wintersturm": {
+    "turn": 841,
+    "identical": false
+   },
+   "gen-a-wintersturm-long": {
+    "turn": 841,
+    "identical": false
+   },
+   "gen-invalid-placement": {
+    "turn": 600,
+    "identical": true
+   },
+   "gen-recruit-attack": {
+    "turn": 31,
+    "identical": false
+   },
+   "gen-weather-time": {
+    "turn": 166,
+    "identical": false
+   },
+   "genb-ailong-mixed": {
+    "turn": 166,
+    "identical": false
+   },
+   "genb-combat-ops": {
+    "turn": 167,
+    "identical": false
+   },
+   "genb-waves-assault": {
+    "turn": 167,
+    "identical": false
+   },
+   "genb-wi-mixed": {
+    "turn": 3000,
+    "identical": true
+   },
+   "genb-wi-move": {
+    "turn": 3000,
+    "identical": true
+   },
+   "genc-campcrawford-5000": {
+    "turn": 36,
+    "identical": false
+   },
+   "genc-combatwaves-5000": {
+    "turn": 167,
+    "identical": false
+   },
+   "genc-winterisland-5000": {
+    "turn": 48,
+    "identical": false
+   },
+   "genc-wsecon-5000": {
+    "turn": 229,
+    "identical": false
+   }
+  }
+ },
+ {
+  "key": "2026-10-17 18:50|79dbeb2",
+  "time": "2026-10-17 18:50",
+  "sha": "79dbeb2",
+  "recorded": "2026-10-17 22:16",
+  "pct_identical": 28.7,
+  "pct_coverage": 30.1,
+  "pct_whole_logic": 2.94,
+  "pct_whole_raw": 2.26,
+  "maps_tested": "3/94",
+  "commands_tested": "25/73",
+  "values": {
+   "bc-full": {
+    "turn": 602,
+    "identical": false
+   },
+   "build": {
+    "turn": 562,
+    "identical": false
+   },
+   "production": {
+    "turn": 559,
+    "identical": false
+   },
+   "late-economy": {
+    "turn": 562,
+    "identical": false
+   },
+   "camp-crawford": {
+    "turn": 733,
+    "identical": false
+   },
+   "combat": {
+    "turn": 167,
+    "identical": false
+   },
+   "combat-long": {
+    "turn": 167,
+    "identical": false
+   },
+   "combat-big": {
+    "turn": 167,
+    "identical": false
+   },
+   "combat-waves": {
+    "turn": 167,
+    "identical": false
+   },
+   "ai-long": {
+    "turn": 166,
+    "identical": false
+   },
+   "economy": {
+    "turn": 360,
+    "identical": true
+   },
+   "economy-mapstart": {
+    "turn": 360,
+    "identical": true
+   },
+   "wsecon": {
+    "turn": 320,
+    "identical": true
+   },
+   "wintersturm": {
+    "turn": 1021,
+    "identical": true
+   },
+   "wintersturm-mapstart": {
+    "turn": 1021,
+    "identical": true
+   },
+   "map-winterisland": {
+    "turn": 3000,
+    "identical": true
+   },
+   "late-ai": {
+    "turn": 36000,
+    "identical": true
+   },
+   "gen-a-dunkelforst": {
+    "turn": 331,
+    "identical": false
+   },
+   "gen-a-dunkelforst-long": {
+    "turn": 331,
+    "identical": false
+   },
+   "gen-a-wintersturm": {
+    "turn": 841,
+    "identical": false
+   },
+   "gen-a-wintersturm-long": {
+    "turn": 841,
+    "identical": false
+   },
+   "gen-campaign": {
+    "turn": 16,
+    "identical": false
+   },
+   "gen-invalid-placement": {
+    "turn": 600,
+    "identical": true
+   },
+   "gen-recruit-attack": {
+    "turn": 31,
+    "identical": false
+   },
+   "gen-weather-time": {
+    "turn": 166,
+    "identical": false
+   },
+   "genb-ailong-mixed": {
+    "turn": 166,
+    "identical": false
+   },
+   "genb-combat-ops": {
+    "turn": 167,
+    "identical": false
+   },
+   "genb-waves-assault": {
+    "turn": 167,
+    "identical": false
+   },
+   "genb-wi-mixed": {
+    "turn": 3000,
+    "identical": true
+   },
+   "genb-wi-move": {
+    "turn": 3000,
+    "identical": true
+   },
+   "genc-campcrawford-5000": {
+    "turn": 36,
+    "identical": false
+   },
+   "genc-combatwaves-5000": {
+    "turn": 167,
+    "identical": false
+   },
+   "genc-winterisland-5000": {
+    "turn": 48,
+    "identical": false
+   },
+   "genc-wsecon-5000": {
+    "turn": 229,
+    "identical": false
+   }
+  }
+ },
+ {
+  "key": "2026-10-17 18:50|79dbeb2",
+  "time": "2026-10-17 18:50",
+  "sha": "79dbeb2",
+  "recorded": "2026-10-17 22:27",
+  "pct_identical": 29.8,
+  "pct_coverage": 30.1,
+  "pct_whole_logic": 2.94,
+  "pct_whole_raw": 2.26,
+  "maps_tested": "3/94",
+  "commands_tested": "25/73",
+  "values": {
+   "bc-full": {
+    "turn": 763,
+    "identical": false
+   },
+   "build": {
+    "turn": 650,
+    "identical": false
+   },
+   "production": {
+    "turn": 840,
+    "identical": true
+   },
+   "late-economy": {
+    "turn": 1019,
+    "identical": false
+   },
+   "camp-crawford": {
+    "turn": 1201,
+    "identical": false
+   },
+   "combat": {
+    "turn": 167,
+    "identical": true
+   },
+   "combat-long": {
+    "turn": 167,
+    "identical": false
+   },
+   "combat-big": {
+    "turn": 167,
+    "identical": false
+   },
+   "combat-waves": {
+    "turn": 167,
+    "identical": false
+   },
+   "ai-long": {
+    "turn": 166,
+    "identical": false
+   },
+   "economy": {
+    "turn": 360,
+    "identical": false
+   },
+   "economy-mapstart": {
+    "turn": 360,
+    "identical": true
+   },
+   "wsecon": {
+    "turn": 320,
+    "identical": false
+   },
+   "wintersturm": {
+    "turn": 1021,
+    "identical": true
+   },
+   "wintersturm-mapstart": {
+    "turn": 1021,
+    "identical": true
+   },
+   "map-winterisland": {
+    "turn": 3000,
+    "identical": false
+   },
+   "late-ai": {
+    "turn": null,
+    "identical": true
+   },
+   "gen-a-dunkelforst": {
+    "turn": 331,
+    "identical": false
+   },
+   "gen-a-dunkelforst-long": {
+    "turn": 331,
+    "identical": false
+   },
+   "gen-a-wintersturm": {
+    "turn": 841,
+    "identical": false
+   },
+   "gen-a-wintersturm-long": {
+    "turn": 841,
+    "identical": false
+   },
+   "gen-campaign": {
+    "turn": 16,
+    "identical": false
+   },
+   "gen-invalid-placement": {
+    "turn": 600,
+    "identical": true
+   },
+   "gen-recruit-attack": {
+    "turn": 31,
+    "identical": false
+   },
+   "gen-weather-time": {
+    "turn": 166,
+    "identical": false
+   },
+   "genb-ailong-mixed": {
+    "turn": 166,
+    "identical": false
+   },
+   "genb-combat-ops": {
+    "turn": 167,
+    "identical": false
+   },
+   "genb-waves-assault": {
+    "turn": 167,
+    "identical": false
+   },
+   "genb-wi-mixed": {
+    "turn": 3000,
+    "identical": true
+   },
+   "genb-wi-move": {
+    "turn": 3000,
+    "identical": true
+   },
+   "genc-campcrawford-5000": {
+    "turn": 36,
+    "identical": false
+   },
+   "genc-combatwaves-5000": {
+    "turn": 167,
+    "identical": false
+   },
+   "genc-winterisland-5000": {
+    "turn": 48,
+    "identical": false
+   },
+   "genc-wsecon-5000": {
+    "turn": 229,
+    "identical": false
+   }
+  }
+ },
+ {
+  "key": "2026-10-17 18:50|79dbeb2",
+  "time": "2026-10-17 18:50",
+  "sha": "79dbeb2",
+  "recorded": "2026-10-17 22:34",
+  "pct_identical": 26.3,
+  "pct_coverage": 30.1,
+  "pct_whole_logic": 2.94,
+  "pct_whole_raw": 2.26,
+  "maps_tested": "3/94",
+  "commands_tested": "25/73",
+  "values": {
+   "bc-full": {
+    "turn": 763,
+    "identical": false
+   },
+   "build": {
+    "turn": 650,
+    "identical": false
+   },
+   "production": {
+    "turn": 840,
+    "identical": true
+   },
+   "late-economy": {
+    "turn": 1019,
+    "identical": false
+   },
+   "camp-crawford": {
+    "turn": 1201,
+    "identical": false
+   },
+   "combat": {
+    "turn": 166,
+    "identical": false
+   },
+   "combat-long": {
+    "turn": 167,
+    "identical": false
+   },
+   "combat-big": {
+    "turn": 167,
+    "identical": false
+   },
+   "combat-waves": {
+    "turn": 167,
+    "identical": false
+   },
+   "ai-long": {
+    "turn": 166,
+    "identical": false
+   },
+   "economy": {
+    "turn": 360,
+    "identical": false
+   },
+   "economy-mapstart": {
+    "turn": 360,
+    "identical": true
+   },
+   "wsecon": {
+    "turn": 320,
+    "identical": false
+   },
+   "wintersturm": {
+    "turn": 1021,
+    "identical": true
+   },
+   "wintersturm-mapstart": {
+    "turn": 1021,
+    "identical": true
+   },
+   "map-winterisland": {
+    "turn": 3000,
+    "identical": false
+   },
+   "late-ai": {
+    "turn": null,
+    "identical": true
+   },
+   "gen-a-dunkelforst": {
+    "turn": 331,
+    "identical": false
+   },
+   "gen-a-dunkelforst-long": {
+    "turn": 331,
+    "identical": false
+   },
+   "gen-a-wintersturm": {
+    "turn": 841,
+    "identical": false
+   },
+   "gen-a-wintersturm-long": {
+    "turn": 841,
+    "identical": false
+   },
+   "gen-campaign": {
+    "turn": 16,
+    "identical": false
+   },
+   "gen-invalid-placement": {
+    "turn": 600,
+    "identical": true
+   },
+   "gen-recruit-attack": {
+    "turn": 31,
+    "identical": false
+   },
+   "gen-weather-time": {
+    "turn": 166,
+    "identical": false
+   },
+   "genb-ailong-mixed": {
+    "turn": 166,
+    "identical": false
+   },
+   "genb-combat-ops": {
+    "turn": 167,
+    "identical": false
+   },
+   "genb-waves-assault": {
+    "turn": 167,
+    "identical": false
+   },
+   "genb-wi-mixed": {
+    "turn": 3000,
+    "identical": true
+   },
+   "genb-wi-move": {
+    "turn": 3000,
+    "identical": true
+   },
+   "genc-campcrawford-5000": {
+    "turn": 36,
+    "identical": false
+   },
+   "genc-combatwaves-5000": {
+    "turn": 167,
+    "identical": false
+   },
+   "genc-winterisland-5000": {
+    "turn": 48,
+    "identical": false
+   },
+   "genc-wsecon-5000": {
+    "turn": 229,
+    "identical": false
+   }
+  }
+ },
+ {
+  "key": "2026-10-17 18:50|79dbeb2",
+  "time": "2026-10-17 18:50",
+  "sha": "79dbeb2",
+  "recorded": "2026-10-17 22:47",
+  "pct_identical": 26.5,
+  "pct_coverage": 30.1,
+  "pct_whole_logic": 2.94,
+  "pct_whole_raw": 2.26,
+  "maps_tested": "3/94",
+  "commands_tested": "25/73",
+  "values": {
+   "bc-full": {
+    "turn": 763,
+    "identical": false
+   },
+   "build": {
+    "turn": 650,
+    "identical": true
+   },
+   "production": {
+    "turn": 840,
+    "identical": true
+   },
+   "late-economy": {
+    "turn": 1019,
+    "identical": false
+   },
+   "camp-crawford": {
+    "turn": 1201,
+    "identical": false
+   },
+   "combat": {
+    "turn": 166,
+    "identical": false
+   },
+   "combat-long": {
+    "turn": 167,
+    "identical": false
+   },
+   "combat-big": {
+    "turn": 167,
+    "identical": false
+   },
+   "combat-waves": {
+    "turn": 167,
+    "identical": false
+   },
+   "ai-long": {
+    "turn": 166,
+    "identical": false
+   },
+   "economy": {
+    "turn": 360,
+    "identical": true
+   },
+   "economy-mapstart": {
+    "turn": 360,
+    "identical": true
+   },
+   "wsecon": {
+    "turn": 320,
+    "identical": true
+   },
+   "wintersturm": {
+    "turn": 1021,
+    "identical": true
+   },
+   "wintersturm-mapstart": {
+    "turn": 1021,
+    "identical": true
+   },
+   "map-winterisland": {
+    "turn": 3000,
+    "identical": true
+   },
+   "late-ai": {
+    "turn": null,
+    "identical": true
+   },
+   "gen-a-dunkelforst": {
+    "turn": 331,
+    "identical": false
+   },
+   "gen-a-dunkelforst-long": {
+    "turn": 331,
+    "identical": false
+   },
+   "gen-a-wintersturm": {
+    "turn": 841,
+    "identical": false
+   },
+   "gen-a-wintersturm-long": {
+    "turn": 841,
+    "identical": false
+   },
+   "gen-campaign": {
+    "turn": 16,
+    "identical": false
+   },
+   "gen-invalid-placement": {
+    "turn": 600,
+    "identical": true
+   },
+   "gen-recruit-attack": {
+    "turn": 31,
+    "identical": false
+   },
+   "gen-weather-time": {
+    "turn": 166,
+    "identical": false
+   },
+   "genb-ailong-mixed": {
+    "turn": 166,
+    "identical": false
+   },
+   "genb-combat-ops": {
+    "turn": 167,
+    "identical": false
+   },
+   "genb-waves-assault": {
+    "turn": 167,
+    "identical": false
+   },
+   "genb-wi-mixed": {
+    "turn": 3000,
+    "identical": true
+   },
+   "genb-wi-move": {
+    "turn": 3000,
+    "identical": true
+   },
+   "genc-campcrawford-5000": {
+    "turn": 36,
+    "identical": false
+   },
+   "genc-combatwaves-5000": {
+    "turn": 167,
+    "identical": false
+   },
+   "genc-winterisland-5000": {
+    "turn": 48,
+    "identical": false
+   },
+   "genc-wsecon-5000": {
+    "turn": 229,
+    "identical": false
+   }
+  }
+ },
+ {
+  "key": "2026-10-17 18:50|79dbeb2",
+  "time": "2026-10-17 18:50",
+  "sha": "79dbeb2",
+  "recorded": "2026-10-17 23:01",
+  "pct_identical": 31.3,
+  "pct_coverage": 30.1,
+  "pct_whole_logic": 2.95,
+  "pct_whole_raw": 2.26,
+  "maps_tested": "3/94",
+  "commands_tested": "25/73",
+  "values": {
+   "bc-full": {
+    "turn": 763,
+    "identical": false
+   },
+   "build": {
+    "turn": 650,
+    "identical": true
+   },
+   "production": {
+    "turn": 840,
+    "identical": true
+   },
+   "late-economy": {
+    "turn": 1019,
+    "identical": false
+   },
+   "camp-crawford": {
+    "turn": 1201,
+    "identical": false
+   },
+   "combat": {
+    "turn": 166,
+    "identical": false
+   },
+   "combat-long": {
+    "turn": 167,
+    "identical": false
+   },
+   "combat-big": {
+    "turn": 167,
+    "identical": false
+   },
+   "combat-waves": {
+    "turn": 167,
+    "identical": false
+   },
+   "ai-long": {
+    "turn": 166,
+    "identical": false
+   },
+   "economy": {
+    "turn": 360,
+    "identical": true
+   },
+   "economy-mapstart": {
+    "turn": 360,
+    "identical": true
+   },
+   "wsecon": {
+    "turn": 320,
+    "identical": true
+   },
+   "wintersturm": {
+    "turn": 1021,
+    "identical": true
+   },
+   "wintersturm-mapstart": {
+    "turn": 1021,
+    "identical": true
+   },
+   "map-winterisland": {
+    "turn": 3000,
+    "identical": true
+   },
+   "late-ai": {
+    "turn": null,
+    "identical": true
+   },
+   "gen-a-dunkelforst": {
+    "turn": 331,
+    "identical": false
+   },
+   "gen-a-dunkelforst-long": {
+    "turn": 331,
+    "identical": false
+   },
+   "gen-a-wintersturm": {
+    "turn": 841,
+    "identical": false
+   },
+   "gen-a-wintersturm-long": {
+    "turn": 841,
+    "identical": false
+   },
+   "gen-campaign": {
+    "turn": 16,
+    "identical": false
+   },
+   "gen-invalid-placement": {
+    "turn": 600,
+    "identical": true
+   },
+   "gen-recruit-attack": {
+    "turn": 31,
+    "identical": false
+   },
+   "gen-weather-time": {
+    "turn": 166,
+    "identical": true
+   },
+   "gen-weather-time-short": {
+    "turn": 166,
+    "identical": true
+   },
+   "genb-ailong-mixed": {
+    "turn": 166,
+    "identical": false
+   },
+   "genb-combat-ops": {
+    "turn": 167,
+    "identical": false
+   },
+   "genb-waves-assault": {
+    "turn": 167,
+    "identical": false
+   },
+   "genb-wi-mixed": {
+    "turn": 3000,
+    "identical": true
+   },
+   "genb-wi-move": {
+    "turn": 3000,
+    "identical": true
+   },
+   "genc-campcrawford-5000": {
+    "turn": 36,
+    "identical": false
+   },
+   "genc-combatwaves-5000": {
+    "turn": 167,
+    "identical": false
+   },
+   "genc-winterisland-5000": {
+    "turn": 48,
+    "identical": false
+   },
+   "genc-wsecon-5000": {
+    "turn": 229,
+    "identical": false
+   }
+  }
+ },
+ {
+  "key": "2026-10-17 18:50|79dbeb2",
+  "time": "2026-10-17 18:50",
+  "sha": "79dbeb2",
+  "recorded": "2026-10-17 23:15",
+  "pct_identical": 31.2,
+  "pct_coverage": 30.1,
+  "pct_whole_logic": 2.95,
+  "pct_whole_raw": 2.26,
+  "maps_tested": "3/94",
+  "commands_tested": "25/73",
+  "values": {
+   "bc-full": {
+    "turn": 763,
+    "identical": false
+   },
+   "build": {
+    "turn": 650,
+    "identical": true
+   },
+   "production": {
+    "turn": 840,
+    "identical": true
+   },
+   "late-economy": {
+    "turn": 1019,
+    "identical": false
+   },
+   "camp-crawford": {
+    "turn": 1201,
+    "identical": false
+   },
+   "combat": {
+    "turn": 166,
+    "identical": false
+   },
+   "combat-long": {
+    "turn": 167,
+    "identical": false
+   },
+   "combat-big": {
+    "turn": 167,
+    "identical": false
+   },
+   "combat-waves": {
+    "turn": 167,
+    "identical": false
+   },
+   "ai-long": {
+    "turn": 166,
+    "identical": false
+   },
+   "economy": {
+    "turn": 360,
+    "identical": true
+   },
+   "economy-mapstart": {
+    "turn": 360,
+    "identical": true
+   },
+   "wsecon": {
+    "turn": 229,
+    "identical": false
+   },
+   "wintersturm": {
+    "turn": 1021,
+    "identical": true
+   },
+   "wintersturm-mapstart": {
+    "turn": 1021,
+    "identical": true
+   },
+   "map-winterisland": {
+    "turn": 3000,
+    "identical": true
+   },
+   "late-ai": {
+    "turn": null,
+    "identical": true
+   },
+   "gen-a-dunkelforst": {
+    "turn": 331,
+    "identical": false
+   },
+   "gen-a-dunkelforst-long": {
+    "turn": 331,
+    "identical": false
+   },
+   "gen-a-wintersturm": {
+    "turn": 841,
+    "identical": false
+   },
+   "gen-a-wintersturm-long": {
+    "turn": 841,
+    "identical": false
+   },
+   "gen-campaign": {
+    "turn": 16,
+    "identical": false
+   },
+   "gen-invalid-placement": {
+    "turn": 600,
+    "identical": true
+   },
+   "gen-recruit-attack": {
+    "turn": 31,
+    "identical": false
+   },
+   "gen-weather-time": {
+    "turn": 166,
+    "identical": true
+   },
+   "gen-weather-time-short": {
+    "turn": 166,
+    "identical": true
+   },
+   "genb-ailong-mixed": {
+    "turn": 166,
+    "identical": false
+   },
+   "genb-combat-ops": {
+    "turn": 167,
+    "identical": false
+   },
+   "genb-waves-assault": {
+    "turn": 167,
+    "identical": false
+   },
+   "genb-wi-mixed": {
+    "turn": 3000,
+    "identical": true
+   },
+   "genb-wi-move": {
+    "turn": 3000,
+    "identical": true
+   },
+   "genc-campcrawford-5000": {
+    "turn": 36,
+    "identical": false
+   },
+   "genc-combatwaves-5000": {
+    "turn": 167,
+    "identical": false
+   },
+   "genc-winterisland-5000": {
+    "turn": 48,
+    "identical": false
+   },
+   "genc-wsecon-5000": {
+    "turn": 229,
+    "identical": false
+   }
+  }
+ },
+ {
+  "key": "2026-10-17 18:50|79dbeb2",
+  "time": "2026-10-17 18:50",
+  "sha": "79dbeb2",
+  "recorded": "2026-10-17 23:27",
+  "pct_identical": 31.6,
+  "pct_coverage": 30.1,
+  "pct_whole_logic": 2.95,
+  "pct_whole_raw": 2.26,
+  "maps_tested": "3/94",
+  "commands_tested": "25/73",
+  "values": {
+   "bc-full": {
+    "turn": 763,
+    "identical": false
+   },
+   "build": {
+    "turn": 650,
+    "identical": true
+   },
+   "production": {
+    "turn": 840,
+    "identical": true
+   },
+   "late-economy": {
+    "turn": 1019,
+    "identical": false
+   },
+   "camp-crawford": {
+    "turn": 1201,
+    "identical": false
+   },
+   "combat": {
+    "turn": 167,
+    "identical": true
+   },
+   "combat-long": {
+    "turn": 167,
+    "identical": false
+   },
+   "combat-big": {
+    "turn": 167,
+    "identical": false
+   },
+   "combat-waves": {
+    "turn": 167,
+    "identical": false
+   },
+   "ai-long": {
+    "turn": 166,
+    "identical": false
+   },
+   "economy": {
+    "turn": 360,
+    "identical": true
+   },
+   "economy-mapstart": {
+    "turn": 360,
+    "identical": true
+   },
+   "wsecon": {
+    "turn": 320,
+    "identical": true
+   },
+   "wintersturm": {
+    "turn": 1021,
+    "identical": true
+   },
+   "wintersturm-mapstart": {
+    "turn": 1021,
+    "identical": true
+   },
+   "map-winterisland": {
+    "turn": 3000,
+    "identical": true
+   },
+   "late-ai": {
+    "turn": null,
+    "identical": true
+   },
+   "gen-a-dunkelforst": {
+    "turn": 331,
+    "identical": false
+   },
+   "gen-a-dunkelforst-long": {
+    "turn": 331,
+    "identical": false
+   },
+   "gen-a-wintersturm": {
+    "turn": 841,
+    "identical": false
+   },
+   "gen-a-wintersturm-long": {
+    "turn": 841,
+    "identical": false
+   },
+   "gen-campaign": {
+    "turn": 16,
+    "identical": false
+   },
+   "gen-invalid-placement": {
+    "turn": 600,
+    "identical": true
+   },
+   "gen-recruit-attack": {
+    "turn": 31,
+    "identical": false
+   },
+   "gen-weather-time": {
+    "turn": 166,
+    "identical": true
+   },
+   "gen-weather-time-short": {
+    "turn": 166,
+    "identical": true
+   },
+   "genb-ailong-mixed": {
+    "turn": 166,
+    "identical": false
+   },
+   "genb-combat-ops": {
+    "turn": 167,
+    "identical": false
+   },
+   "genb-waves-assault": {
+    "turn": 167,
+    "identical": false
+   },
+   "genb-wi-mixed": {
+    "turn": 3000,
+    "identical": true
+   },
+   "genb-wi-move": {
+    "turn": 3000,
+    "identical": true
+   },
+   "genc-campcrawford-5000": {
+    "turn": 36,
+    "identical": false
+   },
+   "genc-combatwaves-5000": {
+    "turn": 167,
+    "identical": false
+   },
+   "genc-winterisland-5000": {
+    "turn": 48,
+    "identical": false
+   },
+   "genc-wsecon-5000": {
+    "turn": 229,
+    "identical": false
+   }
+  }
+ }
+]

@@ -1,0 +1,3314 @@
+{
+ "generated_utc": "2026-10-17T21:27:57Z",
+ "generated_berlin": "2026-10-17 23:27",
+ "branch": "clean/integration",
+ "scenarios": [
+  {
+   "name": "bc-full",
+   "new": false,
+   "map": "Deine BC-Aufnahme (10.08.2026)",
+   "turn": 763,
+   "identical": false,
+   "measured": true,
+   "source": "Board (Muse, Zeile 2826)",
+   "when": "2026-10-17 21:40",
+   "total": 23900,
+   "start": 121,
+   "commands": 1504,
+   "desc": "Deine BC-Aufnahme (10.08.2026) ab Zug 121, 23.900 Züge: dein ganzes aufgezeichnetes Spiel NETEVENT_RECORDING_2026-08-10: 1.504 Spielerbefehle über 23.900 Züge, ab Zug 121"
+  },
+  {
+   "name": "build",
+   "new": false,
+   "map": "Wintersturm",
+   "turn": 650,
+   "identical": true,
+   "measured": true,
+   "source": "Board (Muse, Zeile 2753)",
+   "when": "2026-10-17 22:20",
+   "total": 650,
+   "start": 160,
+   "commands": 14,
+   "desc": "Wintersturm ab Zug 160, 650 Züge: Baustellen anlegen, Leibeigene bauen Gebäude fertig · Befehle: Leibeigene kaufen 10, Bauen 4"
+  },
+  {
+   "name": "production",
+   "new": false,
+   "map": "Wintersturm",
+   "turn": 840,
+   "identical": true,
+   "measured": true,
+   "source": "Board (Muse, Zeile 2680)",
+   "when": "2026-10-17 21:30",
+   "total": 840,
+   "start": 160,
+   "commands": 11,
+   "desc": "Wintersturm ab Zug 160, 840 Züge: Rohstoffabbau und Produktionskette · Befehle: Leibeigene kaufen 6, Bauen 3, Abbau 2"
+  },
+  {
+   "name": "late-economy",
+   "new": false,
+   "map": "Wintersturm",
+   "turn": 1019,
+   "identical": false,
+   "measured": true,
+   "source": "Board (Codex, Zeile 2981)",
+   "when": "2026-10-17 23:03",
+   "total": 36000,
+   "start": 160,
+   "commands": null,
+   "desc": "Wintersturm ab Zug 160, 36.000 Züge: über 1 h Wirtschaft: Zahltag, Steuern, Leibeigene kaufen, Bauernhof-Upgrade, Abgaben"
+  },
+  {
+   "name": "camp-crawford",
+   "new": false,
+   "map": "Camp Crawford (Kampagne)",
+   "turn": 1201,
+   "identical": false,
+   "measured": true,
+   "source": "Board (Muse, Zeile 2875)",
+   "when": "2026-10-17 22:11",
+   "total": 6000,
+   "start": 20,
+   "commands": null,
+   "desc": "Camp Crawford (Kampagne) ab Zug 20, 6.000 Züge: Missionsskripte laufen, KI-Wirtschaft wächst, keine Spielerbefehle"
+  },
+  {
+   "name": "combat",
+   "new": false,
+   "map": "Kampf-Testkarte",
+   "turn": 167,
+   "identical": true,
+   "measured": true,
+   "source": "Board (Muse, Zeile 2565)",
+   "when": "2026-10-18 00:10",
+   "total": 600,
+   "start": 166,
+   "commands": null,
+   "desc": "Kampf-Testkarte ab Zug 166, 600 Züge: zwei Armeen kämpfen gegeneinander"
+  },
+  {
+   "name": "combat-long",
+   "new": false,
+   "map": "Kampf-Testkarte",
+   "turn": 167,
+   "identical": false,
+   "measured": true,
+   "source": "Board (Muse, Zeile 2460)",
+   "when": "2026-10-17 23:45",
+   "total": 6000,
+   "start": 166,
+   "commands": null,
+   "desc": "Kampf-Testkarte ab Zug 166, 6.000 Züge: Kampf, danach lange ruhige Welt (Wetter, Tiere)"
+  },
+  {
+   "name": "combat-big",
+   "new": false,
+   "map": "Kampf-Testkarte",
+   "turn": 167,
+   "identical": false,
+   "measured": true,
+   "source": "Board (Muse, Zeile 2460)",
+   "when": "2026-10-17 23:45",
+   "total": 6000,
+   "start": 166,
+   "commands": null,
+   "desc": "Kampf-Testkarte ab Zug 166, 6.000 Züge: große Schlacht: 5 Formationen + Kanonen je Seite"
+  },
+  {
+   "name": "combat-waves",
+   "new": false,
+   "map": "Kampf-Testkarte",
+   "turn": 167,
+   "identical": false,
+   "measured": true,
+   "source": "Board (Muse, Zeile 2460)",
+   "when": "2026-10-17 23:45",
+   "total": 8000,
+   "start": 166,
+   "commands": null,
+   "desc": "Kampf-Testkarte ab Zug 166, 8.000 Züge: Kampf in 4 Angriffswellen (248 Einheiten)"
+  },
+  {
+   "name": "ai-long",
+   "new": false,
+   "map": "KI-Testkarte",
+   "turn": 166,
+   "identical": false,
+   "measured": true,
+   "source": "Board (Muse, Zeile 2839)",
+   "when": "2026-10-18 02:15",
+   "total": 12000,
+   "start": 165,
+   "commands": null,
+   "desc": "KI-Testkarte ab Zug 165, 12.000 Züge: Computergegner (Dorf-KI + Armeen) spielen lange selbst"
+  },
+  {
+   "name": "economy",
+   "new": false,
+   "map": "Dunkelforst",
+   "turn": 360,
+   "identical": true,
+   "measured": true,
+   "source": "Board (Muse, Zeile 2753)",
+   "when": "2026-10-17 22:20",
+   "total": 360,
+   "start": 0,
+   "commands": 24,
+   "desc": "Dunkelforst ab Zug 0, 360 Züge: frischer Kartenstart, Rohstoff-Abbauaufträge · Befehle: Abbau 24"
+  },
+  {
+   "name": "economy-mapstart",
+   "new": false,
+   "map": "Dunkelforst",
+   "turn": 360,
+   "identical": true,
+   "measured": true,
+   "source": "Board (Muse, Zeile 2680)",
+   "when": "2026-10-17 21:30",
+   "total": 360,
+   "start": 0,
+   "commands": 24,
+   "desc": "Dunkelforst ab Zug 0, 360 Züge: wie economy, direkt ab Kartenstart geladen · Befehle: Abbau 24"
+  },
+  {
+   "name": "wsecon",
+   "new": false,
+   "map": "Wintersturm",
+   "turn": 320,
+   "identical": true,
+   "measured": true,
+   "source": "Board (Muse, Zeile 2753)",
+   "when": "2026-10-17 22:20",
+   "total": 320,
+   "start": 160,
+   "commands": 14,
+   "desc": "Wintersturm ab Zug 160, 320 Züge: Leibeigene kaufen und erstes Gebäude bauen · Befehle: Leibeigene kaufen 10, Abbau 3, Bauen 1"
+  },
+  {
+   "name": "wintersturm",
+   "new": false,
+   "map": "Wintersturm",
+   "turn": 1021,
+   "identical": true,
+   "measured": true,
+   "source": "Board (Muse, Zeile 2875)",
+   "when": "2026-10-17 22:11",
+   "total": 1021,
+   "start": 0,
+   "commands": null,
+   "desc": "Wintersturm ab Zug 0, 1.021 Züge: frischer Kartenstart ohne Befehle"
+  },
+  {
+   "name": "wintersturm-mapstart",
+   "new": false,
+   "map": "Wintersturm",
+   "turn": 1021,
+   "identical": true,
+   "measured": true,
+   "source": "Opus Live-Matrix",
+   "when": "2026-10-17 18:50",
+   "total": 1021,
+   "start": 0,
+   "commands": null,
+   "desc": "Wintersturm ab Zug 0, 1.021 Züge: wie wintersturm, direkt ab Kartenstart geladen"
+  },
+  {
+   "name": "map-winterisland",
+   "new": false,
+   "map": "Winterinsel",
+   "turn": 3000,
+   "identical": true,
+   "measured": true,
+   "source": "Board (Muse, Zeile 2753)",
+   "when": "2026-10-17 22:20",
+   "total": 3000,
+   "start": 20,
+   "commands": null,
+   "desc": "Winterinsel ab Zug 20, 3.000 Züge: andere Mehrspielerkarte, fast statische Welt"
+  },
+  {
+   "name": "late-ai",
+   "new": false,
+   "map": "KI-Testkarte",
+   "turn": null,
+   "identical": true,
+   "measured": true,
+   "source": "Board (Muse, Zeile 2826)",
+   "when": "2026-10-17 21:40",
+   "total": 36000,
+   "start": 165,
+   "commands": null,
+   "desc": "KI-Testkarte ab Zug 165, 36.000 Züge: 1 h KI-Dörfer ohne Spieler (36.000 Züge)"
+  },
+  {
+   "name": "ai-builds-active",
+   "new": true,
+   "map": "KI-Testkarte",
+   "turn": null,
+   "identical": false,
+   "measured": false,
+   "source": null,
+   "when": null,
+   "total": 6000,
+   "start": 40,
+   "commands": null,
+   "origins": [
+    "clean/integration (docs/clean/new-fixtures)"
+   ],
+   "issues": [],
+   "desc": "KI-Testkarte ab Zug 40, 6.000 Züge: Befehle unbekannt"
+  },
+  {
+   "name": "ai-builds-oldkings",
+   "new": true,
+   "map": "Old Kings Castle (Kampagne)",
+   "turn": null,
+   "identical": false,
+   "measured": false,
+   "source": null,
+   "when": null,
+   "total": 18000,
+   "start": 40,
+   "commands": null,
+   "origins": [
+    "clean/integration (docs/clean/new-fixtures)"
+   ],
+   "issues": [],
+   "desc": "Old Kings Castle (Kampagne) ab Zug 40, 18.000 Züge: Befehle unbekannt"
+  },
+  {
+   "name": "gen-a-dunkelforst",
+   "new": true,
+   "map": "Dunkelforst",
+   "turn": 331,
+   "identical": false,
+   "measured": true,
+   "source": "Board (Muse, Zeile 2793)",
+   "when": "2026-10-18 02:10",
+   "total": 1500,
+   "start": 0,
+   "commands": 116,
+   "origins": [
+    "PR #412: Fixture-gen A: long economy/build command streams + RUNNER.md",
+    "Release fixtures-gen-2026-10-18-campaign"
+   ],
+   "issues": [],
+   "desc": "Dunkelforst ab Zug 0, 1.500 Züge: Befehle: Abbau 34, Alarm 10, Leibeigene kaufen 10, Steuern 9, Bewegen 8, Forschung 6, Arbeiterlimit 6, Überstunden 6, Bauen 6, Entlassen 6, Segnen 6, Ausbauen 4, Befehl 69662 4, Verkaufen 1"
+  },
+  {
+   "name": "gen-a-dunkelforst-long",
+   "new": true,
+   "map": "Dunkelforst",
+   "turn": 331,
+   "identical": false,
+   "measured": true,
+   "source": "Board (Muse, Zeile 2793)",
+   "when": "2026-10-18 02:10",
+   "total": 4000,
+   "start": 0,
+   "commands": 187,
+   "origins": [
+    "PR #412: Fixture-gen A: long economy/build command streams + RUNNER.md",
+    "Release fixtures-gen-2026-10-18-campaign"
+   ],
+   "issues": [],
+   "desc": "Dunkelforst ab Zug 0, 4.000 Züge: Befehle: Abbau 89, Steuern 25, Alarm 10, Leibeigene kaufen 10, Bewegen 8, Forschung 6, Arbeiterlimit 6, Überstunden 6, Bauen 6, Entlassen 6, Segnen 6, Ausbauen 4, Befehl 69662 4, Verkaufen 1"
+  },
+  {
+   "name": "gen-a-wintersturm",
+   "new": true,
+   "map": "Wintersturm",
+   "turn": 841,
+   "identical": false,
+   "measured": true,
+   "source": "Board (Muse, Zeile 2826)",
+   "when": "2026-10-17 21:40",
+   "total": 2000,
+   "start": 160,
+   "commands": 251,
+   "origins": [
+    "PR #412: Fixture-gen A: long economy/build command streams + RUNNER.md",
+    "Release fixtures-gen-2026-10-18-campaign"
+   ],
+   "issues": [],
+   "desc": "Wintersturm ab Zug 160, 2.000 Züge: Befehle: Bauen 112, Abbau 38, Leibeigene kaufen 30, Alarm 10, Forschung 8, Steuern 8, Entlassen 8, Segnen 8, Bewegen 8, Arbeiterlimit 6, Überstunden 6, Ausbauen 4, Befehl 69662 4, Verkaufen 1"
+  },
+  {
+   "name": "gen-a-wintersturm-long",
+   "new": true,
+   "map": "Wintersturm",
+   "turn": 841,
+   "identical": false,
+   "measured": true,
+   "source": "Board (Muse, Zeile 2747)",
+   "when": "2026-10-18 01:05",
+   "total": 5000,
+   "start": 160,
+   "commands": 515,
+   "origins": [
+    "PR #412: Fixture-gen A: long economy/build command streams + RUNNER.md",
+    "Release fixtures-gen-2026-10-18-campaign"
+   ],
+   "issues": [],
+   "desc": "Wintersturm ab Zug 160, 5.000 Züge: Befehle: Bauen 282, Abbau 113, Leibeigene kaufen 30, Steuern 25, Alarm 10, Bewegen 10, Forschung 8, Entlassen 8, Segnen 8, Arbeiterlimit 6, Überstunden 6, Ausbauen 4, Befehl 69662 4, Verkaufen 1"
+  },
+  {
+   "name": "gen-campaign",
+   "new": true,
+   "map": "Wintersturm",
+   "turn": 16,
+   "identical": false,
+   "measured": true,
+   "source": "Board (Muse, Zeile 2875)",
+   "when": "2026-10-17 22:11",
+   "total": 1500,
+   "start": 0,
+   "commands": 53,
+   "origins": [
+    "clean/integration (docs/clean/new-fixtures)",
+    "Release fixtures-gen-2026-10-18-campaign"
+   ],
+   "issues": [],
+   "desc": "Wintersturm ab Zug 0, 1.500 Züge: Befehle: Leibeigene kaufen 20, Alarm 8, Überstunden 5, Arbeiterlimit 5, Steuern 3, Segnen 3, Ausbauen 3, Forschung 3, Befehl 69662 3"
+  },
+  {
+   "name": "gen-diplomacy-tribute",
+   "new": true,
+   "map": "Dunkelforst",
+   "turn": null,
+   "identical": false,
+   "measured": false,
+   "source": null,
+   "when": null,
+   "total": 2000,
+   "start": 160,
+   "commands": 139,
+   "origins": [
+    "clean/integration (docs/clean/new-fixtures)",
+    "Release fixtures-gen-2026-10-17-diplomacy"
+   ],
+   "issues": [
+    {
+     "n": 619,
+     "url": "https://github.com/Kofi55533/siedler-agent/issues/619"
+    }
+   ],
+   "desc": "Dunkelforst ab Zug 160, 2.000 Züge: 139 Befehle"
+  },
+  {
+   "name": "gen-invalid-placement",
+   "new": true,
+   "map": "Wintersturm",
+   "turn": 600,
+   "identical": true,
+   "measured": true,
+   "source": "Board (Muse, Zeile 2707)",
+   "when": "2026-10-17 21:25",
+   "total": 600,
+   "start": 160,
+   "commands": 34,
+   "origins": [
+    "clean/integration (docs/clean/new-fixtures)",
+    "Release fixtures-gen-2026-10-17-invalid-placement"
+   ],
+   "issues": [],
+   "desc": "Wintersturm ab Zug 160, 600 Züge: Befehle: Bauen 24, Leibeigene kaufen 10"
+  },
+  {
+   "name": "gen-market-trade",
+   "new": true,
+   "map": "Camp Crawford (Kampagne)",
+   "turn": null,
+   "identical": false,
+   "measured": false,
+   "source": null,
+   "when": null,
+   "total": 6000,
+   "start": 20,
+   "commands": 10,
+   "origins": [
+    "clean/integration (docs/clean/new-fixtures)",
+    "Release fixtures-gen-2026-10-17-market-trade"
+   ],
+   "issues": [
+    {
+     "n": 617,
+     "url": "https://github.com/Kofi55533/siedler-agent/issues/617"
+    }
+   ],
+   "desc": "Camp Crawford (Kampagne) ab Zug 20, 6.000 Züge: Befehle: Befehl 69660 8, Befehl 69661 2"
+  },
+  {
+   "name": "gen-recruit-attack",
+   "new": true,
+   "map": "Camp Crawford (Kampagne)",
+   "turn": 31,
+   "identical": false,
+   "measured": true,
+   "source": "Board (Muse, Zeile 2728)",
+   "when": "2026-10-17 21:45",
+   "total": 6000,
+   "start": 20,
+   "commands": 68,
+   "origins": [
+    "clean/integration (docs/clean/new-fixtures)",
+    "Release fixtures-gen-2026-10-17-recruit-attack"
+   ],
+   "issues": [],
+   "desc": "Camp Crawford (Kampagne) ab Zug 20, 6.000 Züge: Befehle: Rekrutieren 34, Angreifen 18, Bewegen 16"
+  },
+  {
+   "name": "gen-upgrade-research",
+   "new": true,
+   "map": "Dunkelforst",
+   "turn": null,
+   "identical": false,
+   "measured": false,
+   "source": null,
+   "when": null,
+   "total": 1300,
+   "start": 160,
+   "commands": 15,
+   "origins": [
+    "clean/integration (docs/clean/new-fixtures)",
+    "Release fixtures-gen-2026-10-17-upgrade-research"
+   ],
+   "issues": [
+    {
+     "n": 626,
+     "url": "https://github.com/Kofi55533/siedler-agent/issues/626"
+    }
+   ],
+   "desc": "Dunkelforst ab Zug 160, 1.300 Züge: 15 Befehle"
+  },
+  {
+   "name": "gen-weather-time",
+   "new": true,
+   "map": null,
+   "turn": 166,
+   "identical": true,
+   "measured": true,
+   "source": "Board (Codex, Zeile 2960)",
+   "when": "2026-10-17 22:55",
+   "total": 9000,
+   "start": 160,
+   "commands": 436,
+   "origins": [
+    "clean/integration (docs/clean/new-fixtures)"
+   ],
+   "issues": [],
+   "desc": "ab Zug 160, 9.000 Züge: Befehle: Bewegen 355, Steuern 48, Leibeigene kaufen 30, Befehl 69686 3"
+  },
+  {
+   "name": "gen-weather-time-short",
+   "new": true,
+   "map": null,
+   "turn": 166,
+   "identical": true,
+   "measured": true,
+   "source": "Board (Codex, Zeile 2960)",
+   "when": "2026-10-17 22:55",
+   "total": 1500,
+   "start": 160,
+   "commands": 85,
+   "origins": [
+    "clean/integration (docs/clean/new-fixtures)"
+   ],
+   "issues": [],
+   "desc": "ab Zug 160, 1.500 Züge: Befehle: Bewegen 46, Leibeigene kaufen 30, Steuern 8, Befehl 69686 1"
+  },
+  {
+   "name": "genb-ailong-mixed",
+   "new": true,
+   "map": "KI-Testkarte",
+   "turn": 166,
+   "identical": false,
+   "measured": true,
+   "source": "Board (Muse, Zeile 2544)",
+   "when": "2026-10-17 19:40",
+   "total": 5000,
+   "start": 165,
+   "commands": 240,
+   "origins": [
+    "PR #411: Fixture gen B: military command streams (#588)",
+    "Release fixtures-gen-2026-10-17-military"
+   ],
+   "issues": [
+    {
+     "n": 588,
+     "url": "https://github.com/Kofi55533/siedler-agent/issues/588"
+    }
+   ],
+   "desc": "KI-Testkarte ab Zug 165, 5.000 Züge: Befehle: Angreifen 179, Bewegen 21, Abbau 20, Leibeigene kaufen 10, Steuern 10"
+  },
+  {
+   "name": "genb-combat-ops",
+   "new": true,
+   "map": "Kampf-Testkarte",
+   "turn": 167,
+   "identical": false,
+   "measured": true,
+   "source": "Board (Muse, Zeile 2544)",
+   "when": "2026-10-17 19:40",
+   "total": 2000,
+   "start": 166,
+   "commands": 129,
+   "origins": [
+    "PR #411: Fixture gen B: military command streams (#588)",
+    "Release fixtures-gen-2026-10-17-military"
+   ],
+   "issues": [
+    {
+     "n": 588,
+     "url": "https://github.com/Kofi55533/siedler-agent/issues/588"
+    }
+   ],
+   "desc": "Kampf-Testkarte ab Zug 166, 2.000 Züge: Befehle: Angreifen 94, Bewegen 13, Rekrutieren 10, Leibeigene kaufen 6, Steuern 6"
+  },
+  {
+   "name": "genb-waves-assault",
+   "new": true,
+   "map": "Kampf-Testkarte",
+   "turn": 167,
+   "identical": false,
+   "measured": true,
+   "source": "Board (Muse, Zeile 2544)",
+   "when": "2026-10-17 19:40",
+   "total": 3000,
+   "start": 166,
+   "commands": 223,
+   "origins": [
+    "PR #411: Fixture gen B: military command streams (#588)",
+    "Release fixtures-gen-2026-10-17-military"
+   ],
+   "issues": [
+    {
+     "n": 588,
+     "url": "https://github.com/Kofi55533/siedler-agent/issues/588"
+    }
+   ],
+   "desc": "Kampf-Testkarte ab Zug 166, 3.000 Züge: Befehle: Angreifen 182, Bewegen 25, Leibeigene kaufen 8, Steuern 8"
+  },
+  {
+   "name": "genb-wi-mixed",
+   "new": true,
+   "map": "Winterinsel",
+   "turn": 3000,
+   "identical": true,
+   "measured": true,
+   "source": "Board (Muse, Zeile 2839)",
+   "when": "2026-10-18 02:15",
+   "total": 3000,
+   "start": 20,
+   "commands": 46,
+   "origins": [
+    "PR #411: Fixture gen B: military command streams (#588)",
+    "Release fixtures-gen-2026-10-17-military"
+   ],
+   "issues": [
+    {
+     "n": 588,
+     "url": "https://github.com/Kofi55533/siedler-agent/issues/588"
+    }
+   ],
+   "desc": "Winterinsel ab Zug 20, 3.000 Züge: Befehle: Bewegen 20, Alarm 10, Leibeigene kaufen 7, Forschung 5, Steuern 4"
+  },
+  {
+   "name": "genb-wi-move",
+   "new": true,
+   "map": "Winterinsel",
+   "turn": 3000,
+   "identical": true,
+   "measured": true,
+   "source": "Board (Muse, Zeile 2544)",
+   "when": "2026-10-17 19:40",
+   "total": 3000,
+   "start": 20,
+   "commands": 24,
+   "origins": [
+    "PR #411: Fixture gen B: military command streams (#588)",
+    "Release fixtures-gen-2026-10-17-military"
+   ],
+   "issues": [
+    {
+     "n": 588,
+     "url": "https://github.com/Kofi55533/siedler-agent/issues/588"
+    }
+   ],
+   "desc": "Winterinsel ab Zug 20, 3.000 Züge: Befehle: Bewegen 24"
+  },
+  {
+   "name": "genc-campcrawford-5000",
+   "new": true,
+   "map": "Camp Crawford (Kampagne)",
+   "turn": 36,
+   "identical": false,
+   "measured": true,
+   "source": "Board (Muse, Zeile 2630)",
+   "when": "2026-10-17 20:20",
+   "total": 5000,
+   "start": 20,
+   "commands": 1487,
+   "origins": [
+    "PR #413: Fixture gen C: long mixed games on other MP maps (#589)",
+    "Release fixtures-gen-2026-10-17-longmixed"
+   ],
+   "issues": [
+    {
+     "n": 589,
+     "url": "https://github.com/Kofi55533/siedler-agent/issues/589"
+    }
+   ],
+   "desc": "Camp Crawford (Kampagne) ab Zug 20, 5.000 Züge: Befehle: Leibeigene kaufen 400, Steuern 200, Arbeiterlimit 166, Alarm 166, Verkaufen 112, Ausbauen 91, Überstunden 78, Forschung 63, Segnen 50, Bewegen (Formation) 45, Befehl 69659 39, Befehl 69662 39, Rekrutieren 24, Gebäude-Befehl 14"
+  },
+  {
+   "name": "genc-combatwaves-5000",
+   "new": true,
+   "map": "Kampf-Testkarte",
+   "turn": 167,
+   "identical": false,
+   "measured": true,
+   "source": "Board (Muse, Zeile 2470)",
+   "when": "2026-10-17 23:45",
+   "total": 5000,
+   "start": 166,
+   "commands": 2406,
+   "origins": [
+    "PR #413: Fixture gen C: long mixed games on other MP maps (#589)",
+    "Release fixtures-gen-2026-10-17-longmixed"
+   ],
+   "issues": [
+    {
+     "n": 589,
+     "url": "https://github.com/Kofi55533/siedler-agent/issues/589"
+    }
+   ],
+   "desc": "Kampf-Testkarte ab Zug 166, 5.000 Züge: Befehle: Leibeigene kaufen 800, Bewegen 588, Steuern 400, Alarm 332, Segnen 100, Bewegen (Formation) 91, Angreifen 55, Gebäude-Befehl 28, Rekrutieren 12"
+  },
+  {
+   "name": "genc-winterisland-5000",
+   "new": true,
+   "map": "Winterinsel",
+   "turn": 48,
+   "identical": false,
+   "measured": true,
+   "source": "Board (Muse, Zeile 2618)",
+   "when": "2026-10-17 20:15",
+   "total": 5000,
+   "start": 20,
+   "commands": 3246,
+   "origins": [
+    "PR #413: Fixture gen C: long mixed games on other MP maps (#589)",
+    "Release fixtures-gen-2026-10-17-longmixed"
+   ],
+   "issues": [
+    {
+     "n": 589,
+     "url": "https://github.com/Kofi55533/siedler-agent/issues/589"
+    }
+   ],
+   "desc": "Winterinsel ab Zug 20, 5.000 Züge: Befehle: Bewegen 1.176, Leibeigene kaufen 800, Steuern 400, Alarm 332, Miliz 174, Entlassen 144, Segnen 100, Bewegen (Formation) 92, Gebäude-Befehl 28"
+  },
+  {
+   "name": "genc-wsecon-5000",
+   "new": true,
+   "map": "Wintersturm",
+   "turn": 229,
+   "identical": false,
+   "measured": true,
+   "source": "Board (Muse, Zeile 2630)",
+   "when": "2026-10-17 20:20",
+   "total": 5000,
+   "start": 160,
+   "commands": 1751,
+   "origins": [
+    "PR #413: Fixture gen C: long mixed games on other MP maps (#589)",
+    "Release fixtures-gen-2026-10-17-longmixed"
+   ],
+   "issues": [
+    {
+     "n": 589,
+     "url": "https://github.com/Kofi55533/siedler-agent/issues/589"
+    }
+   ],
+   "desc": "Wintersturm ab Zug 160, 5.000 Züge: Befehle: Leibeigene kaufen 800, Steuern 400, Alarm 332, Segnen 100, Bewegen (Formation) 91, Gebäude-Befehl 28"
+  },
+  {
+   "name": "saveload",
+   "new": true,
+   "map": "Wintersturm (Speicherstand)",
+   "turn": null,
+   "identical": false,
+   "measured": false,
+   "source": null,
+   "when": null,
+   "total": 6000,
+   "start": 200,
+   "commands": null,
+   "origins": [
+    "clean/integration (docs/clean/new-fixtures)"
+   ],
+   "issues": [],
+   "desc": "Wintersturm (Speicherstand) ab Zug 200, 6.000 Züge: Befehle unbekannt"
+  },
+  {
+   "name": "saveload-settled",
+   "new": true,
+   "map": "Wintersturm (Speicherstand)",
+   "turn": null,
+   "identical": false,
+   "measured": false,
+   "source": null,
+   "when": null,
+   "total": 6000,
+   "start": 200,
+   "commands": null,
+   "origins": [
+    "clean/integration (docs/clean/new-fixtures)"
+   ],
+   "issues": [],
+   "desc": "Wintersturm (Speicherstand) ab Zug 200, 6.000 Züge: Befehle unbekannt"
+  }
+ ],
+ "matrix_source": {
+  "time": "2026-10-17 18:50",
+  "agent": "Opus",
+  "line": 2440,
+  "sha": "79dbeb2",
+  "excerpt": "Live @79dbeb2: bc-full 602 (eh), build 562, production 559, late-economy 562, camp-crawford 733, combat/-long/-big/-waves 167, ai-long 166; IDENTICAL economy 360, economy-mapstart 360, wsecon 320, wintersturm 1021, wintersturm-mapstart 1021, map-winterisland 3000, late-ai 36000. Next: live-gate open PRs #404 (late-economy 562->775), #405, #410, then bc-full 602.\n"
+ },
+ "percent": {
+  "identical_turns": {
+   "pct": 31.6,
+   "ok": 66126,
+   "total": 209172,
+   "scenarios": 35
+  },
+  "coverage": {
+   "pct": 30.1,
+   "cited": 602,
+   "executed": 1998,
+   "as_of": "2026-10-17 14:20"
+  },
+  "whole_game": {
+   "cited_addresses": 1172,
+   "functions_hit": 898,
+   "logic_hit": 876,
+   "total": 39740,
+   "logic_total": 29723,
+   "pct_logic": 2.95,
+   "pct_raw": 2.26,
+   "module": "SettlersHoK.exe (nur EXE; keine DLLs)",
+   "source": "Kofi55533/siedler-forschung cloud-re/results/rust_handoff/source/functions.jsonl",
+   "source_commit": "fdfd6910 2026-10-07T10:42:56Z",
+   "unclassified_kept_as_logic": 18706,
+   "static": true
+  },
+  "test_scope": {
+   "maps": {
+    "tested": 3,
+    "total": 94,
+    "tested_list": [
+     "(4)WinterIsland",
+     "04_Crawford",
+     "15_OldKingsCastle"
+    ],
+    "untested": [
+     "Einzelspieler: DemoMap",
+     "Einzelspieler: Frozen_Fjord",
+     "Einzelspieler: Mornheim",
+     "Einzelspieler: Over_The_Hills",
+     "Einzelspieler: Peaceful_Land",
+     "Einzelspieler: Sandbox",
+     "Einzelspieler: Small_Dale",
+     "Einzelspieler: Spreadland",
+     "Einzelspieler: SummerIsland",
+     "Einzelspieler: Antrium",
+     "Einzelspieler: CaribeanSurf",
+     "Einzelspieler: Castrum",
+     "Einzelspieler: OldEnemies",
+     "Einzelspieler: RiverCrossing",
+     "Einzelspieler: Siege",
+     "Einzelspieler: SupplyLines",
+     "Einzelspieler: CityGates",
+     "Einzelspieler: ColorsOfBelief",
+     "Einzelspieler: GoldenRiddles",
+     "Einzelspieler: Lightridge",
+     "Einzelspieler: StandrockBattle",
+     "Einzelspieler: WinterAssault",
+     "Kampagne: 00_Tutorial1",
+     "Kampagne: 01_Thalgrund",
+     "Kampagne: 02_VillageAttack",
+     "Kampagne: 06_Cleycourt",
+     "Kampagne: 07_Flood",
+     "Kampagne: 08_Barmecia",
+     "Kampagne: 10_Folklung",
+     "Kampagne: 11_Norfolk",
+     "Kampagne: 12_Kaloix",
+     "Kampagne: 13_Plague",
+     "Kampagne: 17_CloudyMountains",
+     "Kampagne: 18_Evelance",
+     "Kampagne: 19_Wasteland",
+     "Kampagne: 20_BattleOfEvelance",
+     "Kampagne: 01_HugeBridge",
+     "Kampagne: 02_BigRiver",
+     "Kampagne: 03_BigCity",
+     "Kampagne: 04_TradingCaravans",
+     "Kampagne: 05_Headhunter",
+     "Kampagne: 06_TechOrResources",
+     "Kampagne: 07_FleeOrFight",
+     "Kampagne: 08_UnexploredLand",
+     "Kampagne: 09_GreatMountain",
+     "Kampagne: 10_FloodedLand",
+     "Kampagne: 01_DemonDays",
+     "Kampagne: 01_NewBeginning",
+     "Kampagne: 01_RestoringTheFaith",
+     "Kampagne: 01_Revenge",
+     "Kampagne: 02_DefendingTheDryMoat",
+     "Kampagne: 02_Patrol",
+     "Kampagne: 02_SecuringThePath",
+     "Kampagne: 02_TheRichLand",
+     "Kampagne: 03_DarknessUprise",
+     "Kampagne: 03_DivineAnger",
+     "Kampagne: 03_Neighborhood",
+     "Kampagne: 03_TheBeautifulLand",
+     "Kampagne: 04_BrutePower",
+     "Kampagne: 04_IntoShadowIntoLight",
+     "Kampagne: 04_TaintedLight",
+     "Kampagne: 04_WolfsLair",
+     "Kampagne: 05_EmeraldFields",
+     "Mehrspieler: (2)Europe",
+     "Mehrspieler: (2)ScarredLand",
+     "Mehrspieler: (2)SolitudeIsles",
+     "Mehrspieler: (3)Mediterranean",
+     "Mehrspieler: (4)BattleIsle",
+     "Mehrspieler: (4)ClashOfHeroes",
+     "Mehrspieler: (4)Darkland",
+     "Mehrspieler: (4)HillsOfFriendship",
+     "Mehrspieler: (4)ResourceConflict",
+     "Mehrspieler: (4)SummerStorm",
+     "Mehrspieler: (6)Conquest",
+     "Mehrspieler: (6)Highland_Siege",
+     "Mehrspieler: (6)IntoTheForest",
+     "Mehrspieler: (6)WinterRealm",
+     "Mehrspieler: (2)Arcanum",
+     "Mehrspieler: (2)AtTheGates",
+     "Mehrspieler: (2)BanditForrest",
+     "Mehrspieler: (2)Crater",
+     "Mehrspieler: (2)Koenigsforst",
+     "Mehrspieler: (4)BurningSteppe",
+     "Mehrspieler: (4)Clanwar",
+     "Mehrspieler: (4)HauntedRuins",
+     "Mehrspieler: (4)SabotageMoor",
+     "Mehrspieler: (4)Trade4Technology",
+     "Mehrspieler: (5)FourOnOne",
+     "Mehrspieler: (4)EvelanceAssault",
+     "Mehrspieler: (4)FrontierCompanions",
+     "Mehrspieler: (6)BattlefieldBarrens"
+    ],
+    "other_tested": [
+     "Deine BC-Aufnahme (10.08.2026)",
+     "Dunkelforst",
+     "KI-Testkarte",
+     "Kampf-Testkarte",
+     "Wintersturm",
+     "Wintersturm (Speicherstand)"
+    ],
+    "source": "Google Drive siedler-gold-pe-decompilation-2026-10-03-structured, manifest/GOLD_EDITION_FULL_INSTALL_2026-10-03.json (39.708 Dateien Gold-Edition)",
+    "user_map_count": 317
+   },
+   "commands": {
+    "tested": 25,
+    "total": 73,
+    "tested_list": [
+     "0x11002 Entity_Move",
+     "0x11003 Player_BuyBuilding",
+     "0x11004 HQ_BuySerf",
+     "0x11006 Building_Sell",
+     "0x11008 Building_StartUpgrade",
+     "0x1100a Player_UpgradeSettlerCategory",
+     "0x1100b Barracks_BuyLeader",
+     "0x1100c Leader_BuySoldier",
+     "0x1100e Player_SetTaxes",
+     "0x1100f Settler_Expell",
+     "0x11012 Entity_AttackEntity",
+     "0x11019 Serf_ExtractResource",
+     "0x1101a Building_StartResearch",
+     "0x1101b Building_CancelResearch",
+     "0x1101c Market_StartTrade",
+     "0x1101d Market_CancelTrade",
+     "0x1101e Building_CancelUpgrade",
+     "0x11028 Building_SetCurrentMaxWorkers",
+     "0x1102d BattleSerf_TurnToSerf",
+     "0x1102e Serf_TurnToBattleSerf",
+     "0x11030 Player_ActivateAlarm",
+     "0x11031 Player_DeactivateAlarm",
+     "0x11033 Building_ToggleOvertime",
+     "0x11036 Weathermachine_Activate",
+     "0x11037 Player_BlessGroup"
+    ],
+    "untested": [
+     "0x11005 Player_SellSerf",
+     "0x11007 Building_UpgradeImmediately",
+     "0x11009 Player_UpgradeBuildingCategory",
+     "0x1100d Player_LevyTax",
+     "0x11010 Worker_BlessSimgle",
+     "0x11011 Worker_OvertimeSingle",
+     "0x11013 Leader_AttachOneSoldier",
+     "0x11014 Leader_ExpellOneSoldier",
+     "0x11015 Leader_SetFormation",
+     "0x11017 Serf_ConstructBuilding",
+     "0x11018 Serf_RepairBuilding",
+     "0x1101f Entity_AttackPos",
+     "0x11020 Entity_GuardEntity",
+     "0x11021 Leader_HoldPosition",
+     "0x11022 Leader_Aggressive",
+     "0x11023 Leader_Defend",
+     "0x11024 BombPlacer_PlaceBombAt",
+     "0x11025 Entity_Patrol",
+     "0x11026 Player_PayTribute",
+     "0x11027 Player_SetDiplomacy",
+     "0x1102a Player_AllSerfsToBattleSerfs",
+     "0x1102b Player_AllBattleSerfsToSerfs",
+     "0x1102c HawkOwner_SendHawkToPos",
+     "0x1102f CannonPlacer_HeroPlaceCannonAt",
+     "0x11032 Camouflage_Activate",
+     "0x11034 Foundry_BuildCannon",
+     "0x11035 Summoner_Summon",
+     "0x11038 Hero_NPCInteraction",
+     "0x11039 AffectEntities_Activate",
+     "0x1103a CircularAttack_Activate",
+     "0x1103b Player_SendMPResources",
+     "0x1103c Player_BuyHero",
+     "0x1103d ConvertBuilding_Convert",
+     "0x1103e InflictFear_Activate",
+     "0x1103f ConvertSettler_Convert",
+     "0x11040 Barracks_RecruitGroups",
+     "0x11041 Barracks_RecruitLeaderOnly",
+     "0x11042 Hero_BuyMerchantOffer",
+     "0x11043 Thief_StealFrom",
+     "0x11044 Thief_CarryStolenStuffToHQ",
+     "0x11045 Sabotage_Sabotage",
+     "0x11046 Sabotage_Defuse",
+     "0x11047 MotivateWorkers_Activate",
+     "0x11048 Binoculars_Observe",
+     "0x11049 Sniper_Snipe",
+     "0x1104a TorchPlacer_Place",
+     "0x1104b ResourceFinder_Find",
+     "0x1104c Shuriken_Activate"
+    ],
+    "source": "docs/systems/turn.md (Befehlstabelle aus recomp/command_table.py)"
+   }
+  }
+ },
+ "head": {
+  "sha": "19185c9",
+  "time": "2026-10-17 23:29",
+  "subject": "board: Muse result FUNCTION-BACKLOG #643 entity-manager tick already ported/wired (no boundary)"
+ },
+ "opus": {
+  "last_commit": {
+   "sha": "3fc7b36",
+   "time": "2026-10-17 20:12",
+   "subject": "board: merge #415/#416 (production IDENTICAL 840, camp-crawford 1201, late-economy 1019)"
+  },
+  "last_board": {
+   "time": "2026-10-17 18:50",
+   "line": 2440,
+   "summary": "2026-10-17 18:50 Berlin — Opus (cloud session): bootstrap DONE (data-v2 via REST/curl, 13 GB), all fixtures readable (V: bc-full build combat economy production wintersturm wsecon; NF: ai-long late-ai late-economy camp-c"
+  },
+  "activity": {
+   "utc": "2026-10-17T18:12:09Z",
+   "berlin": "2026-10-17 20:12",
+   "source": "Commit"
+  }
+ },
+ "codex": {
+  "last_commit": {
+   "sha": "8e321cf",
+   "time": "2026-10-17 06:04",
+   "branch": "codex/leader-path",
+   "subject": "Restore native fine-path state and advance economy to turn 291"
+  },
+  "last_board": {
+   "time": "2026-10-17 23:04",
+   "line": 3000,
+   "summary": "2026-10-17 23:04 Berlin — Codex queues the next BC research-start boundary"
+  },
+  "note": "Limit bis 22.10. 15:57",
+  "activity": {
+   "utc": "2026-10-17T21:04:00Z",
+   "berlin": "2026-10-17 23:04",
+   "source": "Board-Eintrag"
+  },
+  "paused_until_utc": "2026-10-22T13:57:00Z"
+ },
+ "deepseek": {
+  "running": [
+   {
+    "title": "Census genc-campcrawford-5000 / genc-wsecon-5000 after their command-arm boundaries: fix the first independent window",
+    "run_url": "https://github.com/Kofi55533/siedler-agent/actions/runs/39060742051",
+    "issue": 627,
+    "issue_url": "https://github.com/Kofi55533/siedler-agent/issues/627",
+    "kind": "Fehlersuche",
+    "started": "2026-10-17 21:02",
+    "minutes": 145
+   },
+   {
+    "title": "Port+wire EGL::CGLEEntity task-list/timer helpers (uncited t190/246): function-backlog group",
+    "run_url": "https://github.com/Kofi55533/siedler-agent/actions/runs/39064671781",
+    "issue": 632,
+    "issue_url": "https://github.com/Kofi55533/siedler-agent/issues/632",
+    "kind": "Funktionen",
+    "started": "2026-10-17 21:57",
+    "minutes": 90
+   },
+   {
+    "title": "Queue 048: wire the research-start account/technology store to move bc-full past 763",
+    "run_url": "https://github.com/Kofi55533/siedler-agent/actions/runs/39070204501",
+    "issue": 639,
+    "issue_url": "https://github.com/Kofi55533/siedler-agent/issues/639",
+    "kind": "Fehlersuche",
+    "started": "2026-10-17 23:15",
+    "minutes": 12
+   },
+   {
+    "title": "Queue 046: complete PR 428 camp-slot native vectors + occupied-camp import (late-economy 1387)",
+    "run_url": "https://github.com/Kofi55533/siedler-agent/actions/runs/39070206615",
+    "issue": 640,
+    "issue_url": "https://github.com/Kofi55533/siedler-agent/issues/640",
+    "kind": "Fehlersuche",
+    "started": "2026-10-17 23:15",
+    "minutes": 11
+   },
+   {
+    "title": "Diverge camp-crawford-3928: root cause and wired fix at the live first divergence",
+    "run_url": "https://github.com/Kofi55533/siedler-agent/actions/runs/39070208946",
+    "issue": 641,
+    "issue_url": "https://github.com/Kofi55533/siedler-agent/issues/641",
+    "kind": "Fehlersuche",
+    "started": "2026-10-17 23:16",
+    "minutes": 11
+   },
+   {
+    "title": "Queue 047: complete PR 424 overtime activation with native worker event 0x1300B (gen-a-dunkelforst)",
+    "run_url": "https://github.com/Kofi55533/siedler-agent/actions/runs/39070211557",
+    "issue": 642,
+    "issue_url": "https://github.com/Kofi55533/siedler-agent/issues/642",
+    "kind": "Fehlersuche",
+    "started": "2026-10-17 23:16",
+    "minutes": 11
+   },
+   {
+    "title": "Port: EGL::CGLEEntityManager tick + script-name helpers (0x576117, 0x576EA6/0x576C84)",
+    "run_url": "https://github.com/Kofi55533/siedler-agent/actions/runs/39070213655",
+    "issue": 643,
+    "issue_url": "https://github.com/Kofi55533/siedler-agent/issues/643",
+    "kind": "Funktionen",
+    "started": "2026-10-17 23:16",
+    "minutes": 11
+   },
+   {
+    "title": "Port: EGL::CGLEEntity ID/list plumbing (0x49952B/0x499554/0x49AA61/0x49BBBF/0x49A8A3/0x4955BC)",
+    "run_url": "https://github.com/Kofi55533/siedler-agent/actions/runs/39070216725",
+    "issue": 644,
+    "issue_url": "https://github.com/Kofi55533/siedler-agent/issues/644",
+    "kind": "Funktionen",
+    "started": "2026-10-17 23:16",
+    "minutes": 11
+   },
+   {
+    "title": "Port: EGL::CGLEGameLogic tick + GetTickVT helpers (0x594279/0x59431C/0x57102A)",
+    "run_url": "https://github.com/Kofi55533/siedler-agent/actions/runs/39070219495",
+    "issue": 645,
+    "issue_url": "https://github.com/Kofi55533/siedler-agent/issues/645",
+    "kind": "Funktionen",
+    "started": "2026-10-17 23:16",
+    "minutes": 11
+   },
+   {
+    "title": "Port: BB::CClassFactory object creation/serialization (0x58D773/0x54CA71/0x54CB31/0x54CAD6)",
+    "run_url": "https://github.com/Kofi55533/siedler-agent/actions/runs/39070221637",
+    "issue": 646,
+    "issue_url": "https://github.com/Kofi55533/siedler-agent/issues/646",
+    "kind": "Funktionen",
+    "started": "2026-10-17 23:16",
+    "minutes": 11
+   },
+   {
+    "title": "Port: ED::CLandscape terrain/water height queries (0x47AB0E/0x47A6BC/0x47A5AC)",
+    "run_url": "https://github.com/Kofi55533/siedler-agent/actions/runs/39070225450",
+    "issue": 647,
+    "issue_url": "https://github.com/Kofi55533/siedler-agent/issues/647",
+    "kind": "Funktionen",
+    "started": "2026-10-17 23:16",
+    "minutes": 11
+   },
+   {
+    "title": "Port: EGL particle/sub-anim/UV attachment handlers (0x590A9E/0x590E44/0x594791/0x594834/0x590486)",
+    "run_url": "https://github.com/Kofi55533/siedler-agent/actions/runs/39070230835",
+    "issue": 649,
+    "issue_url": "https://github.com/Kofi55533/siedler-agent/issues/649",
+    "kind": "Funktionen",
+    "started": "2026-10-17 23:16",
+    "minutes": 11
+   },
+   {
+    "title": "Port: GGL::CGLGameLogic bookkeeping helpers (0x4C1476/0x4C12E6/0x4C1914/0x4C158A)",
+    "run_url": "https://github.com/Kofi55533/siedler-agent/actions/runs/39070234731",
+    "issue": 650,
+    "issue_url": "https://github.com/Kofi55533/siedler-agent/issues/650",
+    "kind": "Funktionen",
+    "started": "2026-10-17 23:16",
+    "minutes": 11
+   },
+   {
+    "title": "Port: GGL::CSettler behavior helpers (0x4C6FF0/0x4C1A8A/0x4A3EF3/0x4A4ABC/0x4A4AB2)",
+    "run_url": "https://github.com/Kofi55533/siedler-agent/actions/runs/39070235990",
+    "issue": 651,
+    "issue_url": "https://github.com/Kofi55533/siedler-agent/issues/651",
+    "kind": "Funktionen",
+    "started": "2026-10-17 23:16",
+    "minutes": 11
+   },
+   {
+    "title": "Port: EGL::CEffect lifecycle handlers (0x588C20/0x49EB85/0x58A1F5/0x58A312)",
+    "run_url": "https://github.com/Kofi55533/siedler-agent/actions/runs/39070240053",
+    "issue": 652,
+    "issue_url": "https://github.com/Kofi55533/siedler-agent/issues/652",
+    "kind": "Funktionen",
+    "started": "2026-10-17 23:16",
+    "minutes": 11
+   },
+   {
+    "title": "Port: GGL::CBuilding status/health/door helpers (0x4AB192/0x4AA052/0x4AF2B5/0x4AE601)",
+    "run_url": "https://github.com/Kofi55533/siedler-agent/actions/runs/39070247720",
+    "issue": 653,
+    "issue_url": "https://github.com/Kofi55533/siedler-agent/issues/653",
+    "kind": "Funktionen",
+    "started": "2026-10-17 23:16",
+    "minutes": 11
+   },
+   {
+    "title": "[planner] refill 2026-10-17 23:29 N=3",
+    "run_url": "https://github.com/Kofi55533/siedler-agent/actions/runs/39071131904",
+    "issue": 654,
+    "issue_url": "https://github.com/Kofi55533/siedler-agent/issues/654",
+    "kind": "Planer",
+    "started": "2026-10-17 23:29",
+    "minutes": -2
+   }
+  ],
+  "kinds": {
+   "Fehlersuche": 5,
+   "Funktionen": 11,
+   "Planer": 1
+  },
+  "count": 17,
+  "queued": 0,
+  "target": 20,
+  "merged_24h": [
+   {
+    "number": 429,
+    "title": "[#634] gen-campaign: fresh Wintersturm MP fallback fixture (campaign image blocked)",
+    "merged": "2026-10-17 22:31",
+    "author": "Kofi55533"
+   },
+   {
+    "number": 423,
+    "title": "world: pay the leaders' upkeep in the payday (#607)",
+    "merged": "2026-10-17 22:11",
+    "author": "Kofi55533"
+   },
+   {
+    "number": 422,
+    "title": "fixtures: gen-upgrade-research (upgrade/research command streams) + wiring request",
+    "merged": "2026-10-17 22:01",
+    "author": "Kofi55533"
+   },
+   {
+    "number": 421,
+    "title": "new-fixtures: weather machine + move-speed reference fixtures (#620)",
+    "merged": "2026-10-17 21:53",
+    "author": "Kofi55533"
+   },
+   {
+    "number": 420,
+    "title": "new-fixtures: market/barter trade command streams (#617)",
+    "merged": "2026-10-17 21:45",
+    "author": "Kofi55533"
+   },
+   {
+    "number": 419,
+    "title": "Fixture gen: military recruit+attack commands (#608)",
+    "merged": "2026-10-17 21:32",
+    "author": "Kofi55533"
+   },
+   {
+    "number": 418,
+    "title": "fixtures: invalid/blocked building-placement coverage fixture (gen-invalid-placement) — IDENTICAL 600, no code PR (#616)",
+    "merged": "2026-10-17 21:17",
+    "author": "Kofi55533"
+   },
+   {
+    "number": 417,
+    "title": "gen-diplomacy: diplomacy/tribute fixture generator + metadata (#619)",
+    "merged": "2026-10-17 21:10",
+    "author": "Kofi55533"
+   },
+   {
+    "number": 414,
+    "title": "tools: map-start capture for new maps + documented graphics-asset blocker (#589)",
+    "merged": "2026-10-17 20:27",
+    "author": "Kofi55533"
+   },
+   {
+    "number": 416,
+    "title": "world: wire TASK_GO_TO_CAMP (CCamperBehavior) camp search/create + slots (production 755 -> IDENTICAL 840)",
+    "merged": "2026-10-17 20:12",
+    "author": "Kofi55533"
+   },
+   {
+    "number": 407,
+    "title": "clean: restore and deep-diff per-player tribute/quest sub-objects",
+    "merged": "2026-10-17 18:49",
+    "author": "Kofi55533"
+   },
+   {
+    "number": 405,
+    "title": "world: in-tick construction-site deletion + serf 0x13002 recipient",
+    "merged": "2026-10-17 18:37",
+    "author": "Kofi55533"
+   },
+   {
+    "number": 403,
+    "title": "tools: native coverage map (executed vs cited functions) + docs/clean/COVERAGE.md (opus-009)",
+    "merged": "2026-10-17 14:20",
+    "author": "Kofi55533"
+   },
+   {
+    "number": 402,
+    "title": "tools: whole-matrix window census generator + docs/clean/CENSUS.md (opus-008)",
+    "merged": "2026-10-17 14:04",
+    "author": "Kofi55533"
+   },
+   {
+    "number": 398,
+    "title": "world/reference: import CPlayerStatus+0x318 building upgrade-category manager (0x4B3280) + building_type lookup",
+    "merged": "2026-10-17 13:23",
+    "author": "Kofi55533"
+   },
+   {
+    "number": 397,
+    "title": "wsecon: settler HeadIndex defaults to -1 (census 160-210 IDENTICAL)",
+    "merged": "2026-10-17 13:10",
+    "author": "Kofi55533"
+   },
+   {
+    "number": 395,
+    "title": "importer: restore settler HeadIndex/HeadParams (+0x130/+0x134)",
+    "merged": "2026-10-17 12:23",
+    "author": "Kofi55533"
+   },
+   {
+    "number": 393,
+    "title": "Construction site: wire the serf builder path and the site step task",
+    "merged": "2026-10-17 11:48",
+    "author": "Kofi55533"
+   },
+   {
+    "number": 391,
+    "title": "world: dispatch TASK_INCREASE_PLAYER_FAITH (camp-crawford census 343-393 -> IDENTICAL)",
+    "merged": "2026-10-17 11:28",
+    "author": "Kofi55533"
+   },
+   {
+    "number": 390,
+    "title": "entity: map ATTACHMENT_WORKER_SUPPLIER (camp-crawford 293 -> 298)",
+    "merged": "2026-10-17 11:03",
+    "author": "Kofi55533"
+   },
+   {
+    "number": 389,
+    "title": "clean: dispatch TASK_SET_DEFAULT_REACTION_TYPE on leaders (camp-crawford 281 -> 293)",
+    "merged": "2026-10-17 09:31",
+    "author": "Kofi55533"
+   },
+   {
+    "number": 387,
+    "title": "world: model TASK_SET_TARGET_ORIENTATION_RELATIVE (economy image 311 -> identical)",
+    "merged": "2026-10-17 08:44",
+    "author": "Kofi55533"
+   },
+   {
+    "number": 386,
+    "title": "s5clean/reference: restore CBehaviorWalkCommand target (bc-full census 121-171 -> identical)",
+    "merged": "2026-10-17 08:18",
+    "author": "Kofi55533"
+   },
+   {
+    "number": 384,
+    "title": "world: worker TASK_GO_TO_POS (economy first divergence 296 -> 311)",
+    "merged": "2026-10-17 07:32",
+    "author": "Kofi55533"
+   },
+   {
+    "number": 382,
+    "title": "camp-crawford: wire settler TASK_GO_TO_POS (0x4CE1E5, workplace-relative move)",
+    "merged": "2026-10-17 07:12",
+    "author": "Kofi55533"
+   },
+   {
+    "number": 381,
+    "title": "ai: run the village serf purchase at its holder-pass call position (late-ai 543 -> identical)",
+    "merged": "2026-10-17 06:58",
+    "author": "Kofi55533"
+   },
+   {
+    "number": 380,
+    "title": "economy: model TASK_RESET_TASK_LIST_TIMER (census 290-295 identical)",
+    "merged": "2026-10-17 06:16",
+    "author": "Kofi55533"
+   },
+   {
+    "number": 379,
+    "title": "Wire native fine-path state; advance economy to turn 291",
+    "merged": "2026-10-17 06:06",
+    "author": "Kofi55533"
+   },
+   {
+    "number": 378,
+    "title": "AI: wire the village replenishment pass (0x44E84E) into GglPhase::Ai (late-ai 264 -> 543)",
+    "merged": "2026-10-17 05:25",
+    "author": "Kofi55533"
+   },
+   {
+    "number": 377,
+    "title": "world/workers: workplace_task_list all-in-use fallback is the last WorkTaskList row (economy 189 -> 290)",
+    "merged": "2026-10-17 05:16",
+    "author": "Kofi55533"
+   },
+   {
+    "number": 376,
+    "title": "Settler fine search plans through the leader pather (0x51657E)",
+    "merged": "2026-10-17 05:11",
+    "author": "Kofi55533"
+   },
+   {
+    "number": 375,
+    "title": "PARTIAL (no boundary move): port formation slot solver 0x4F7962 line case",
+    "merged": "2026-10-17 04:51",
+    "author": "Kofi55533"
+   },
+   {
+    "number": 374,
+    "title": "Wire the refiner supply trip (camp-crawford 89→186)",
+    "merged": "2026-10-17 04:37",
+    "author": "Kofi55533"
+   },
+   {
+    "number": 373,
+    "title": "AI: wire the village serf-purchase gate into GglPhase::Ai (late-ai 184 -> 264)",
+    "merged": "2026-10-17 04:29",
+    "author": "Kofi55533"
+   },
+   {
+    "number": 372,
+    "title": "Muse #505: animal GO_TO_POS + CHECK_HERO_POSITION (camp-crawford 25 -> 89)",
+    "merged": "2026-10-17 03:54",
+    "author": "Kofi55533"
+   },
+   {
+    "number": 371,
+    "title": "AI phase holder pass: late-ai 166 -> 184 (ai-long 166 unchanged; needs combat formation)",
+    "merged": "2026-10-17 03:50",
+    "author": "Kofi55533"
+   },
+   {
+    "number": 370,
+    "title": "Building exit: state-27 scan blocks on observers (0x32), not target",
+    "merged": "2026-10-17 03:46",
+    "author": "Kofi55533"
+   },
+   {
+    "number": 369,
+    "title": "build-216/late-economy-222: wire CNetEventBuildingCreator (boundary NOT moved; decode bridge + wiring request)",
+    "merged": "2026-10-17 03:28",
+    "author": "Kofi55533"
+   },
+   {
+    "number": 368,
+    "title": "Port combat TASK_SET_ATTACK_ANIM 0x50BFC0 (unwired) with 0x50C0E5 trace",
+    "merged": "2026-10-17 00:18",
+    "author": "Kofi55533"
+   },
+   {
+    "number": 318,
+    "title": "AI holder turn-166 consolidation: imported-state readers (port, supersedes #338/#343/#318 doc, keeps #324 verdict)",
+    "merged": "2026-10-17 00:12",
+    "author": "Kofi55533"
+   },
+   {
+    "number": 345,
+    "title": "Queue 036: typed synchronous research delivery (rework of queue 016 port, unwired)",
+    "merged": "2026-10-17 00:06",
+    "author": "Kofi55533"
+   },
+   {
+    "number": 326,
+    "title": "docs(port): payday tick wire rework analysis (doc-only, supersedes #128)",
+    "merged": "2026-10-16 23:52",
+    "author": "Kofi55533"
+   },
+   {
+    "number": 367,
+    "title": "Queue 025: combat first target-query answer (unwired World host + tests)",
+    "merged": "2026-10-16 23:45",
+    "author": "Kofi55533"
+   }
+  ]
+ },
+ "errors": [],
+ "history": [
+  {
+   "key": "2026-10-17 18:50|79dbeb2",
+   "time": "2026-10-17 18:50",
+   "sha": "79dbeb2",
+   "values": {
+    "bc-full": {
+     "turn": 602,
+     "identical": false
+    },
+    "build": {
+     "turn": 562,
+     "identical": false
+    },
+    "production": {
+     "turn": 559,
+     "identical": false
+    },
+    "late-economy": {
+     "turn": 562,
+     "identical": false
+    },
+    "camp-crawford": {
+     "turn": 733,
+     "identical": false
+    },
+    "combat": {
+     "turn": 167,
+     "identical": false
+    },
+    "combat-long": {
+     "turn": 167,
+     "identical": false
+    },
+    "combat-big": {
+     "turn": 167,
+     "identical": false
+    },
+    "combat-waves": {
+     "turn": 167,
+     "identical": false
+    },
+    "ai-long": {
+     "turn": 166,
+     "identical": false
+    },
+    "economy": {
+     "turn": 360,
+     "identical": true
+    },
+    "economy-mapstart": {
+     "turn": 360,
+     "identical": true
+    },
+    "wsecon": {
+     "turn": 320,
+     "identical": true
+    },
+    "wintersturm": {
+     "turn": 1021,
+     "identical": true
+    },
+    "wintersturm-mapstart": {
+     "turn": 1021,
+     "identical": true
+    },
+    "map-winterisland": {
+     "turn": 3000,
+     "identical": true
+    },
+    "late-ai": {
+     "turn": 36000,
+     "identical": true
+    }
+   }
+  },
+  {
+   "key": "2026-10-17 18:50|79dbeb2",
+   "time": "2026-10-17 18:50",
+   "sha": "79dbeb2",
+   "recorded": "2026-10-17 20:13",
+   "pct_identical": 29.1,
+   "pct_coverage": 30.1,
+   "values": {
+    "bc-full": {
+     "turn": 602,
+     "identical": false
+    },
+    "build": {
+     "turn": 562,
+     "identical": false
+    },
+    "production": {
+     "turn": 559,
+     "identical": false
+    },
+    "late-economy": {
+     "turn": 562,
+     "identical": false
+    },
+    "camp-crawford": {
+     "turn": 733,
+     "identical": false
+    },
+    "combat": {
+     "turn": 167,
+     "identical": false
+    },
+    "combat-long": {
+     "turn": 167,
+     "identical": false
+    },
+    "combat-big": {
+     "turn": 167,
+     "identical": false
+    },
+    "combat-waves": {
+     "turn": 167,
+     "identical": false
+    },
+    "ai-long": {
+     "turn": 166,
+     "identical": false
+    },
+    "economy": {
+     "turn": 360,
+     "identical": true
+    },
+    "economy-mapstart": {
+     "turn": 360,
+     "identical": true
+    },
+    "wsecon": {
+     "turn": 320,
+     "identical": true
+    },
+    "wintersturm": {
+     "turn": 1021,
+     "identical": true
+    },
+    "wintersturm-mapstart": {
+     "turn": 1021,
+     "identical": true
+    },
+    "map-winterisland": {
+     "turn": 3000,
+     "identical": true
+    },
+    "late-ai": {
+     "turn": 36000,
+     "identical": true
+    },
+    "gen-a-dunkelforst": {
+     "turn": 81,
+     "identical": false
+    },
+    "gen-a-dunkelforst-long": {
+     "turn": 81,
+     "identical": false
+    },
+    "gen-a-wintersturm": {
+     "turn": 781,
+     "identical": false
+    },
+    "gen-a-wintersturm-long": {
+     "turn": 781,
+     "identical": false
+    },
+    "genb-ailong-mixed": {
+     "turn": 166,
+     "identical": false
+    },
+    "genb-combat-ops": {
+     "turn": 167,
+     "identical": false
+    },
+    "genb-waves-assault": {
+     "turn": 167,
+     "identical": false
+    },
+    "genb-wi-mixed": {
+     "turn": 141,
+     "identical": false
+    },
+    "genb-wi-move": {
+     "turn": 3000,
+     "identical": true
+    },
+    "genc-campcrawford-5000": {
+     "turn": 23,
+     "identical": false
+    },
+    "genc-combatwaves-5000": {
+     "turn": 167,
+     "identical": false
+    },
+    "genc-winterisland-5000": {
+     "turn": 23,
+     "identical": false
+    },
+    "genc-wsecon-5000": {
+     "turn": 180,
+     "identical": false
+    }
+   }
+  },
+  {
+   "key": "2026-10-17 18:50|79dbeb2",
+   "time": "2026-10-17 18:50",
+   "sha": "79dbeb2",
+   "recorded": "2026-10-17 20:42",
+   "pct_identical": 29.1,
+   "pct_coverage": 30.1,
+   "pct_whole_logic": 2.94,
+   "pct_whole_raw": 2.25,
+   "maps_tested": "3/94",
+   "commands_tested": "22/73",
+   "values": {
+    "bc-full": {
+     "turn": 602,
+     "identical": false
+    },
+    "build": {
+     "turn": 562,
+     "identical": false
+    },
+    "production": {
+     "turn": 559,
+     "identical": false
+    },
+    "late-economy": {
+     "turn": 562,
+     "identical": false
+    },
+    "camp-crawford": {
+     "turn": 733,
+     "identical": false
+    },
+    "combat": {
+     "turn": 167,
+     "identical": false
+    },
+    "combat-long": {
+     "turn": 167,
+     "identical": false
+    },
+    "combat-big": {
+     "turn": 167,
+     "identical": false
+    },
+    "combat-waves": {
+     "turn": 167,
+     "identical": false
+    },
+    "ai-long": {
+     "turn": 166,
+     "identical": false
+    },
+    "economy": {
+     "turn": 360,
+     "identical": true
+    },
+    "economy-mapstart": {
+     "turn": 360,
+     "identical": true
+    },
+    "wsecon": {
+     "turn": 320,
+     "identical": true
+    },
+    "wintersturm": {
+     "turn": 1021,
+     "identical": true
+    },
+    "wintersturm-mapstart": {
+     "turn": 1021,
+     "identical": true
+    },
+    "map-winterisland": {
+     "turn": 3000,
+     "identical": true
+    },
+    "late-ai": {
+     "turn": 36000,
+     "identical": true
+    },
+    "gen-a-dunkelforst": {
+     "turn": 81,
+     "identical": false
+    },
+    "gen-a-dunkelforst-long": {
+     "turn": 81,
+     "identical": false
+    },
+    "gen-a-wintersturm": {
+     "turn": 781,
+     "identical": false
+    },
+    "gen-a-wintersturm-long": {
+     "turn": 781,
+     "identical": false
+    },
+    "genb-ailong-mixed": {
+     "turn": 166,
+     "identical": false
+    },
+    "genb-combat-ops": {
+     "turn": 167,
+     "identical": false
+    },
+    "genb-waves-assault": {
+     "turn": 167,
+     "identical": false
+    },
+    "genb-wi-mixed": {
+     "turn": 141,
+     "identical": false
+    },
+    "genb-wi-move": {
+     "turn": 3000,
+     "identical": true
+    },
+    "genc-campcrawford-5000": {
+     "turn": 36,
+     "identical": false
+    },
+    "genc-combatwaves-5000": {
+     "turn": 167,
+     "identical": false
+    },
+    "genc-winterisland-5000": {
+     "turn": 48,
+     "identical": false
+    },
+    "genc-wsecon-5000": {
+     "turn": 229,
+     "identical": false
+    }
+   }
+  },
+  {
+   "key": "2026-10-17 18:50|79dbeb2",
+   "time": "2026-10-17 18:50",
+   "sha": "79dbeb2",
+   "recorded": "2026-10-17 21:14",
+   "pct_identical": 27.1,
+   "pct_coverage": 30.1,
+   "pct_whole_logic": 2.94,
+   "pct_whole_raw": 2.25,
+   "maps_tested": "3/94",
+   "commands_tested": "25/73",
+   "values": {
+    "bc-full": {
+     "turn": 602,
+     "identical": false
+    },
+    "build": {
+     "turn": 562,
+     "identical": false
+    },
+    "production": {
+     "turn": 559,
+     "identical": false
+    },
+    "late-economy": {
+     "turn": 562,
+     "identical": false
+    },
+    "camp-crawford": {
+     "turn": 733,
+     "identical": false
+    },
+    "combat": {
+     "turn": 167,
+     "identical": false
+    },
+    "combat-long": {
+     "turn": 167,
+     "identical": false
+    },
+    "combat-big": {
+     "turn": 167,
+     "identical": false
+    },
+    "combat-waves": {
+     "turn": 167,
+     "identical": false
+    },
+    "ai-long": {
+     "turn": 166,
+     "identical": false
+    },
+    "economy": {
+     "turn": 360,
+     "identical": true
+    },
+    "economy-mapstart": {
+     "turn": 360,
+     "identical": true
+    },
+    "wsecon": {
+     "turn": 320,
+     "identical": true
+    },
+    "wintersturm": {
+     "turn": 1021,
+     "identical": true
+    },
+    "wintersturm-mapstart": {
+     "turn": 1021,
+     "identical": true
+    },
+    "map-winterisland": {
+     "turn": 3000,
+     "identical": true
+    },
+    "late-ai": {
+     "turn": 36000,
+     "identical": true
+    },
+    "gen-a-dunkelforst": {
+     "turn": 81,
+     "identical": false
+    },
+    "gen-a-dunkelforst-long": {
+     "turn": 81,
+     "identical": false
+    },
+    "gen-a-wintersturm": {
+     "turn": 841,
+     "identical": false
+    },
+    "gen-a-wintersturm-long": {
+     "turn": 841,
+     "identical": false
+    },
+    "gen-invalid-placement": {
+     "turn": 600,
+     "identical": true
+    },
+    "gen-recruit-attack": {
+     "turn": 31,
+     "identical": false
+    },
+    "gen-weather-time": {
+     "turn": 166,
+     "identical": false
+    },
+    "genb-ailong-mixed": {
+     "turn": 166,
+     "identical": false
+    },
+    "genb-combat-ops": {
+     "turn": 167,
+     "identical": false
+    },
+    "genb-waves-assault": {
+     "turn": 167,
+     "identical": false
+    },
+    "genb-wi-mixed": {
+     "turn": 141,
+     "identical": false
+    },
+    "genb-wi-move": {
+     "turn": 3000,
+     "identical": true
+    },
+    "genc-campcrawford-5000": {
+     "turn": 36,
+     "identical": false
+    },
+    "genc-combatwaves-5000": {
+     "turn": 167,
+     "identical": false
+    },
+    "genc-winterisland-5000": {
+     "turn": 48,
+     "identical": false
+    },
+    "genc-wsecon-5000": {
+     "turn": 229,
+     "identical": false
+    }
+   }
+  },
+  {
+   "key": "2026-10-17 18:50|79dbeb2",
+   "time": "2026-10-17 18:50",
+   "sha": "79dbeb2",
+   "recorded": "2026-10-17 21:28",
+   "pct_identical": 27.3,
+   "pct_coverage": 30.1,
+   "pct_whole_logic": 2.94,
+   "pct_whole_raw": 2.25,
+   "maps_tested": "3/94",
+   "commands_tested": "25/73",
+   "values": {
+    "bc-full": {
+     "turn": 602,
+     "identical": false
+    },
+    "build": {
+     "turn": 562,
+     "identical": false
+    },
+    "production": {
+     "turn": 559,
+     "identical": false
+    },
+    "late-economy": {
+     "turn": 562,
+     "identical": false
+    },
+    "camp-crawford": {
+     "turn": 733,
+     "identical": false
+    },
+    "combat": {
+     "turn": 167,
+     "identical": false
+    },
+    "combat-long": {
+     "turn": 167,
+     "identical": false
+    },
+    "combat-big": {
+     "turn": 167,
+     "identical": false
+    },
+    "combat-waves": {
+     "turn": 167,
+     "identical": false
+    },
+    "ai-long": {
+     "turn": 166,
+     "identical": false
+    },
+    "economy": {
+     "turn": 360,
+     "identical": true
+    },
+    "economy-mapstart": {
+     "turn": 360,
+     "identical": true
+    },
+    "wsecon": {
+     "turn": 320,
+     "identical": true
+    },
+    "wintersturm": {
+     "turn": 1021,
+     "identical": true
+    },
+    "wintersturm-mapstart": {
+     "turn": 1021,
+     "identical": true
+    },
+    "map-winterisland": {
+     "turn": 3000,
+     "identical": true
+    },
+    "late-ai": {
+     "turn": 36000,
+     "identical": true
+    },
+    "gen-a-dunkelforst": {
+     "turn": 331,
+     "identical": false
+    },
+    "gen-a-dunkelforst-long": {
+     "turn": 331,
+     "identical": false
+    },
+    "gen-a-wintersturm": {
+     "turn": 841,
+     "identical": false
+    },
+    "gen-a-wintersturm-long": {
+     "turn": 841,
+     "identical": false
+    },
+    "gen-invalid-placement": {
+     "turn": 600,
+     "identical": true
+    },
+    "gen-recruit-attack": {
+     "turn": 31,
+     "identical": false
+    },
+    "gen-weather-time": {
+     "turn": 166,
+     "identical": false
+    },
+    "genb-ailong-mixed": {
+     "turn": 166,
+     "identical": false
+    },
+    "genb-combat-ops": {
+     "turn": 167,
+     "identical": false
+    },
+    "genb-waves-assault": {
+     "turn": 167,
+     "identical": false
+    },
+    "genb-wi-mixed": {
+     "turn": 141,
+     "identical": false
+    },
+    "genb-wi-move": {
+     "turn": 3000,
+     "identical": true
+    },
+    "genc-campcrawford-5000": {
+     "turn": 36,
+     "identical": false
+    },
+    "genc-combatwaves-5000": {
+     "turn": 167,
+     "identical": false
+    },
+    "genc-winterisland-5000": {
+     "turn": 48,
+     "identical": false
+    },
+    "genc-wsecon-5000": {
+     "turn": 229,
+     "identical": false
+    }
+   }
+  },
+  {
+   "key": "2026-10-17 18:50|79dbeb2",
+   "time": "2026-10-17 18:50",
+   "sha": "79dbeb2",
+   "recorded": "2026-10-17 21:42",
+   "pct_identical": 28.9,
+   "pct_coverage": 30.1,
+   "pct_whole_logic": 2.94,
+   "pct_whole_raw": 2.25,
+   "maps_tested": "3/94",
+   "commands_tested": "25/73",
+   "values": {
+    "bc-full": {
+     "turn": 602,
+     "identical": false
+    },
+    "build": {
+     "turn": 562,
+     "identical": false
+    },
+    "production": {
+     "turn": 559,
+     "identical": false
+    },
+    "late-economy": {
+     "turn": 562,
+     "identical": false
+    },
+    "camp-crawford": {
+     "turn": 733,
+     "identical": false
+    },
+    "combat": {
+     "turn": 167,
+     "identical": false
+    },
+    "combat-long": {
+     "turn": 167,
+     "identical": false
+    },
+    "combat-big": {
+     "turn": 167,
+     "identical": false
+    },
+    "combat-waves": {
+     "turn": 167,
+     "identical": false
+    },
+    "ai-long": {
+     "turn": 166,
+     "identical": false
+    },
+    "economy": {
+     "turn": 360,
+     "identical": true
+    },
+    "economy-mapstart": {
+     "turn": 360,
+     "identical": true
+    },
+    "wsecon": {
+     "turn": 320,
+     "identical": true
+    },
+    "wintersturm": {
+     "turn": 1021,
+     "identical": true
+    },
+    "wintersturm-mapstart": {
+     "turn": 1021,
+     "identical": true
+    },
+    "map-winterisland": {
+     "turn": 3000,
+     "identical": true
+    },
+    "late-ai": {
+     "turn": 36000,
+     "identical": true
+    },
+    "gen-a-dunkelforst": {
+     "turn": 331,
+     "identical": false
+    },
+    "gen-a-dunkelforst-long": {
+     "turn": 331,
+     "identical": false
+    },
+    "gen-a-wintersturm": {
+     "turn": 841,
+     "identical": false
+    },
+    "gen-a-wintersturm-long": {
+     "turn": 841,
+     "identical": false
+    },
+    "gen-invalid-placement": {
+     "turn": 600,
+     "identical": true
+    },
+    "gen-recruit-attack": {
+     "turn": 31,
+     "identical": false
+    },
+    "gen-weather-time": {
+     "turn": 166,
+     "identical": false
+    },
+    "genb-ailong-mixed": {
+     "turn": 166,
+     "identical": false
+    },
+    "genb-combat-ops": {
+     "turn": 167,
+     "identical": false
+    },
+    "genb-waves-assault": {
+     "turn": 167,
+     "identical": false
+    },
+    "genb-wi-mixed": {
+     "turn": 3000,
+     "identical": true
+    },
+    "genb-wi-move": {
+     "turn": 3000,
+     "identical": true
+    },
+    "genc-campcrawford-5000": {
+     "turn": 36,
+     "identical": false
+    },
+    "genc-combatwaves-5000": {
+     "turn": 167,
+     "identical": false
+    },
+    "genc-winterisland-5000": {
+     "turn": 48,
+     "identical": false
+    },
+    "genc-wsecon-5000": {
+     "turn": 229,
+     "identical": false
+    }
+   }
+  },
+  {
+   "key": "2026-10-17 18:50|79dbeb2",
+   "time": "2026-10-17 18:50",
+   "sha": "79dbeb2",
+   "recorded": "2026-10-17 22:16",
+   "pct_identical": 28.7,
+   "pct_coverage": 30.1,
+   "pct_whole_logic": 2.94,
+   "pct_whole_raw": 2.26,
+   "maps_tested": "3/94",
+   "commands_tested": "25/73",
+   "values": {
+    "bc-full": {
+     "turn": 602,
+     "identical": false
+    },
+    "build": {
+     "turn": 562,
+     "identical": false
+    },
+    "production": {
+     "turn": 559,
+     "identical": false
+    },
+    "late-economy": {
+     "turn": 562,
+     "identical": false
+    },
+    "camp-crawford": {
+     "turn": 733,
+     "identical": false
+    },
+    "combat": {
+     "turn": 167,
+     "identical": false
+    },
+    "combat-long": {
+     "turn": 167,
+     "identical": false
+    },
+    "combat-big": {
+     "turn": 167,
+     "identical": false
+    },
+    "combat-waves": {
+     "turn": 167,
+     "identical": false
+    },
+    "ai-long": {
+     "turn": 166,
+     "identical": false
+    },
+    "economy": {
+     "turn": 360,
+     "identical": true
+    },
+    "economy-mapstart": {
+     "turn": 360,
+     "identical": true
+    },
+    "wsecon": {
+     "turn": 320,
+     "identical": true
+    },
+    "wintersturm": {
+     "turn": 1021,
+     "identical": true
+    },
+    "wintersturm-mapstart": {
+     "turn": 1021,
+     "identical": true
+    },
+    "map-winterisland": {
+     "turn": 3000,
+     "identical": true
+    },
+    "late-ai": {
+     "turn": 36000,
+     "identical": true
+    },
+    "gen-a-dunkelforst": {
+     "turn": 331,
+     "identical": false
+    },
+    "gen-a-dunkelforst-long": {
+     "turn": 331,
+     "identical": false
+    },
+    "gen-a-wintersturm": {
+     "turn": 841,
+     "identical": false
+    },
+    "gen-a-wintersturm-long": {
+     "turn": 841,
+     "identical": false
+    },
+    "gen-campaign": {
+     "turn": 16,
+     "identical": false
+    },
+    "gen-invalid-placement": {
+     "turn": 600,
+     "identical": true
+    },
+    "gen-recruit-attack": {
+     "turn": 31,
+     "identical": false
+    },
+    "gen-weather-time": {
+     "turn": 166,
+     "identical": false
+    },
+    "genb-ailong-mixed": {
+     "turn": 166,
+     "identical": false
+    },
+    "genb-combat-ops": {
+     "turn": 167,
+     "identical": false
+    },
+    "genb-waves-assault": {
+     "turn": 167,
+     "identical": false
+    },
+    "genb-wi-mixed": {
+     "turn": 3000,
+     "identical": true
+    },
+    "genb-wi-move": {
+     "turn": 3000,
+     "identical": true
+    },
+    "genc-campcrawford-5000": {
+     "turn": 36,
+     "identical": false
+    },
+    "genc-combatwaves-5000": {
+     "turn": 167,
+     "identical": false
+    },
+    "genc-winterisland-5000": {
+     "turn": 48,
+     "identical": false
+    },
+    "genc-wsecon-5000": {
+     "turn": 229,
+     "identical": false
+    }
+   }
+  },
+  {
+   "key": "2026-10-17 18:50|79dbeb2",
+   "time": "2026-10-17 18:50",
+   "sha": "79dbeb2",
+   "recorded": "2026-10-17 22:27",
+   "pct_identical": 29.8,
+   "pct_coverage": 30.1,
+   "pct_whole_logic": 2.94,
+   "pct_whole_raw": 2.26,
+   "maps_tested": "3/94",
+   "commands_tested": "25/73",
+   "values": {
+    "bc-full": {
+     "turn": 763,
+     "identical": false
+    },
+    "build": {
+     "turn": 650,
+     "identical": false
+    },
+    "production": {
+     "turn": 840,
+     "identical": true
+    },
+    "late-economy": {
+     "turn": 1019,
+     "identical": false
+    },
+    "camp-crawford": {
+     "turn": 1201,
+     "identical": false
+    },
+    "combat": {
+     "turn": 167,
+     "identical": true
+    },
+    "combat-long": {
+     "turn": 167,
+     "identical": false
+    },
+    "combat-big": {
+     "turn": 167,
+     "identical": false
+    },
+    "combat-waves": {
+     "turn": 167,
+     "identical": false
+    },
+    "ai-long": {
+     "turn": 166,
+     "identical": false
+    },
+    "economy": {
+     "turn": 360,
+     "identical": false
+    },
+    "economy-mapstart": {
+     "turn": 360,
+     "identical": true
+    },
+    "wsecon": {
+     "turn": 320,
+     "identical": false
+    },
+    "wintersturm": {
+     "turn": 1021,
+     "identical": true
+    },
+    "wintersturm-mapstart": {
+     "turn": 1021,
+     "identical": true
+    },
+    "map-winterisland": {
+     "turn": 3000,
+     "identical": false
+    },
+    "late-ai": {
+     "turn": null,
+     "identical": true
+    },
+    "gen-a-dunkelforst": {
+     "turn": 331,
+     "identical": false
+    },
+    "gen-a-dunkelforst-long": {
+     "turn": 331,
+     "identical": false
+    },
+    "gen-a-wintersturm": {
+     "turn": 841,
+     "identical": false
+    },
+    "gen-a-wintersturm-long": {
+     "turn": 841,
+     "identical": false
+    },
+    "gen-campaign": {
+     "turn": 16,
+     "identical": false
+    },
+    "gen-invalid-placement": {
+     "turn": 600,
+     "identical": true
+    },
+    "gen-recruit-attack": {
+     "turn": 31,
+     "identical": false
+    },
+    "gen-weather-time": {
+     "turn": 166,
+     "identical": false
+    },
+    "genb-ailong-mixed": {
+     "turn": 166,
+     "identical": false
+    },
+    "genb-combat-ops": {
+     "turn": 167,
+     "identical": false
+    },
+    "genb-waves-assault": {
+     "turn": 167,
+     "identical": false
+    },
+    "genb-wi-mixed": {
+     "turn": 3000,
+     "identical": true
+    },
+    "genb-wi-move": {
+     "turn": 3000,
+     "identical": true
+    },
+    "genc-campcrawford-5000": {
+     "turn": 36,
+     "identical": false
+    },
+    "genc-combatwaves-5000": {
+     "turn": 167,
+     "identical": false
+    },
+    "genc-winterisland-5000": {
+     "turn": 48,
+     "identical": false
+    },
+    "genc-wsecon-5000": {
+     "turn": 229,
+     "identical": false
+    }
+   }
+  },
+  {
+   "key": "2026-10-17 18:50|79dbeb2",
+   "time": "2026-10-17 18:50",
+   "sha": "79dbeb2",
+   "recorded": "2026-10-17 22:34",
+   "pct_identical": 26.3,
+   "pct_coverage": 30.1,
+   "pct_whole_logic": 2.94,
+   "pct_whole_raw": 2.26,
+   "maps_tested": "3/94",
+   "commands_tested": "25/73",
+   "values": {
+    "bc-full": {
+     "turn": 763,
+     "identical": false
+    },
+    "build": {
+     "turn": 650,
+     "identical": false
+    },
+    "production": {
+     "turn": 840,
+     "identical": true
+    },
+    "late-economy": {
+     "turn": 1019,
+     "identical": false
+    },
+    "camp-crawford": {
+     "turn": 1201,
+     "identical": false
+    },
+    "combat": {
+     "turn": 166,
+     "identical": false
+    },
+    "combat-long": {
+     "turn": 167,
+     "identical": false
+    },
+    "combat-big": {
+     "turn": 167,
+     "identical": false
+    },
+    "combat-waves": {
+     "turn": 167,
+     "identical": false
+    },
+    "ai-long": {
+     "turn": 166,
+     "identical": false
+    },
+    "economy": {
+     "turn": 360,
+     "identical": false
+    },
+    "economy-mapstart": {
+     "turn": 360,
+     "identical": true
+    },
+    "wsecon": {
+     "turn": 320,
+     "identical": false
+    },
+    "wintersturm": {
+     "turn": 1021,
+     "identical": true
+    },
+    "wintersturm-mapstart": {
+     "turn": 1021,
+     "identical": true
+    },
+    "map-winterisland": {
+     "turn": 3000,
+     "identical": false
+    },
+    "late-ai": {
+     "turn": null,
+     "identical": true
+    },
+    "gen-a-dunkelforst": {
+     "turn": 331,
+     "identical": false
+    },
+    "gen-a-dunkelforst-long": {
+     "turn": 331,
+     "identical": false
+    },
+    "gen-a-wintersturm": {
+     "turn": 841,
+     "identical": false
+    },
+    "gen-a-wintersturm-long": {
+     "turn": 841,
+     "identical": false
+    },
+    "gen-campaign": {
+     "turn": 16,
+     "identical": false
+    },
+    "gen-invalid-placement": {
+     "turn": 600,
+     "identical": true
+    },
+    "gen-recruit-attack": {
+     "turn": 31,
+     "identical": false
+    },
+    "gen-weather-time": {
+     "turn": 166,
+     "identical": false
+    },
+    "genb-ailong-mixed": {
+     "turn": 166,
+     "identical": false
+    },
+    "genb-combat-ops": {
+     "turn": 167,
+     "identical": false
+    },
+    "genb-waves-assault": {
+     "turn": 167,
+     "identical": false
+    },
+    "genb-wi-mixed": {
+     "turn": 3000,
+     "identical": true
+    },
+    "genb-wi-move": {
+     "turn": 3000,
+     "identical": true
+    },
+    "genc-campcrawford-5000": {
+     "turn": 36,
+     "identical": false
+    },
+    "genc-combatwaves-5000": {
+     "turn": 167,
+     "identical": false
+    },
+    "genc-winterisland-5000": {
+     "turn": 48,
+     "identical": false
+    },
+    "genc-wsecon-5000": {
+     "turn": 229,
+     "identical": false
+    }
+   }
+  },
+  {
+   "key": "2026-10-17 18:50|79dbeb2",
+   "time": "2026-10-17 18:50",
+   "sha": "79dbeb2",
+   "recorded": "2026-10-17 22:47",
+   "pct_identical": 26.5,
+   "pct_coverage": 30.1,
+   "pct_whole_logic": 2.94,
+   "pct_whole_raw": 2.26,
+   "maps_tested": "3/94",
+   "commands_tested": "25/73",
+   "values": {
+    "bc-full": {
+     "turn": 763,
+     "identical": false
+    },
+    "build": {
+     "turn": 650,
+     "identical": true
+    },
+    "production": {
+     "turn": 840,
+     "identical": true
+    },
+    "late-economy": {
+     "turn": 1019,
+     "identical": false
+    },
+    "camp-crawford": {
+     "turn": 1201,
+     "identical": false
+    },
+    "combat": {
+     "turn": 166,
+     "identical": false
+    },
+    "combat-long": {
+     "turn": 167,
+     "identical": false
+    },
+    "combat-big": {
+     "turn": 167,
+     "identical": false
+    },
+    "combat-waves": {
+     "turn": 167,
+     "identical": false
+    },
+    "ai-long": {
+     "turn": 166,
+     "identical": false
+    },
+    "economy": {
+     "turn": 360,
+     "identical": true
+    },
+    "economy-mapstart": {
+     "turn": 360,
+     "identical": true
+    },
+    "wsecon": {
+     "turn": 320,
+     "identical": true
+    },
+    "wintersturm": {
+     "turn": 1021,
+     "identical": true
+    },
+    "wintersturm-mapstart": {
+     "turn": 1021,
+     "identical": true
+    },
+    "map-winterisland": {
+     "turn": 3000,
+     "identical": true
+    },
+    "late-ai": {
+     "turn": null,
+     "identical": true
+    },
+    "gen-a-dunkelforst": {
+     "turn": 331,
+     "identical": false
+    },
+    "gen-a-dunkelforst-long": {
+     "turn": 331,
+     "identical": false
+    },
+    "gen-a-wintersturm": {
+     "turn": 841,
+     "identical": false
+    },
+    "gen-a-wintersturm-long": {
+     "turn": 841,
+     "identical": false
+    },
+    "gen-campaign": {
+     "turn": 16,
+     "identical": false
+    },
+    "gen-invalid-placement": {
+     "turn": 600,
+     "identical": true
+    },
+    "gen-recruit-attack": {
+     "turn": 31,
+     "identical": false
+    },
+    "gen-weather-time": {
+     "turn": 166,
+     "identical": false
+    },
+    "genb-ailong-mixed": {
+     "turn": 166,
+     "identical": false
+    },
+    "genb-combat-ops": {
+     "turn": 167,
+     "identical": false
+    },
+    "genb-waves-assault": {
+     "turn": 167,
+     "identical": false
+    },
+    "genb-wi-mixed": {
+     "turn": 3000,
+     "identical": true
+    },
+    "genb-wi-move": {
+     "turn": 3000,
+     "identical": true
+    },
+    "genc-campcrawford-5000": {
+     "turn": 36,
+     "identical": false
+    },
+    "genc-combatwaves-5000": {
+     "turn": 167,
+     "identical": false
+    },
+    "genc-winterisland-5000": {
+     "turn": 48,
+     "identical": false
+    },
+    "genc-wsecon-5000": {
+     "turn": 229,
+     "identical": false
+    }
+   }
+  },
+  {
+   "key": "2026-10-17 18:50|79dbeb2",
+   "time": "2026-10-17 18:50",
+   "sha": "79dbeb2",
+   "recorded": "2026-10-17 23:01",
+   "pct_identical": 31.3,
+   "pct_coverage": 30.1,
+   "pct_whole_logic": 2.95,
+   "pct_whole_raw": 2.26,
+   "maps_tested": "3/94",
+   "commands_tested": "25/73",
+   "values": {
+    "bc-full": {
+     "turn": 763,
+     "identical": false
+    },
+    "build": {
+     "turn": 650,
+     "identical": true
+    },
+    "production": {
+     "turn": 840,
+     "identical": true
+    },
+    "late-economy": {
+     "turn": 1019,
+     "identical": false
+    },
+    "camp-crawford": {
+     "turn": 1201,
+     "identical": false
+    },
+    "combat": {
+     "turn": 166,
+     "identical": false
+    },
+    "combat-long": {
+     "turn": 167,
+     "identical": false
+    },
+    "combat-big": {
+     "turn": 167,
+     "identical": false
+    },
+    "combat-waves": {
+     "turn": 167,
+     "identical": false
+    },
+    "ai-long": {
+     "turn": 166,
+     "identical": false
+    },
+    "economy": {
+     "turn": 360,
+     "identical": true
+    },
+    "economy-mapstart": {
+     "turn": 360,
+     "identical": true
+    },
+    "wsecon": {
+     "turn": 320,
+     "identical": true
+    },
+    "wintersturm": {
+     "turn": 1021,
+     "identical": true
+    },
+    "wintersturm-mapstart": {
+     "turn": 1021,
+     "identical": true
+    },
+    "map-winterisland": {
+     "turn": 3000,
+     "identical": true
+    },
+    "late-ai": {
+     "turn": null,
+     "identical": true
+    },
+    "gen-a-dunkelforst": {
+     "turn": 331,
+     "identical": false
+    },
+    "gen-a-dunkelforst-long": {
+     "turn": 331,
+     "identical": false
+    },
+    "gen-a-wintersturm": {
+     "turn": 841,
+     "identical": false
+    },
+    "gen-a-wintersturm-long": {
+     "turn": 841,
+     "identical": false
+    },
+    "gen-campaign": {
+     "turn": 16,
+     "identical": false
+    },
+    "gen-invalid-placement": {
+     "turn": 600,
+     "identical": true
+    },
+    "gen-recruit-attack": {
+     "turn": 31,
+     "identical": false
+    },
+    "gen-weather-time": {
+     "turn": 166,
+     "identical": true
+    },
+    "gen-weather-time-short": {
+     "turn": 166,
+     "identical": true
+    },
+    "genb-ailong-mixed": {
+     "turn": 166,
+     "identical": false
+    },
+    "genb-combat-ops": {
+     "turn": 167,
+     "identical": false
+    },
+    "genb-waves-assault": {
+     "turn": 167,
+     "identical": false
+    },
+    "genb-wi-mixed": {
+     "turn": 3000,
+     "identical": true
+    },
+    "genb-wi-move": {
+     "turn": 3000,
+     "identical": true
+    },
+    "genc-campcrawford-5000": {
+     "turn": 36,
+     "identical": false
+    },
+    "genc-combatwaves-5000": {
+     "turn": 167,
+     "identical": false
+    },
+    "genc-winterisland-5000": {
+     "turn": 48,
+     "identical": false
+    },
+    "genc-wsecon-5000": {
+     "turn": 229,
+     "identical": false
+    }
+   }
+  },
+  {
+   "key": "2026-10-17 18:50|79dbeb2",
+   "time": "2026-10-17 18:50",
+   "sha": "79dbeb2",
+   "recorded": "2026-10-17 23:15",
+   "pct_identical": 31.2,
+   "pct_coverage": 30.1,
+   "pct_whole_logic": 2.95,
+   "pct_whole_raw": 2.26,
+   "maps_tested": "3/94",
+   "commands_tested": "25/73",
+   "values": {
+    "bc-full": {
+     "turn": 763,
+     "identical": false
+    },
+    "build": {
+     "turn": 650,
+     "identical": true
+    },
+    "production": {
+     "turn": 840,
+     "identical": true
+    },
+    "late-economy": {
+     "turn": 1019,
+     "identical": false
+    },
+    "camp-crawford": {
+     "turn": 1201,
+     "identical": false
+    },
+    "combat": {
+     "turn": 166,
+     "identical": false
+    },
+    "combat-long": {
+     "turn": 167,
+     "identical": false
+    },
+    "combat-big": {
+     "turn": 167,
+     "identical": false
+    },
+    "combat-waves": {
+     "turn": 167,
+     "identical": false
+    },
+    "ai-long": {
+     "turn": 166,
+     "identical": false
+    },
+    "economy": {
+     "turn": 360,
+     "identical": true
+    },
+    "economy-mapstart": {
+     "turn": 360,
+     "identical": true
+    },
+    "wsecon": {
+     "turn": 229,
+     "identical": false
+    },
+    "wintersturm": {
+     "turn": 1021,
+     "identical": true
+    },
+    "wintersturm-mapstart": {
+     "turn": 1021,
+     "identical": true
+    },
+    "map-winterisland": {
+     "turn": 3000,
+     "identical": true
+    },
+    "late-ai": {
+     "turn": null,
+     "identical": true
+    },
+    "gen-a-dunkelforst": {
+     "turn": 331,
+     "identical": false
+    },
+    "gen-a-dunkelforst-long": {
+     "turn": 331,
+     "identical": false
+    },
+    "gen-a-wintersturm": {
+     "turn": 841,
+     "identical": false
+    },
+    "gen-a-wintersturm-long": {
+     "turn": 841,
+     "identical": false
+    },
+    "gen-campaign": {
+     "turn": 16,
+     "identical": false
+    },
+    "gen-invalid-placement": {
+     "turn": 600,
+     "identical": true
+    },
+    "gen-recruit-attack": {
+     "turn": 31,
+     "identical": false
+    },
+    "gen-weather-time": {
+     "turn": 166,
+     "identical": true
+    },
+    "gen-weather-time-short": {
+     "turn": 166,
+     "identical": true
+    },
+    "genb-ailong-mixed": {
+     "turn": 166,
+     "identical": false
+    },
+    "genb-combat-ops": {
+     "turn": 167,
+     "identical": false
+    },
+    "genb-waves-assault": {
+     "turn": 167,
+     "identical": false
+    },
+    "genb-wi-mixed": {
+     "turn": 3000,
+     "identical": true
+    },
+    "genb-wi-move": {
+     "turn": 3000,
+     "identical": true
+    },
+    "genc-campcrawford-5000": {
+     "turn": 36,
+     "identical": false
+    },
+    "genc-combatwaves-5000": {
+     "turn": 167,
+     "identical": false
+    },
+    "genc-winterisland-5000": {
+     "turn": 48,
+     "identical": false
+    },
+    "genc-wsecon-5000": {
+     "turn": 229,
+     "identical": false
+    }
+   }
+  },
+  {
+   "key": "2026-10-17 18:50|79dbeb2",
+   "time": "2026-10-17 18:50",
+   "sha": "79dbeb2",
+   "recorded": "2026-10-17 23:27",
+   "pct_identical": 31.6,
+   "pct_coverage": 30.1,
+   "pct_whole_logic": 2.95,
+   "pct_whole_raw": 2.26,
+   "maps_tested": "3/94",
+   "commands_tested": "25/73",
+   "values": {
+    "bc-full": {
+     "turn": 763,
+     "identical": false
+    },
+    "build": {
+     "turn": 650,
+     "identical": true
+    },
+    "production": {
+     "turn": 840,
+     "identical": true
+    },
+    "late-economy": {
+     "turn": 1019,
+     "identical": false
+    },
+    "camp-crawford": {
+     "turn": 1201,
+     "identical": false
+    },
+    "combat": {
+     "turn": 167,
+     "identical": true
+    },
+    "combat-long": {
+     "turn": 167,
+     "identical": false
+    },
+    "combat-big": {
+     "turn": 167,
+     "identical": false
+    },
+    "combat-waves": {
+     "turn": 167,
+     "identical": false
+    },
+    "ai-long": {
+     "turn": 166,
+     "identical": false
+    },
+    "economy": {
+     "turn": 360,
+     "identical": true
+    },
+    "economy-mapstart": {
+     "turn": 360,
+     "identical": true
+    },
+    "wsecon": {
+     "turn": 320,
+     "identical": true
+    },
+    "wintersturm": {
+     "turn": 1021,
+     "identical": true
+    },
+    "wintersturm-mapstart": {
+     "turn": 1021,
+     "identical": true
+    },
+    "map-winterisland": {
+     "turn": 3000,
+     "identical": true
+    },
+    "late-ai": {
+     "turn": null,
+     "identical": true
+    },
+    "gen-a-dunkelforst": {
+     "turn": 331,
+     "identical": false
+    },
+    "gen-a-dunkelforst-long": {
+     "turn": 331,
+     "identical": false
+    },
+    "gen-a-wintersturm": {
+     "turn": 841,
+     "identical": false
+    },
+    "gen-a-wintersturm-long": {
+     "turn": 841,
+     "identical": false
+    },
+    "gen-campaign": {
+     "turn": 16,
+     "identical": false
+    },
+    "gen-invalid-placement": {
+     "turn": 600,
+     "identical": true
+    },
+    "gen-recruit-attack": {
+     "turn": 31,
+     "identical": false
+    },
+    "gen-weather-time": {
+     "turn": 166,
+     "identical": true
+    },
+    "gen-weather-time-short": {
+     "turn": 166,
+     "identical": true
+    },
+    "genb-ailong-mixed": {
+     "turn": 166,
+     "identical": false
+    },
+    "genb-combat-ops": {
+     "turn": 167,
+     "identical": false
+    },
+    "genb-waves-assault": {
+     "turn": 167,
+     "identical": false
+    },
+    "genb-wi-mixed": {
+     "turn": 3000,
+     "identical": true
+    },
+    "genb-wi-move": {
+     "turn": 3000,
+     "identical": true
+    },
+    "genc-campcrawford-5000": {
+     "turn": 36,
+     "identical": false
+    },
+    "genc-combatwaves-5000": {
+     "turn": 167,
+     "identical": false
+    },
+    "genc-winterisland-5000": {
+     "turn": 48,
+     "identical": false
+    },
+    "genc-wsecon-5000": {
+     "turn": 229,
+     "identical": false
+    }
+   }
+  }
+ ]
+}
