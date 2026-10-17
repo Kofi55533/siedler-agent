@@ -648,7 +648,7 @@ def main():
             merged.append({"number": p["number"], "title": p["title"][:160], "merged": iso(parse_ts(p["merged_at"])),
                            "author": p["user"]["login"]})
     merged.sort(key=lambda p: p["merged"], reverse=True)
-    data["deepseek"] = {"running": ds, "count": len(ds), "queued": len(queued), "target": 15, "merged_24h": merged}
+    data["deepseek"] = {"running": ds, "count": len(ds), "queued": len(queued), "target": 20, "merged_24h": merged}
     # activity timestamps for the status badges (UTC ISO; age is computed client-side)
     def board_utc(b):
         if not b:
