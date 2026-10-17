@@ -526,6 +526,8 @@ def main():
         start, turns = (tk["start"], tk["turns"]) if tk else (None, None)
         if name == "bc-full":  # full recording, not the 2000-turn `bc` cut (fixtures/bc)
             start, turns, ncmd = 121, 23900, 1504
+        if v and not v["identical"] and turns and v["turn"] and v["turn"] >= turns:
+            v = dict(v, identical=True)  # matched up to the scenario's last turn = whole run identical
         rows.append({"name": name, "new": False, "map": map_, "turn": v["turn"] if v else None,
                      "identical": bool(v and v["identical"]), "measured": bool(v), "source": vsrc,
                      "when": vwhen, "total": turns, "start": start, "commands": ncmd,
