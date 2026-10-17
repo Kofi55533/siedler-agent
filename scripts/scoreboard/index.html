@@ -24,6 +24,7 @@ th{font-size:.82em;color:var(--mute);font-weight:600}
 ul{padding-left:1.1em;margin:.3em 0}li{margin:.25em 0}
 .sum{display:flex;gap:18px;flex-wrap:wrap}.sum div{min-width:90px}
 @media (max-width:600px){.hide-m{display:none}td,th{padding:6px 3px}}
+.pct{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}.pct .big{font-size:2.4em}
 .status{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px}
 .st{border-radius:12px;padding:12px 14px;color:#fff}.st .ag{font-size:.95em;opacity:.9}.st .lv{font-size:1.6em;font-weight:800;line-height:1.2}.st .dt{font-size:.85em;opacity:.95}
 .st.g{background:#16a34a}.st.y{background:#ca8a04}.st.r{background:#dc2626}.st.x{background:#6b7280}
@@ -34,12 +35,18 @@ svg.spark{display:block;margin-top:3px}
 <h1>🏰 Siedler Scoreboard</h1>
 <div class="mute" id="upd">Lade Daten …</div>
 <div class="card"><div class="status" id="status"></div></div>
+<div class="card" id="pct"></div>
 <div class="card"><div class="sum" id="sum"></div></div>
 <div class="card">
 <h2>Szenarien – wie weit läuft die neue Simulation identisch zum Original?</h2>
-<div class="mute small">„Identisch“ = jeder Turn stimmt mit dem Original überein. Sonst: der Turn, an dem zum ersten Mal ein Unterschied auftritt (höher ist besser).</div>
+<div class="mute small">„Identisch“ = jeder Zug stimmt mit dem Original überein. Sonst: der Zug, an dem zum ersten Mal ein Unterschied auftritt (höher ist besser).</div>
 <table><thead><tr><th>Szenario</th><th>Stand</th><th class="hide-m">Länge</th></tr></thead><tbody id="tb"></tbody></table>
 <div class="mute small" id="src"></div>
+</div>
+<div class="card">
+<h2>Neue Szenarien <span class="mute" id="newcount"></span></h2>
+<div class="mute small">Automatisch gefunden (index.json / scenario.json auf clean/integration und offenen Fixture-PR-Branches, Releases <code>fixtures-gen-*</code>, Board-Messungen). Neue tauchen ohne Code-Änderung auf.</div>
+<table><thead><tr><th>Szenario</th><th>Stand</th><th class="hide-m">Herkunft</th></tr></thead><tbody id="tbn"></tbody></table>
 </div>
 <div class="card" id="histcard" style="display:none"><h2>Verlauf</h2><div id="hist"></div></div>
 <h2 style="margin-top:18px">Agenten</h2>
@@ -81,33 +88,44 @@ fetch("data.json?t="+Date.now()).then(r=>r.json()).then(d=>{
   const badge=(n,s)=>`<div class="st ${s.c}"><div class="ag">${n}</div><div class="lv">● ${s.l}</div><div class="dt">${s.t}</div></div>`;
   $("status").innerHTML=badge("🤖 Opus",so)+badge("🧠 Codex",sc)+badge("🐋 DeepSeek",sd);
   const S=d.scenarios||[],hist=d.history||[];
-  const main=S.filter(s=>!s.group),gen=S.filter(s=>s.group);
+  const main=S.filter(s=>!s.new);
   const ident=main.filter(s=>s.identical).length;
-  $("sum").innerHTML=`<div><div class="big">${ident}/${main.length}</div><div class="mute">Szenarien identisch</div></div>
+  $("sum").innerHTML=`<div><div class="big">${ident}/${main.length}</div><div class="mute">Basis-Szenarien identisch</div></div>
    <div><div class="big">${d.deepseek.count}/${d.deepseek.target}</div><div class="mute">DeepSeek-Läufe aktiv</div></div>
    <div><div class="big">${d.deepseek.merged_24h.length}</div><div class="mute">PRs gemergt (24 h)</div></div>`;
-  let rows="",lastGroup=null;
-  for(const s of S){
-    if(s.group&&s.group!==lastGroup){lastGroup=s.group;rows+=`<tr><td colspan="3" style="padding-top:14px"><b>${esc(s.group)}</b> <span class="mute small">– ${esc(s.desc)}${s.source==="board"?" · Werte aus dem Board (Muse-Messung), noch nicht in Opus' Live-Matrix":""}</span></td></tr>`;}
+  function stand(s){
     let st;
-    if(!s.measured||s.turn==null&&!s.identical) st=`<span class="badge na">noch nicht gemessen</span>`;
+    if(!s.measured||(s.turn==null&&!s.identical)) st=`<span class="badge na">noch nicht gemessen</span>`;
     else if(s.identical) st=`<span class="badge ok">✓ IDENTISCH</span>`;
-    else st=`<span class="badge div">Turn ${fmt(s.turn)}</span>`;
+    else st=`<span class="badge div">Zug ${fmt(s.turn)}</span>`;
     let pct=null;
     if(s.identical)pct=100;else if(s.turn!=null&&s.total){const st0=(s.start!=null&&s.turn>=s.start)?s.start:0;pct=Math.max(0,Math.min(100,(s.turn-st0)/s.total*100));}
     const bar=pct==null?"":`<div class="bar${pct>=100?" full":""}"><i style="width:${pct.toFixed(1)}%"></i></div>`;
-    const len=s.total?`${fmt(s.total)} Turns${s.start?` <span class="mute small">(ab Turn ${fmt(s.start)})</span>`:""}`:"<span class='mute'>unbekannt</span>";
-    rows+=`<tr><td><div class="name">${esc(s.name)}</div>${s.group?"":`<div class="mute small">${esc(s.desc)}</div>`}</td><td>${st}${bar}${spark(s.name,hist)}<div class="mute small" style="display:none"></div></td><td class="hide-m">${len}</td></tr>`;
+    return st+bar+spark(s.name,hist);
   }
+  const len=s=>s.total?`${fmt(s.total)} Züge${s.start?` <span class="mute small">(ab Zug ${fmt(s.start)})</span>`:""}`:"<span class='mute'>unbekannt</span>";
+  let rows="";
+  for(const s of S.filter(s=>!s.new)){
+    rows+=`<tr><td><div class="name">${esc(s.name)}</div><div class="mute small">${esc(s.desc)}</div></td><td>${stand(s)}</td><td class="hide-m">${len(s)}</td></tr>`;
+  }
+  const N=S.filter(s=>s.new);
+  $("newcount").textContent=`(${N.length})`;
+  $("tbn").innerHTML=N.map(s=>`<tr><td><div class="name">${esc(s.name)}</div><div class="mute small">${esc(s.desc)}${s.commands!=null?` · ${fmt(s.commands)} Befehle gesamt`:""}</div></td>
+    <td>${stand(s)}${s.when?`<div class="mute small">gemessen: ${esc(s.when)}</div>`:""}${s.source?`<div class="mute small">Quelle: ${esc(s.source)}</div>`:""}</td>
+    <td class="hide-m small">${(s.origins||[]).map(esc).join("<br>")}${(s.issues||[]).length?"<br>Issue "+s.issues.map(i=>`<a href="${esc(i.url)}">#${i.n}</a>`).join(", "):""}</td></tr>`).join("");
+  const P=d.percent||{},pi=P.identical_turns||{},pc=P.coverage;
+  $("pct").innerHTML=`<div class="pct"><div><div class="big">${pi.pct!=null?pi.pct.toLocaleString("de-DE")+" %":"–"}</div><div><b>Identische Züge</b></div><div class="mute small">${fmt(pi.ok)} von ${fmt(pi.total)} Zügen über ${pi.scenarios} gemessene Szenarien identisch</div></div>`+
+    (pc?`<div><div class="big">${pc.pct.toLocaleString("de-DE")} %</div><div><b>Spiellogik abgedeckt</b></div><div class="mute small">${fmt(pc.cited)} von ${fmt(pc.executed)} vom Original ausgeführten Logik-Funktionen im Nachbau zitiert (COVERAGE.md, Stand ${esc(pc.as_of||"?")})</div></div>`:"")+
+    `</div><div class="mute small" style="margin-top:8px">Näherung: ein echtes Prozent für das ganze Spiel gibt es nicht; (1) misst die Testszenarien, (2) den Anteil nachgebauter Original-Funktionen.</div>`;
   $("tb").innerHTML=rows;
   const m=d.matrix_source;
   $("src").innerHTML=m?`Quelle: <code>docs/AGENT_BOARD.md</code> Zeile ${m.line}, Eintrag „${esc(m.time)} Berlin — ${esc(m.agent)}“, gemessen auf <code>@${esc(m.sha)}</code>.<br><span class="small">${esc(m.excerpt)}</span>`:"Keine Live-Matrix im Board gefunden.";
   if(hist.length>=1){
     $("histcard").style.display="";
     const ids=hist.map(h=>Object.values(h.values||{}).filter(v=>v.identical).length);
-    $("hist").innerHTML=`<table><thead><tr><th>Messung</th><th>Identisch</th><th class="hide-m">Commit</th></tr></thead><tbody>`+
-      hist.slice().reverse().slice(0,15).map((h,i)=>`<tr><td>${esc(h.time)}</td><td>${Object.values(h.values||{}).filter(v=>v.identical).length} / ${Object.keys(h.values||{}).length}</td><td class="hide-m"><code>${esc(h.sha)}</code></td></tr>`).join("")+
-      `</tbody></table><div class="mute small">Ein Eintrag pro neuer Live-Matrix von Opus. Mini-Kurven in der Tabelle zeigen den Verlauf pro Szenario (ab 2 Messungen).</div>`;
+    $("hist").innerHTML=`<table><thead><tr><th>Messung</th><th>Identische Züge</th><th>Logik</th><th>Identisch</th><th class="hide-m">Commit</th></tr></thead><tbody>`+
+      hist.slice().reverse().slice(0,15).map((h,i)=>`<tr><td>${esc(h.recorded||h.time)}</td><td>${h.pct_identical!=null?h.pct_identical+" %":"–"}</td><td>${h.pct_coverage!=null?h.pct_coverage+" %":"–"}</td><td>${Object.values(h.values||{}).filter(v=>v.identical).length} / ${Object.keys(h.values||{}).length}</td><td class="hide-m"><code>${esc(h.sha)}</code></td></tr>`).join("")+
+      `</tbody></table><div class="mute small">Ein Eintrag pro Änderung (neue Live-Matrix, Prozentwerte). Mini-Kurven in der Tabelle zeigen den Verlauf pro Szenario (ab 2 Messungen).</div>`;
   }
   const o=d.opus;
   $("opus").innerHTML=`<h2>🤖 Opus (Cloud)</h2>`+

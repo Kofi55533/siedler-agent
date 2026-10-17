@@ -21,31 +21,86 @@ PREV = os.environ.get("PREV", "")
 NOW = datetime.now(timezone.utc)
 ERRORS = []
 
+# Base scenarios (fixed list, hand-written German descriptions). Everything else is discovered.
 SCENARIOS = [
-    ("bc-full", "Mittleres Spiel (Kampagnen-Spielstand) mit vielen Spielerbefehlen – der große Gesamttest"),
-    ("build", "Bauen: Baustellen, Leibeigene bauen Gebäude fertig"),
-    ("production", "Rohstoffabbau und Produktionskette (Holz, Stein, Lehm …)"),
-    ("late-economy", "Lange Wirtschaftspartie bis tief ins Spiel"),
-    ("camp-crawford", "Karte Camp Crawford: Siedlung mit Minen und Truppen"),
-    ("combat", "Zwei Armeen kämpfen gegeneinander"),
-    ("combat-long", "Kampf, sehr lang laufen gelassen (Schlacht + ruhige Welt danach)"),
-    ("combat-big", "Große Schlacht mit vielen Einheiten"),
-    ("combat-waves", "Kampf in mehreren Angriffswellen"),
-    ("ai-long", "Computergegner (KI) spielt lange selbst"),
-    ("economy", "Frischer Kartenstart Dunkelforst mit Rohstoffaufträgen"),
-    ("economy-mapstart", "Wie economy, aber direkt ab Kartenstart geladen"),
-    ("wsecon", "Wintersturm nach dem Start: Leibeigene kaufen und bauen"),
-    ("wintersturm", "Karte Wintersturm ab Start, ohne Befehle"),
-    ("wintersturm-mapstart", "Wie wintersturm, aber direkt ab Kartenstart geladen"),
-    ("map-winterisland", "Karte Winterinsel, 3000 Turns"),
-    ("late-ai", "KI-Partie, extrem lang (36000 Turns)"),
+    ("bc-full", "Kampagnen-Spielstand", "großer Gesamttest mit vielen Spielerbefehlen", "bc"),
+    ("build", "Wintersturm", "Baustellen anlegen, Leibeigene bauen Gebäude fertig", "build"),
+    ("production", "Wintersturm", "Rohstoffabbau und Produktionskette", "production"),
+    ("late-economy", "Wintersturm", "über 1 h Wirtschaft: Zahltag, Steuern, Leibeigene kaufen, Bauernhof-Upgrade, Abgaben", None),
+    ("camp-crawford", "Camp Crawford (Kampagne)", "Missionsskripte laufen, KI-Wirtschaft wächst, keine Spielerbefehle", None),
+    ("combat", "Kampf-Testkarte", "zwei Armeen kämpfen gegeneinander", "combat"),
+    ("combat-long", "Kampf-Testkarte", "Kampf, danach lange ruhige Welt (Wetter, Tiere)", None),
+    ("combat-big", "Kampf-Testkarte", "große Schlacht: 5 Formationen + Kanonen je Seite", None),
+    ("combat-waves", "Kampf-Testkarte", "Kampf in 4 Angriffswellen (248 Einheiten)", None),
+    ("ai-long", "KI-Testkarte", "Computergegner (Dorf-KI + Armeen) spielen lange selbst", None),
+    ("economy", "Dunkelforst", "frischer Kartenstart, Rohstoff-Abbauaufträge", "economy"),
+    ("economy-mapstart", "Dunkelforst", "wie economy, direkt ab Kartenstart geladen", "economy"),
+    ("wsecon", "Wintersturm", "Leibeigene kaufen und erstes Gebäude bauen", "wsecon"),
+    ("wintersturm", "Wintersturm", "frischer Kartenstart ohne Befehle", "wintersturm"),
+    ("wintersturm-mapstart", "Wintersturm", "wie wintersturm, direkt ab Kartenstart geladen", "wintersturm"),
+    ("map-winterisland", "Winterinsel", "andere Mehrspielerkarte, fast statische Welt", None),
+    ("late-ai", "KI-Testkarte", "1 h KI-Dörfer ohne Spieler (36.000 Züge)", None),
 ]
-GEN_DESC = {
-    "genA": "Neue generierte Fixtures A: Wirtschaft/Bauen",
-    "genB": "Neue generierte Fixtures B: Militärbefehle",
-    "genC": "Neue generierte Fixtures C: lange gemischte Partien",
-}
+BASE = {n for n, *_ in SCENARIOS}
 ALIAS_TOTAL = {"bc-full": "bc", "economy-mapstart": "economy", "wintersturm-mapstart": "wintersturm"}
+CMD_NAMES = {
+    69634: "Bewegen", 69635: "Bewegen (Formation)", 69636: "Leibeigene kaufen", 69638: "Verkaufen",
+    69640: "Ausbauen", 69642: "Gebäude-Befehl", 69643: "Rekrutieren", 69644: "Rekrutieren",
+    69646: "Steuern", 69647: "Entlassen", 69650: "Angreifen", 69655: "Bauen", 69656: "Reparieren",
+    69657: "Abbau", 69658: "Forschung", 69672: "Arbeiterlimit", 69677: "Miliz", 69678: "Miliz",
+    69680: "Alarm", 69681: "Alarm", 69683: "Überstunden", 69687: "Segnen",
+}
+MAPS = [("dunkelforst", "Dunkelforst"), ("economy", "Dunkelforst"), ("winterisland", "Winterinsel"),
+        ("wintersturm", "Wintersturm"), ("wsecon", "Wintersturm"), ("crawford", "Camp Crawford (Kampagne)"),
+        ("oldkings", "Old Kings Castle (Kampagne)"), ("combat", "Kampf-Testkarte"), ("ai", "KI-Testkarte"),
+        ("saveload", "Wintersturm (Speicherstand)"), ("ws", "Wintersturm"), ("bc", "Kampagnen-Spielstand")]
+
+
+def cmd_name(cid, cls=""):
+    if "BuildingCreator" in (cls or ""):
+        return "Bauen"
+    if "ExtractResource" in (cls or ""):
+        return "Abbau"
+    return CMD_NAMES.get(int(cid), f"Befehl {cid}")
+
+
+def cmd_summary(types):
+    """types: {name_or_id: count} -> 'Bewegen 1176, Leibeigene kaufen 800, …' (German, merged by name)."""
+    agg = {}
+    for k, n in (types or {}).items():
+        cid, _, cls = str(k).partition(":")
+        try:
+            nm = cmd_name(int(cid), cls)
+        except ValueError:
+            nm = cmd_name(0, cls) if cls else str(k)
+        agg[nm] = agg.get(nm, 0) + int(n)
+    return ", ".join(f"{k} {v:,}".replace(",", ".") for k, v in sorted(agg.items(), key=lambda kv: -kv[1]))
+
+
+def map_name(*hints):
+    for h in hints:
+        h = (h or "").lower()
+        if not h:
+            continue
+        m = re.search(r"maps/\(\d\)\s*(?:ems\w*\s+)?([a-z]+)", h)
+        if m:
+            return m.group(1).capitalize()
+        for key, nm in MAPS:
+            if re.search(rf"(^|[/_\-.]){key}", h) or (len(key) > 3 and key in h):
+                return nm
+    return None
+
+
+def describe(map_, start, turns, what):
+    head = []
+    if map_:
+        head.append(map_)
+    if start is not None:
+        head.append(f"ab Zug {start:,}".replace(",", "."))
+    t = " ".join(head)
+    if turns:
+        t += (", " if t else "") + f"{turns:,} Züge".replace(",", ".")
+    return (t + ": " if t else "") + (what or "")
 
 
 def api(path, raw=False):
@@ -148,27 +203,161 @@ def parse_matrix(text):
     return sha, res
 
 
-def gen_values(text):
-    """Latest board value per generated fixture (gen-a-*, genb-*, genc-*), baseline number."""
-    out = {}
-    pat = re.compile(r"\b(gen-a-[a-z]+(?:-[a-z0-9]+)*|genb-[a-z]+(?:-[a-z0-9]+)*|genc-[a-z]+-\d+)\b\s*:?\s*"
-                     r"(?:(IDENTICAL)(?:\s+(\d+))?|(?:DIVERGENT\s*)?(?:(?:at\s+)?turn\s*)?(\d+))")
-    lines = clean_md(text).splitlines()
+GEN_NAME = r"(?:gen-?[a-z]-[a-z0-9]+(?:-[a-z0-9]+)*|gen[a-z]-[a-z0-9]+(?:-[a-z0-9]+)*)"
+SKIP_NAMES = {"genb-military", "genb-full", "genc-longmixed", "gen-a-tax-dispatch", "gena-tax-dispatch"}
+
+
+def board_discover(entries):
+    """Fixture names the board reports measurements for: 'live <fixture>: …', '<fixture> … first divergence',
+    and generated-fixture names (gen-a-*, genb-*, genc-*) followed by a turn / IDENTICAL."""
     names = set()
-    for i, line in enumerate(lines, 1):
-        for mm in pat.finditer(line):
-            name = mm.group(1)
-            ident = bool(mm.group(2))
-            n = int(mm.group(3)) if ident and mm.group(3) else (int(mm.group(4)) if mm.group(4) else None)
-            if name in ("genb-military", "genb-full", "genc-longmixed"):
+    for e in entries:
+        t = clean_md(e["text"])
+        names.update(re.findall(r"\blive\s+([a-z][a-z0-9]*(?:-[a-z0-9]+)+)\s*:", t))
+        names.update(re.findall(r"\b([a-z][a-z0-9]*(?:-[a-z0-9]+)+)\s+(?:DIVERGENT\s+)?first divergence", t))
+        for mm in re.finditer(rf"\b({GEN_NAME})\b\s*:?\s*(?:IDENTICAL|DIVERGENT|turn|\d)", t):
+            names.add(mm.group(1))
+    return {n for n in names if n not in SKIP_NAMES and not n.startswith("agent")}
+
+
+def board_value(entries, name):
+    """Newest board measurement for one fixture -> {turn, identical, time, line} or None.
+    'live <name>: a -> N' takes N; a plain '<name> [DIVERGENT] [turn] N' / 'IDENTICAL [N]' takes the first value."""
+    ne = re.escape(name)
+    pats = [
+        re.compile(rf"\blive\s+{ne}\s*:[^\n;]*?(?:->|→)\s*(?:(IDENTICAL)(?:\s+(\d+))?|(?:turn\s*)?(\d+))"),
+        re.compile(rf"(?<![\w-]){ne}(?![\w-])\s*:?\s*(?:(IDENTICAL)(?:\s+(\d+))?|(?:DIVERGENT\s*)?(?:(?:at\s+)?turn\s*)?(\d+)(?!\s*(?:x|×|%|GB|MB|KB|min|turns|Züge)))"),
+        re.compile(rf"(?<![\w-]){ne}(?![\w-])[^\n.;]{{0,40}}?first divergence(?:\s+(?:at\s+)?turn)?\s*(?:(IDENTICAL)(?:\s+(\d+))?|(\d+))"),
+    ]
+    for e in reversed(entries):
+        t = clean_md(e["text"])
+        for p in pats:
+            mm = None
+            for mm in p.finditer(t):
+                break
+            if mm:
+                ident = bool(mm.group(1))
+                n = int(mm.group(2)) if ident and mm.group(2) else (int(mm.group(3)) if mm.group(3) else None)
+                return {"turn": n, "identical": ident, "time": e["time"], "line": e["line"], "agent": e["agent"]}
+    return None
+
+
+def count_commands(text):
+    types, n = {}, 0
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            c = json.loads(line)
+        except ValueError:
+            continue
+        n += 1
+        k = f'{c.get("id")}:{c.get("class", "")}'
+        types[k] = types.get(k, 0) + 1
+    return n, types
+
+
+def blob(repo, sha):
+    d = api(f"repos/{repo}/git/blobs/{sha}")
+    return base64.b64decode(d["content"]).decode("utf-8", "replace")
+
+
+AGENT_ISSUE = re.compile(r"siedler-agent\s*#(\d+)")
+
+
+def discover_new(branches_list, pulls_open, releases):
+    """Discover generated scenarios from index.json / scenario.json files on clean/integration and on open
+    fixture-gen PR branches (+ agent/fixtures-gen-* branches), plus fixtures-gen-* releases."""
+    refs = [(BRANCH, None)]
+    seen = {BRANCH}
+    for p in pulls_open:
+        ref = p["head"]["ref"]
+        if re.search(r"fixture|gen-|genb|genc|gen[a-z]?-|mapstart", ref + " " + p["title"], re.I) and ref not in seen:
+            refs.append((ref, p)); seen.add(ref)
+    for b in branches_list:
+        if b.startswith("agent/fixtures-gen") and b not in seen:
+            refs.append((b, None)); seen.add(b)
+    found = {}
+    ci_sha = {}
+
+    def put(name, origin, **kw):
+        if not name or name in BASE or name in SKIP_NAMES:
+            return
+        f = found.setdefault(name, {"name": name, "origins": [], "issues": set()})
+        if origin and f["origins"] and f["origins"][0].startswith(BRANCH) and not origin.startswith("Release"):
+            origin = None  # already on clean/integration; a branch copy of the shared index is not its origin
+        if origin and origin not in f["origins"]:
+            f["origins"].append(origin)
+        for k, v in kw.items():
+            if v not in (None, "", {}, []) and f.get(k) in (None, "", {}, []):
+                f[k] = v
+
+    for ref, pr in refs:
+        origin = f"PR #{pr['number']}: {pr['title'][:90]}" if pr else (f"Branch {ref}" if ref != BRANCH else f"{BRANCH} (docs/clean/new-fixtures)")
+        issues = set(AGENT_ISSUE.findall((pr or {}).get("title", "") + " " + ((pr or {}).get("body") or "")))
+        tree = safe(lambda: api(f"repos/{PRIV}/git/trees/{urllib.parse.quote(ref, safe='')}?recursive=1"), {}, f"tree {ref}")
+        files = {t["path"]: t for t in tree.get("tree", []) if t.get("type") == "blob"}
+        cand = [p for p in files if re.search(
+            r"^(docs/clean/new-fixtures/.*\.json|fixtures-gen/.*\.json|(?:.*/)?gen-[^/]+/index\.json)$", p)]
+        if ref == BRANCH:
+            ci_sha = {p: t["sha"] for p, t in files.items()}
+        for path in cand:
+            if files[path].get("size", 0) > 3_000_000:
                 continue
-            names.add(name)
-            out[name] = {"turn": n, "identical": ident, "board_line": i}
-    return out
-
-
-def gen_group(name):
-    return "genA" if name.startswith("gen-a") else "genB" if name.startswith("genb") else "genC"
+            if ref != BRANCH and ci_sha.get(path) == files[path]["sha"]:
+                continue  # unchanged copy of the clean/integration file: not this branch's contribution
+            j = safe(lambda: json.loads(blob(PRIV, files[path]["sha"])), None, f"json {path}")
+            if not isinstance(j, dict):
+                continue
+            iss = issues | set(AGENT_ISSUE.findall(json.dumps({k: v for k, v in j.items() if k != "fixtures"})[:4000]))
+            when = j.get("updated") or j.get("created")
+            if isinstance(j.get("fixtures"), dict):
+                for name, e in j["fixtures"].items():
+                    if not isinstance(e, dict):
+                        continue
+                    sc = e.get("scenario") if isinstance(e.get("scenario"), dict) else {}
+                    cmds = e.get("commands")
+                    ncmd = cmds if isinstance(cmds, int) else (cmds.get("n") if isinstance(cmds, dict) else None)
+                    types = e.get("command_types") or (cmds.get("per_event") if isinstance(cmds, dict) else None)
+                    fd = e.get("first_divergence")
+                    turn = fd.get("turn") if isinstance(fd, dict) else fd if isinstance(fd, int) else None
+                    base = str(e.get("baseline") or "")
+                    ident = turn is None and base.startswith("IDENTICAL")
+                    put(name, origin, start=e.get("start_turn", sc.get("start_turn")), turns=e.get("turns", sc.get("turns")),
+                        image=e.get("image") or sc.get("image"), commands=ncmd, types=types, kind=e.get("kind"),
+                        index_value={"turn": turn if turn is not None else (int(base.split()[-1]) if ident and base.split()[-1].isdigit() else None),
+                                     "identical": ident, "time": when} if (turn is not None or ident) else None)
+                    if name in found and not found[name]["origins"][:1] == [f"{BRANCH} (docs/clean/new-fixtures)"]:
+                        found[name]["issues"] |= iss
+            elif path.endswith("scenario.json") and (j.get("name") or "").strip():
+                name = j["name"]
+                d = path.rsplit("/", 1)[0]
+                ncmd = types = None
+                cp = d + "/commands.jsonl"
+                if cp in files and files[cp].get("size", 0) < 3_000_000:
+                    txt = safe(lambda: blob(PRIV, files[cp]["sha"]), "", f"commands {name}")
+                    if txt:
+                        ncmd, types = count_commands(txt)
+                put(name, origin, start=j.get("start_turn"), turns=j.get("turns"), image=j.get("image"),
+                    commands=ncmd, types=types)
+                if name in found:
+                    found[name]["issues"] |= iss
+    for r in releases:
+        tag = r.get("tag_name", "")
+        if not tag.startswith("fixtures-gen"):
+            continue
+        body = r.get("body") or ""
+        names = set(re.findall(rf"\b({GEN_NAME})\b", body)) | {f for f in found if f in body}
+        group = re.search(r"\bgen[-_ ]?([a-z])\b", body + " " + " ".join(a["name"] for a in r.get("assets", [])), re.I)
+        for f in list(found):
+            if group and re.match(rf"gen-?{group.group(1).lower()}-", f):
+                names.add(f)
+        for n in names:
+            put(n, f"Release {tag}")
+            if n in found:
+                found[n]["issues"] |= set(AGENT_ISSUE.findall(body))
+    return found
 
 
 # ---------------- totals ----------------
@@ -196,6 +385,13 @@ def main():
     os.makedirs(OUT, exist_ok=True)
     board = safe(lambda: content(PRIV, "docs/AGENT_BOARD.md", BRANCH), "", "AGENT_BOARD")
     entries = board_entries(board)
+    global BRANCHES
+    BRANCHES = []
+    for page in range(1, 10):
+        br = safe(lambda: api(f"repos/{PRIV}/branches?per_page=100&page={page}"), [], "branches")
+        BRANCHES += [b["name"] for b in br]
+        if len(br) < 100:
+            break
     data = {"generated_utc": NOW.strftime("%Y-%m-%dT%H:%M:%SZ"), "generated_berlin": iso(NOW),
             "branch": BRANCH}
 
@@ -208,30 +404,62 @@ def main():
                 live = (e, pm)
                 break
     tot = totals()
-    rows = []
     matrix = live[1][1] if live else {}
-    for name, desc in SCENARIOS:
+    mtime = live[0]["time"] if live else None
+    # command counts for base fixtures (committed fixtures/<dir>/commands.jsonl)
+    ci_tree = safe(lambda: api(f"repos/{PRIV}/git/trees/{urllib.parse.quote(BRANCH, safe='')}?recursive=1"), {}, "tree")
+    ci_files = {t["path"]: t for t in ci_tree.get("tree", []) if t.get("type") == "blob"}
+    rows = []
+    for name, map_, what, fdir in SCENARIOS:
         v = matrix.get(name)
         tk = tot.get(name) or tot.get(ALIAS_TOTAL.get(name, ""))
-        rows.append({"name": name, "desc": desc, "group": "", "turn": v["turn"] if v else None,
-                     "identical": bool(v and v["identical"]), "measured": bool(v), "source": "live" if v else None,
-                     "total": tk["turns"] if tk else None, "start": tk["start"] if tk else None})
-    gv = gen_values(board)
-    for name, v in sorted(gv.items(), key=lambda kv: (gen_group(kv[0]), kv[0])):
+        ncmd = summ = None
+        cp = f"fixtures/{fdir}/commands.jsonl" if fdir else None
+        if cp and cp in ci_files:
+            txt = safe(lambda: blob(PRIV, ci_files[cp]["sha"]), "", f"commands {name}")
+            if txt:
+                ncmd, types = count_commands(txt)
+                summ = cmd_summary(types)
+        start, turns = (tk["start"], tk["turns"]) if tk else (None, None)
+        rows.append({"name": name, "new": False, "map": map_, "turn": v["turn"] if v else None,
+                     "identical": bool(v and v["identical"]), "measured": bool(v), "source": "Opus Live-Matrix" if v else None,
+                     "when": mtime if v else None, "total": turns, "start": start, "commands": ncmd,
+                     "desc": describe(map_, start, turns, what + (f" · Befehle: {summ}" if summ else ""))})
+    pulls_open = safe(lambda: api(f"repos/{PRIV}/pulls?state=open&per_page=100"), [], "open pulls")
+    releases = safe(lambda: api(f"repos/{PRIV}/releases?per_page=50"), [], "releases")
+    found = discover_new(BRANCHES, pulls_open, releases)
+    for n in board_discover(entries):
+        if n not in BASE and n not in found and re.match(GEN_NAME + "$", n):
+            found[n] = {"name": n, "origins": ["Board"], "issues": set()}
+    for name in sorted(found):
+        f = found[name]
         lv = matrix.get(name)
-        src = "live" if lv else "board"
-        v = lv or v
+        bv = board_value(entries, name)
+        iv = f.get("index_value")
+        if lv:
+            val, src, when = lv, "Opus Live-Matrix", mtime
+        elif bv:
+            val, src, when = bv, f"Board ({bv['agent']}, Zeile {bv['line']})", bv["time"]
+        elif iv:
+            val, src, when = iv, "index.json (Erzeugung)", iv.get("time")
+        else:
+            val, src, when = None, None, None
+        start, turns = f.get("start"), f.get("turns")
+        if turns is None and val and val["identical"] and val["turn"]:
+            turns = val["turn"]
         m5 = re.search(r"-(\d{3,5})$", name)
-        tk = tot.get(name)
-        rows.append({"name": name, "desc": GEN_DESC[gen_group(name)], "group": gen_group(name),
-                     "turn": v["turn"], "identical": v["identical"], "measured": True, "source": src,
-                     "board_line": v.get("board_line"),
-                     "total": tk["turns"] if tk else (v["turn"] if v["identical"] and v["turn"] else (int(m5.group(1)) if m5 else None)),
-                     "start": tk["start"] if tk else None})
-    for g in ("genA", "genB", "genC"):
-        if not any(r["group"] == g for r in rows):
-            rows.append({"name": g, "desc": GEN_DESC[g], "group": g, "turn": None, "identical": False,
-                         "measured": False, "source": None, "total": None, "start": None})
+        if turns is None and m5:
+            turns = int(m5.group(1))
+        map_ = map_name(f.get("image"), name)
+        summ = cmd_summary(f.get("types"))
+        what = (f"Befehle: {summ}" if summ else ("ohne Spielerbefehle" if f.get("commands") == 0 else
+                (f"{f['commands']} Befehle" if f.get("commands") else "Befehle unbekannt")))
+        rows.append({"name": name, "new": True, "map": map_, "turn": val["turn"] if val else None,
+                     "identical": bool(val and val["identical"]), "measured": bool(val), "source": src, "when": when,
+                     "total": turns, "start": start, "commands": f.get("commands"),
+                     "origins": f["origins"],
+                     "issues": [{"n": int(i), "url": f"https://github.com/{PUB}/issues/{i}"} for i in sorted(f["issues"], key=int)],
+                     "desc": describe(map_, start, turns, what)})
     data["scenarios"] = rows
     if live:
         e, (sha, _) = live
@@ -239,6 +467,32 @@ def main():
                                  "excerpt": clean_md(re.search(r"Live\s*@.*", e["text"], re.S).group(0))[:600]}
     else:
         data["matrix_source"] = None
+
+    # percentages (approximations)
+    num = den = 0
+    used = 0
+    for r in rows:
+        if not r["measured"] or not r["total"]:
+            continue
+        if r["identical"]:
+            ok = r["total"]
+        elif r["turn"] is not None:
+            st = r["start"] if (r["start"] is not None and r["turn"] >= r["start"]) else 0
+            ok = max(0, min(r["total"], r["turn"] - st))
+        else:
+            continue
+        num += ok; den += r["total"]; used += 1
+    cov = safe(lambda: content(PRIV, "docs/clean/COVERAGE.md", BRANCH), "", "COVERAGE.md")
+    mm = re.search(r"## Overall.*?distinct executed logic functions:\s*\**(\d+)\**.*?cited:\s*\**(\d+)\**", cov, re.S)
+    cov_date = None
+    if mm:
+        cc = safe(lambda: api(f"repos/{PRIV}/commits?path=docs/clean/COVERAGE.md&sha={urllib.parse.quote(BRANCH, safe='')}&per_page=1"), [], "coverage date")
+        cov_date = iso(parse_ts(cc[0]["commit"]["committer"]["date"])) if cc else None
+    data["percent"] = {
+        "identical_turns": {"pct": round(100 * num / den, 1) if den else None, "ok": num, "total": den, "scenarios": used},
+        "coverage": {"pct": round(100 * int(mm.group(2)) / int(mm.group(1)), 1), "cited": int(mm.group(2)),
+                     "executed": int(mm.group(1)), "as_of": cov_date} if mm else None,
+    }
 
     # 2. agents
     commits = safe(lambda: api(f"repos/{PRIV}/commits?sha={urllib.parse.quote(BRANCH, safe='')}&per_page=100"), [], "commits")
@@ -261,18 +515,13 @@ def main():
 
     # Codex: newest head among codex/* branches + last Codex board entry
     def codex_commit():
-        best, page = None, 1
-        while page < 10:
-            br = api(f"repos/{PRIV}/branches?per_page=100&page={page}")
-            for b in br:
-                if b["name"].startswith("codex/"):
-                    c = api(f"repos/{PRIV}/commits/{urllib.parse.quote(b['name'], safe='')}")
-                    t = parse_ts(c["commit"]["committer"]["date"])
-                    if best is None or t > best[0]:
-                        best = (t, b["name"], c)
-            if len(br) < 100:
-                break
-            page += 1
+        best = None
+        for name in BRANCHES:
+            if name.startswith("codex/"):
+                c = api(f"repos/{PRIV}/commits/{urllib.parse.quote(name, safe='')}")
+                t = parse_ts(c["commit"]["committer"]["date"])
+                if best is None or t > best[0]:
+                    best = (t, name, c)
         if not best:
             return None
         t, name, c = best
@@ -340,12 +589,15 @@ def main():
             hist = json.load(open(PREV))
         except Exception:
             hist = []
-    if data["matrix_source"]:
-        key = f'{data["matrix_source"]["time"]}|{data["matrix_source"]["sha"]}'
-        if not hist or hist[-1].get("key") != key:
-            hist.append({"key": key, "time": data["matrix_source"]["time"], "sha": data["matrix_source"]["sha"],
-                         "values": {r["name"]: {"turn": r["turn"], "identical": r["identical"]}
-                                    for r in rows if r["source"] == "live"}})
+    key = (f'{data["matrix_source"]["time"]}|{data["matrix_source"]["sha"]}' if data["matrix_source"] else "-")
+    p1 = data["percent"]["identical_turns"]["pct"]
+    p2 = (data["percent"]["coverage"] or {}).get("pct")
+    last = hist[-1] if hist else {}
+    if not hist or last.get("key") != key or last.get("pct_identical") != p1 or last.get("pct_coverage") != p2:
+        hist.append({"key": key, "time": data["matrix_source"]["time"] if data["matrix_source"] else None,
+                     "sha": data["matrix_source"]["sha"] if data["matrix_source"] else None,
+                     "recorded": data["generated_berlin"], "pct_identical": p1, "pct_coverage": p2,
+                     "values": {r["name"]: {"turn": r["turn"], "identical": r["identical"]} for r in rows if r["measured"]}})
     data["history"] = hist[-200:]
     json.dump(hist[-200:], open(os.path.join(OUT, "history.json"), "w"), ensure_ascii=False, indent=1)
     json.dump(data, open(os.path.join(OUT, "data.json"), "w"), ensure_ascii=False, indent=1)
