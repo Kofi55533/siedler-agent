@@ -1,0 +1,479 @@
+{
+"schema": "siedler-map-list.v1",
+"static": true,
+"source": "Google Drive siedler-gold-pe-decompilation-2026-10-03-structured, manifest/GOLD_EDITION_FULL_INSTALL_2026-10-03.json (39.708 Dateien Gold-Edition)",
+"note": "Offizielle Karten (Kampagnen-Missionen ohne CreditsMap, Einzel- und Mehrspielerkarten). Community-Karten (maps/User) zählen nicht zum Nenner.",
+"official": [
+{
+"kind": "Einzelspieler",
+"edition": "base",
+"name": "DemoMap"
+},
+{
+"kind": "Einzelspieler",
+"edition": "base",
+"name": "Frozen_Fjord"
+},
+{
+"kind": "Einzelspieler",
+"edition": "base",
+"name": "Mornheim"
+},
+{
+"kind": "Einzelspieler",
+"edition": "base",
+"name": "Over_The_Hills"
+},
+{
+"kind": "Einzelspieler",
+"edition": "base",
+"name": "Peaceful_Land"
+},
+{
+"kind": "Einzelspieler",
+"edition": "base",
+"name": "Sandbox"
+},
+{
+"kind": "Einzelspieler",
+"edition": "base",
+"name": "Small_Dale"
+},
+{
+"kind": "Einzelspieler",
+"edition": "base",
+"name": "Spreadland"
+},
+{
+"kind": "Einzelspieler",
+"edition": "base",
+"name": "SummerIsland"
+},
+{
+"kind": "Einzelspieler",
+"edition": "extra1",
+"name": "Antrium"
+},
+{
+"kind": "Einzelspieler",
+"edition": "extra1",
+"name": "CaribeanSurf"
+},
+{
+"kind": "Einzelspieler",
+"edition": "extra1",
+"name": "Castrum"
+},
+{
+"kind": "Einzelspieler",
+"edition": "extra1",
+"name": "OldEnemies"
+},
+{
+"kind": "Einzelspieler",
+"edition": "extra1",
+"name": "RiverCrossing"
+},
+{
+"kind": "Einzelspieler",
+"edition": "extra1",
+"name": "Siege"
+},
+{
+"kind": "Einzelspieler",
+"edition": "extra1",
+"name": "SupplyLines"
+},
+{
+"kind": "Einzelspieler",
+"edition": "extra2",
+"name": "CityGates"
+},
+{
+"kind": "Einzelspieler",
+"edition": "extra2",
+"name": "ColorsOfBelief"
+},
+{
+"kind": "Einzelspieler",
+"edition": "extra2",
+"name": "GoldenRiddles"
+},
+{
+"kind": "Einzelspieler",
+"edition": "extra2",
+"name": "Lightridge"
+},
+{
+"kind": "Einzelspieler",
+"edition": "extra2",
+"name": "StandrockBattle"
+},
+{
+"kind": "Einzelspieler",
+"edition": "extra2",
+"name": "WinterAssault"
+},
+{
+"kind": "Kampagne",
+"edition": "base",
+"name": "00_Tutorial1"
+},
+{
+"kind": "Kampagne",
+"edition": "base",
+"name": "01_Thalgrund"
+},
+{
+"kind": "Kampagne",
+"edition": "base",
+"name": "02_VillageAttack"
+},
+{
+"kind": "Kampagne",
+"edition": "base",
+"name": "04_Crawford"
+},
+{
+"kind": "Kampagne",
+"edition": "base",
+"name": "06_Cleycourt"
+},
+{
+"kind": "Kampagne",
+"edition": "base",
+"name": "07_Flood"
+},
+{
+"kind": "Kampagne",
+"edition": "base",
+"name": "08_Barmecia"
+},
+{
+"kind": "Kampagne",
+"edition": "base",
+"name": "10_Folklung"
+},
+{
+"kind": "Kampagne",
+"edition": "base",
+"name": "11_Norfolk"
+},
+{
+"kind": "Kampagne",
+"edition": "base",
+"name": "12_Kaloix"
+},
+{
+"kind": "Kampagne",
+"edition": "base",
+"name": "13_Plague"
+},
+{
+"kind": "Kampagne",
+"edition": "base",
+"name": "15_OldKingsCastle"
+},
+{
+"kind": "Kampagne",
+"edition": "base",
+"name": "17_CloudyMountains"
+},
+{
+"kind": "Kampagne",
+"edition": "base",
+"name": "18_Evelance"
+},
+{
+"kind": "Kampagne",
+"edition": "base",
+"name": "19_Wasteland"
+},
+{
+"kind": "Kampagne",
+"edition": "base",
+"name": "20_BattleOfEvelance"
+},
+{
+"kind": "Kampagne",
+"edition": "extra1",
+"name": "01_HugeBridge"
+},
+{
+"kind": "Kampagne",
+"edition": "extra1",
+"name": "02_BigRiver"
+},
+{
+"kind": "Kampagne",
+"edition": "extra1",
+"name": "03_BigCity"
+},
+{
+"kind": "Kampagne",
+"edition": "extra1",
+"name": "04_TradingCaravans"
+},
+{
+"kind": "Kampagne",
+"edition": "extra1",
+"name": "05_Headhunter"
+},
+{
+"kind": "Kampagne",
+"edition": "extra1",
+"name": "06_TechOrResources"
+},
+{
+"kind": "Kampagne",
+"edition": "extra1",
+"name": "07_FleeOrFight"
+},
+{
+"kind": "Kampagne",
+"edition": "extra1",
+"name": "08_UnexploredLand"
+},
+{
+"kind": "Kampagne",
+"edition": "extra1",
+"name": "09_GreatMountain"
+},
+{
+"kind": "Kampagne",
+"edition": "extra1",
+"name": "10_FloodedLand"
+},
+{
+"kind": "Kampagne",
+"edition": "extra2",
+"name": "01_DemonDays"
+},
+{
+"kind": "Kampagne",
+"edition": "extra2",
+"name": "01_NewBeginning"
+},
+{
+"kind": "Kampagne",
+"edition": "extra2",
+"name": "01_RestoringTheFaith"
+},
+{
+"kind": "Kampagne",
+"edition": "extra2",
+"name": "01_Revenge"
+},
+{
+"kind": "Kampagne",
+"edition": "extra2",
+"name": "02_DefendingTheDryMoat"
+},
+{
+"kind": "Kampagne",
+"edition": "extra2",
+"name": "02_Patrol"
+},
+{
+"kind": "Kampagne",
+"edition": "extra2",
+"name": "02_SecuringThePath"
+},
+{
+"kind": "Kampagne",
+"edition": "extra2",
+"name": "02_TheRichLand"
+},
+{
+"kind": "Kampagne",
+"edition": "extra2",
+"name": "03_DarknessUprise"
+},
+{
+"kind": "Kampagne",
+"edition": "extra2",
+"name": "03_DivineAnger"
+},
+{
+"kind": "Kampagne",
+"edition": "extra2",
+"name": "03_Neighborhood"
+},
+{
+"kind": "Kampagne",
+"edition": "extra2",
+"name": "03_TheBeautifulLand"
+},
+{
+"kind": "Kampagne",
+"edition": "extra2",
+"name": "04_BrutePower"
+},
+{
+"kind": "Kampagne",
+"edition": "extra2",
+"name": "04_IntoShadowIntoLight"
+},
+{
+"kind": "Kampagne",
+"edition": "extra2",
+"name": "04_TaintedLight"
+},
+{
+"kind": "Kampagne",
+"edition": "extra2",
+"name": "04_WolfsLair"
+},
+{
+"kind": "Kampagne",
+"edition": "extra2",
+"name": "05_EmeraldFields"
+},
+{
+"kind": "Mehrspieler",
+"edition": "base",
+"name": "(2)Europe"
+},
+{
+"kind": "Mehrspieler",
+"edition": "base",
+"name": "(2)ScarredLand"
+},
+{
+"kind": "Mehrspieler",
+"edition": "base",
+"name": "(2)SolitudeIsles"
+},
+{
+"kind": "Mehrspieler",
+"edition": "base",
+"name": "(3)Mediterranean"
+},
+{
+"kind": "Mehrspieler",
+"edition": "base",
+"name": "(4)BattleIsle"
+},
+{
+"kind": "Mehrspieler",
+"edition": "base",
+"name": "(4)ClashOfHeroes"
+},
+{
+"kind": "Mehrspieler",
+"edition": "base",
+"name": "(4)Darkland"
+},
+{
+"kind": "Mehrspieler",
+"edition": "base",
+"name": "(4)HillsOfFriendship"
+},
+{
+"kind": "Mehrspieler",
+"edition": "base",
+"name": "(4)ResourceConflict"
+},
+{
+"kind": "Mehrspieler",
+"edition": "base",
+"name": "(4)SummerStorm"
+},
+{
+"kind": "Mehrspieler",
+"edition": "base",
+"name": "(4)WinterIsland"
+},
+{
+"kind": "Mehrspieler",
+"edition": "base",
+"name": "(6)Conquest"
+},
+{
+"kind": "Mehrspieler",
+"edition": "base",
+"name": "(6)Highland_Siege"
+},
+{
+"kind": "Mehrspieler",
+"edition": "base",
+"name": "(6)IntoTheForest"
+},
+{
+"kind": "Mehrspieler",
+"edition": "base",
+"name": "(6)WinterRealm"
+},
+{
+"kind": "Mehrspieler",
+"edition": "extra1",
+"name": "(2)Arcanum"
+},
+{
+"kind": "Mehrspieler",
+"edition": "extra1",
+"name": "(2)AtTheGates"
+},
+{
+"kind": "Mehrspieler",
+"edition": "extra1",
+"name": "(2)BanditForrest"
+},
+{
+"kind": "Mehrspieler",
+"edition": "extra1",
+"name": "(2)Crater"
+},
+{
+"kind": "Mehrspieler",
+"edition": "extra1",
+"name": "(2)Koenigsforst"
+},
+{
+"kind": "Mehrspieler",
+"edition": "extra1",
+"name": "(4)BurningSteppe"
+},
+{
+"kind": "Mehrspieler",
+"edition": "extra1",
+"name": "(4)Clanwar"
+},
+{
+"kind": "Mehrspieler",
+"edition": "extra1",
+"name": "(4)HauntedRuins"
+},
+{
+"kind": "Mehrspieler",
+"edition": "extra1",
+"name": "(4)SabotageMoor"
+},
+{
+"kind": "Mehrspieler",
+"edition": "extra1",
+"name": "(4)Trade4Technology"
+},
+{
+"kind": "Mehrspieler",
+"edition": "extra1",
+"name": "(5)FourOnOne"
+},
+{
+"kind": "Mehrspieler",
+"edition": "extra2",
+"name": "(4)EvelanceAssault"
+},
+{
+"kind": "Mehrspieler",
+"edition": "extra2",
+"name": "(4)FrontierCompanions"
+},
+{
+"kind": "Mehrspieler",
+"edition": "extra2",
+"name": "(6)BattlefieldBarrens"
+}
+],
+"user_map_count": 317
+}

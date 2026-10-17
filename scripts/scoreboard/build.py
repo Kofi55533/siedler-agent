@@ -380,6 +380,96 @@ def totals():
     return t
 
 
+# ---------------- whole game (approximations) ----------------
+HERE = os.path.dirname(os.path.abspath(__file__))
+HEX6 = re.compile(r"0x([0-9A-Fa-f]{6})\b")  # same as tools/coverage_map.py
+CMD_SEEN = {}  # scenario -> {event id}
+MAP_ALIAS = {"winterinsel": "(4)WinterIsland", "camp crawford": "04_Crawford", "old kings castle": "15_OldKingsCastle"}
+
+
+def cmd_ids(types):
+    out = set()
+    for k in (types or {}):
+        try:
+            out.add(int(str(k).partition(":")[0]))
+        except ValueError:
+            pass
+    return out
+
+
+def function_coverage(ci_files):
+    """(a) cited native addresses in crates/s5clean/src that fall into a function of the static EXE inventory."""
+    inv = json.load(open(os.path.join(HERE, "function_inventory.json")))
+    ents = []
+    for r in inv["functions"]:
+        logic = r.endswith("L")
+        r = r.rstrip("L")
+        i = max(r.rfind("+"), r.rfind("-"))
+        e = int(r[:i], 16)
+        ents.append((e, e + int(r[i:], 16), logic))
+    ents.sort()
+    starts = [e for e, _h, _l in ents]
+    cited = set()
+    srcs = [(pth, t) for pth, t in ci_files.items() if pth.startswith("crates/s5clean/src/") and pth.endswith(".rs")]
+    if not srcs:
+        raise RuntimeError("no s5clean sources")
+    for pth, t in srcs:
+        for m in HEX6.finditer(blob(PRIV, t["sha"])):
+            cited.add(int(m.group(1), 16))
+    import bisect
+    hit = set()
+    for a in cited:
+        i = bisect.bisect_right(starts, a) - 1
+        j = i
+        while j >= 0 and j > i - 64:  # bodies can overlap/interleave: look back a little
+            e, hi, _l = ents[j]
+            if e <= a <= hi:
+                hit.add(j)
+                break
+            j -= 1
+    logic_hit = sum(1 for j in hit if ents[j][2])
+    tot, ltot = inv["total_functions"], inv["logic_functions"]
+    return {"cited_addresses": len(cited), "functions_hit": len(hit), "logic_hit": logic_hit,
+            "total": tot, "logic_total": ltot,
+            "pct_logic": round(100 * logic_hit / ltot, 2), "pct_raw": round(100 * len(hit) / tot, 2),
+            "module": inv["module"], "source": inv["source"], "source_commit": inv["source_commit"],
+            "unclassified_kept_as_logic": inv["unclassified_kept_as_logic"], "static": True}
+
+
+def test_coverage(rows):
+    """(b) official maps and command types exercised by at least one scenario."""
+    ml = json.load(open(os.path.join(HERE, "map_list.json")))
+    official = ml["official"]
+    norm = lambda x: re.sub(r"[^a-z0-9]", "", x.lower())
+    tested, other = set(), set()
+    for r in rows:
+        mp = (r.get("map") or "").strip()
+        if not mp:
+            continue
+        base = re.sub(r"\s*\(.*\)$", "", mp).lower()
+        key = MAP_ALIAS.get(base)
+        hit = [o for o in official if (key and o["name"] == key) or (not key and len(norm(base)) > 3 and norm(base) in norm(o["name"]))]
+        if hit:
+            tested.update(o["name"] for o in hit)
+        else:
+            other.add(mp)
+    turn = content(PRIV, "docs/systems/turn.md", BRANCH)
+    table = {int(m.group(1), 16): m.group(2) for m in re.finditer(r"^\|\s*0x(1[0-9a-fA-F]{4})\s*\|\s*(\w+)", turn, re.M)}
+    if not table:
+        raise RuntimeError("command table not found")
+    seen = set().union(*CMD_SEEN.values()) if CMD_SEEN else set()
+    done = sorted(c for c in table if c in seen)
+    return {
+        "maps": {"tested": len(tested), "total": len(official), "tested_list": sorted(tested),
+                 "untested": [f'{o["kind"]}: {o["name"]}' for o in official if o["name"] not in tested],
+                 "other_tested": sorted(other), "source": ml["source"], "user_map_count": ml["user_map_count"]},
+        "commands": {"tested": len(done), "total": len(table),
+                     "tested_list": [f"0x{c:x} {table[c]}" for c in done],
+                     "untested": [f"0x{c:x} {n}" for c, n in sorted(table.items()) if c not in seen],
+                     "source": "docs/systems/turn.md (Befehlstabelle aus recomp/command_table.py)"},
+    }
+
+
 # ---------------- main ----------------
 def main():
     os.makedirs(OUT, exist_ok=True)
@@ -420,6 +510,7 @@ def main():
             if txt:
                 ncmd, types = count_commands(txt)
                 summ = cmd_summary(types)
+                CMD_SEEN.setdefault(name, set()).update(cmd_ids(types))
         start, turns = (tk["start"], tk["turns"]) if tk else (None, None)
         rows.append({"name": name, "new": False, "map": map_, "turn": v["turn"] if v else None,
                      "identical": bool(v and v["identical"]), "measured": bool(v), "source": "Opus Live-Matrix" if v else None,
@@ -452,6 +543,7 @@ def main():
             turns = int(m5.group(1))
         map_ = map_name(f.get("image"), name)
         summ = cmd_summary(f.get("types"))
+        CMD_SEEN.setdefault(name, set()).update(cmd_ids(f.get("types")))
         what = (f"Befehle: {summ}" if summ else ("ohne Spielerbefehle" if f.get("commands") == 0 else
                 (f"{f['commands']} Befehle" if f.get("commands") else "Befehle unbekannt")))
         rows.append({"name": name, "new": True, "map": map_, "turn": val["turn"] if val else None,
@@ -493,6 +585,9 @@ def main():
         "coverage": {"pct": round(100 * int(mm.group(2)) / int(mm.group(1)), 1), "cited": int(mm.group(2)),
                      "executed": int(mm.group(1)), "as_of": cov_date} if mm else None,
     }
+
+    data["percent"]["whole_game"] = safe(lambda: function_coverage(ci_files), None, "function inventory")
+    data["percent"]["test_scope"] = safe(lambda: test_coverage(rows), None, "test scope")
 
     # 2. agents
     commits = safe(lambda: api(f"repos/{PRIV}/commits?sha={urllib.parse.quote(BRANCH, safe='')}&per_page=100"), [], "commits")
@@ -592,11 +687,18 @@ def main():
     key = (f'{data["matrix_source"]["time"]}|{data["matrix_source"]["sha"]}' if data["matrix_source"] else "-")
     p1 = data["percent"]["identical_turns"]["pct"]
     p2 = (data["percent"]["coverage"] or {}).get("pct")
+    wg = data["percent"]["whole_game"] or {}
+    ts = data["percent"]["test_scope"] or {}
+    p3, p4 = wg.get("pct_logic"), wg.get("pct_raw")
+    p5 = f'{ts["maps"]["tested"]}/{ts["maps"]["total"]}' if ts else None
+    p6 = f'{ts["commands"]["tested"]}/{ts["commands"]["total"]}' if ts else None
     last = hist[-1] if hist else {}
-    if not hist or last.get("key") != key or last.get("pct_identical") != p1 or last.get("pct_coverage") != p2:
+    if (not hist or last.get("key") != key or last.get("pct_identical") != p1 or last.get("pct_coverage") != p2
+            or last.get("pct_whole_logic") != p3 or last.get("maps_tested") != p5 or last.get("commands_tested") != p6):
         hist.append({"key": key, "time": data["matrix_source"]["time"] if data["matrix_source"] else None,
                      "sha": data["matrix_source"]["sha"] if data["matrix_source"] else None,
                      "recorded": data["generated_berlin"], "pct_identical": p1, "pct_coverage": p2,
+                     "pct_whole_logic": p3, "pct_whole_raw": p4, "maps_tested": p5, "commands_tested": p6,
                      "values": {r["name"]: {"turn": r["turn"], "identical": r["identical"]} for r in rows if r["measured"]}})
     data["history"] = hist[-200:]
     json.dump(hist[-200:], open(os.path.join(OUT, "history.json"), "w"), ensure_ascii=False, indent=1)
