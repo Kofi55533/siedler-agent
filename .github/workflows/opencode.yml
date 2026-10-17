@@ -87,7 +87,9 @@ jobs:
           command dispatch, animal flee, economy/workers incl. 69657 extraction, script runtime, verify tools, agent-queue). Base your branch on
           origin/clean/integration, keep PRs small, never touch claimed paths, never merge yourself and never target main.
           Open a code PR only when the target fixture's first divergence moves later (or becomes IDENTICAL) with a wired World tick/dispatch fix
-          and no other fixture moves earlier. Do not open doc-only or unwired-helper PRs; if blocked on claimed wiring, board-request only.
+          and no other fixture moves earlier. EXCEPTION, function-port tasks (issue title starts with "Port:"): open a PR titled "Port: ..."
+          as soon as each ported function is wired and its unit test is bit-identical against recomp/ (cite the original address);
+          the gate then merges it even if a scenario diverges earlier, and you must write the likely cause of that regression on the board. Do not open doc-only or unwired-helper PRs; if blocked on claimed wiring, board-request only.
           COORDINATION (mandatory, every run; Opus > Codex > Muse): first read siedler-sim-rs docs/AGENT_BOARD.md and docs/agent-queue/ (incl. started/)
           on origin/clean/integration. Before working, CLAIM your task: for a queue task use the file already moved to started/ (or move it there);
           append a one-line claim to docs/AGENT_BOARD.md ('<date> Muse claim: <task/fixture/subsystem> on agent/<branch>, issue #<n>'), commit and push

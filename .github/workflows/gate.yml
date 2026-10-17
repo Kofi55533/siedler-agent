@@ -1,0 +1,36 @@
+name: gate
+# Manually run the self-merge gate (scripts/s5-gate.sh) on existing agent/* PRs, e.g. "Port:" PRs opened before the port rule.
+on:
+  workflow_dispatch:
+    inputs:
+      prs: { description: "space-separated PR numbers in siedler-sim-rs", required: true }
+permissions:
+  contents: read
+concurrency:
+  group: gate-manual
+  cancel-in-progress: false
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - name: Setup game data, toolchain, build cache (quiet)
+        env:
+          T: ${{ secrets.PRIVATE_REPO_TOKEN }}
+        run: |
+          scripts/s5-setup.sh codex/clean-commands 1
+          echo "S5_SCRIPTS=$GITHUB_WORKSPACE/scripts" >> "$GITHUB_ENV"
+          git config --global user.name "siedler-agent"
+          git config --global user.email "Kofi55533@users.noreply.github.com"
+      - name: Gate
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          PRS: ${{ inputs.prs }}
+        run: |
+          for n in $PRS; do
+            S5_LIVE_TIMEOUT=900 timeout 75m $S5_SCRIPTS/s5-gate.sh "$n" > gate-$n.txt 2>&1 || true
+            echo "gate #$n: $(grep -E 'GATE FAIL|merged into|port rule' gate-$n.txt | tr '\n' ' ')"
+          done

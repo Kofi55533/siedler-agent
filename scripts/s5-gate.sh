@@ -64,7 +64,14 @@ while read -r f n0; do n1=$(awk -v f="$f" '$1==f{print $2}' "$G/pr.tsv")
   if [ "$n1" -lt "$n0" ]; then s=REGRESSION; reg=1; elif [ "$n1" -gt "$n0" ]; then s=better; else s=same; fi
   printf '%-22s base %-12s pr %-12s %s\n' "$f" "$(show $n0)" "$(show $n1)" "$s" >> "$G/report.txt"
 done < "$G/base.tsv"
-[ $reg = 0 ] || fail "first divergence earlier on at least one fixture"
+# Function-port rule (Dominic 2026-10-17, 6ee99cf): a "Port:" PR (ported original function, unit test bit-exact vs recomp/)
+# merges even if a scenario diverges earlier; the regression is announced on the board for the run/Opus to explain.
+pt=$(gh pr view "$PR" -R $R --json title -q .title 2>/dev/null)
+port=0; { [[ "${ISSUE_TITLE:-}" == Port:* ]] || grep -qiE '(^|[^a-z])port(ed)?[: ]' <<<"$pt"; } && port=1
+if [ $reg = 1 ]; then
+  [ $port = 1 ] || fail "first divergence earlier on at least one fixture"
+  echo "port rule: regression accepted (unit tests green; cause goes on the board)" >> "$G/report.txt"
+fi
 # base moved meanwhile: still valid if every new base commit only touched docs/*.md (board, notes) -> measured code unchanged
 nb=$(git ls-remote origin refs/heads/$BASE | cut -f1)
 if [ "$nb" != "$bs" ]; then
@@ -82,9 +89,11 @@ t=$(gh pr view "$PR" -R $R --json title -q .title)
 for i in 1 2 3; do
   [ -f .git/shallow ] && { git fetch -q --unshallow origin 2>/dev/null || git fetch -q --deepen=5000 origin; }
 git fetch -q origin "+refs/heads/$BASE:refs/remotes/origin/$BASE" && git checkout -q --detach origin/$BASE || break
-  printf '\n## %s Muse self-merge\n\n#%s `%s` (%s) squash-merged by s5-gate: build+s5clean tests green, no first divergence earlier (no-regression gate; progress = boundary moves).\n%s\n' \
+  printf '\n## %s Muse self-merge\n\n#%s `%s` (%s) squash-merged by s5-gate: build+s5clean tests green%s.\n%s%s\n' \
     "$(TZ=Europe/Berlin date '+%Y-%m-%d %H:%M') Berlin —" "$PR" "$h" "$t" \
-    "$(grep -E ' (better|same)$' "$G/report.txt" | awk '$NF=="better"{printf "%s %s->%s; ",$1,$3,$5}')" >> docs/AGENT_BOARD.md
+    "$([ $reg = 1 ] && echo ' (function-port rule: merged despite an earlier divergence)' || echo ', no first divergence earlier')" \
+    "$(grep -E ' (better|same)$' "$G/report.txt" | awk '$NF=="better"{printf "%s %s->%s; ",$1,$3,$5}')" \
+    "$(grep -E ' REGRESSION$' "$G/report.txt" | awk '{printf "REGRESSION %s %s->%s (cause: please explain on this board); ",$1,$3,$5}')" >> docs/AGENT_BOARD.md
   git -c user.name=siedler-agent -c user.email=Kofi55533@users.noreply.github.com commit -qam "board: Muse self-merge #$PR" &&
     git push -q origin HEAD:refs/heads/$BASE && { echo "board: announced" >> "$G/report.txt"; break; }
   git reset -q --hard origin/$BASE; done
