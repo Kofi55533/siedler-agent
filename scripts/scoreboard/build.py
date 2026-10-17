@@ -23,7 +23,7 @@ ERRORS = []
 
 # Base scenarios (fixed list, hand-written German descriptions). Everything else is discovered.
 SCENARIOS = [
-    ("bc-full", "Kampagnen-Spielstand", "großer Gesamttest mit vielen Spielerbefehlen", "bc"),
+    ("bc-full", "Deine BC-Aufnahme (10.08.2026)", "dein ganzes aufgezeichnetes Spiel NETEVENT_RECORDING_2026-08-10: 1.504 Spielerbefehle über 23.900 Züge, ab Zug 121", None),
     ("build", "Wintersturm", "Baustellen anlegen, Leibeigene bauen Gebäude fertig", "build"),
     ("production", "Wintersturm", "Rohstoffabbau und Produktionskette", "production"),
     ("late-economy", "Wintersturm", "über 1 h Wirtschaft: Zahltag, Steuern, Leibeigene kaufen, Bauernhof-Upgrade, Abgaben", None),
@@ -53,7 +53,7 @@ CMD_NAMES = {
 MAPS = [("dunkelforst", "Dunkelforst"), ("economy", "Dunkelforst"), ("winterisland", "Winterinsel"),
         ("wintersturm", "Wintersturm"), ("wsecon", "Wintersturm"), ("crawford", "Camp Crawford (Kampagne)"),
         ("oldkings", "Old Kings Castle (Kampagne)"), ("combat", "Kampf-Testkarte"), ("ai", "KI-Testkarte"),
-        ("saveload", "Wintersturm (Speicherstand)"), ("ws", "Wintersturm"), ("bc", "Kampagnen-Spielstand")]
+        ("saveload", "Wintersturm (Speicherstand)"), ("ws", "Wintersturm"), ("bc", "Deine BC-Aufnahme (Ausschnitt)")]
 
 
 def cmd_name(cid, cls=""):
@@ -524,6 +524,8 @@ def main():
                 summ = cmd_summary(types)
                 CMD_SEEN.setdefault(name, set()).update(cmd_ids(types))
         start, turns = (tk["start"], tk["turns"]) if tk else (None, None)
+        if name == "bc-full":  # full recording, not the 2000-turn `bc` cut (fixtures/bc)
+            start, turns, ncmd = 121, 23900, 1504
         rows.append({"name": name, "new": False, "map": map_, "turn": v["turn"] if v else None,
                      "identical": bool(v and v["identical"]), "measured": bool(v), "source": vsrc,
                      "when": vwhen, "total": turns, "start": start, "commands": ncmd,
