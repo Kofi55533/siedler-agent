@@ -40,18 +40,29 @@ Use `gh` (GH_TOKEN is set) and the local checkout /opt/s5/siedler-sim-rs (`git f
 0. Open DS-REQ board entries (section 0), always first.
 1. `docs/agent-queue/opus-*` items not yet started, then other (Codex) queue items not yet started. For a queue item, the task text is its file content
    (you may NOT move queue files yourself; the run that takes the task claims/moves it).
-2. Boundary-moving WIRED fixes: one task per scenario whose current first divergence is not covered by an active run/open issue (last 12h)/open PR.
-3. Clearly different angles on the same boundary (e.g. a different subsystem/record at that turn, an earlier deep-diff field visible before the live
+2. COVERAGE tasks: after DS-REQs and before own boundary tasks (items 3–4), reserve about one third of N (at least 1 when N≥2)
+   for these. A coverage task = generate new reference fixtures on the runner with targeted player command streams for a game
+   area that is not yet covered or where the clean port is suspected weak (e.g. taxes/levies 69646, alarm 69680/81, research 69658,
+   trade, upgrades, serf buy, military move/attack/recruit, building placement incl. invalid ones, campaign maps, other MP maps),
+   using the documented tooling in `docs/clean/new-fixtures/RUNNER.md` and the generators from PRs #411/#412/#413
+   (`tools/genb_fixtures.py`, `docs/clean/new-fixtures/gen_commands.py`, gen-c). The run exports per-turn reference state, uploads
+   as private release asset `fixtures-gen-<date>-<topic>` in Kofi55533/siedler-sim-rs (or as the earlier gen runs did), runs
+   s5clean live, posts first divergence + root-cause hint on the board, and if the cause is small and unclaimed, lands a wired fix.
+   Coverage tasks must each pick a distinct area/map from each other and from active runs.
+3. Boundary-moving WIRED fixes: one task per scenario whose current first divergence is not covered by an active run/open issue (last 12h)/open PR.
+4. Clearly different angles on the same boundary (e.g. a different subsystem/record at that turn, an earlier deep-diff field visible before the live
    boundary, wiring an already-merged unwired helper into World tick/dispatch, reworking a PR that Codex/Opus commented on).
 Every task must be DISTINCT from each other and from every active run, every open issue of the last 12h and every open agent/* PR
-(compare fixture + turn + subsystem). If you cannot find N genuinely distinct tasks, create fewer. Never invent topics from other Settlers games
+(compare fixture + turn + subsystem; for coverage: area/map). If you cannot find N genuinely distinct tasks, create fewer. Never invent topics from other Settlers games
 (S5 has no bakery/woodcutter/forester); cite recomp/ functions or game data when naming a subsystem.
 
 ## 3. Rules every task text must carry (state them in the task)
 - Work in Kofi55533/siedler-sim-rs, branch `agent/<short-topic>` based on origin/clean/integration (or on a named open PR), DRAFT PR to `clean/integration`. Never main, never merge manually.
 - Land a WIRED fix (hooked into World tick/dispatch) that moves the named fixture's first divergence later; no doc-only/analysis-only PR, no unwired helpers.
+  (Coverage tasks: generate fixtures + s5clean live + board post first; wired fix only if the cause is small and unclaimed.)
 - Never edit recomp/. Files/areas claimed in scripts/muse-claims.txt or by Opus/Codex lanes on the board: do NOT edit them; put the change as a patch in the PR body + a wiring request on docs/AGENT_BOARD.md (helper, call site, fixture+turn).
 - Never change, revert or overwrite code that Opus pushed; Opus has final say (Opus > Codex > Muse). Codex instructions override Muse.
+- The four combat scenarios at turn 167 (formation solver 0x4F7962, states 14/15, leader state 22) are Opus' domain — do not create further combat-167 boundary tasks unless a DS-REQ asks for it.
 - Read docs/AGENT_BOARD.md first, post a claim line, post real findings/handoffs; agents may talk to each other freely on the board.
 - s5-live before and after; report `live <fixture>: before X -> after Y`.
 
