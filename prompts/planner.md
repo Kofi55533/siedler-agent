@@ -1,9 +1,28 @@
 # PLANNER RUN (task generator, not a coding run)
 
 This run overrides the generic "every run MUST target a divergence / write code" instruction of the wrapper:
-you write NO code, push NO branch, open NO PR, and do NOT edit siedler-sim-rs at all (not even the board).
+you write NO code, push NO branch, open NO PR, and do NOT edit siedler-sim-rs, with ONE exception: the DS-REQ
+markers in `docs/AGENT_BOARD.md` on clean/integration (section 0).
 Your only output is N new task issues in Kofi55533/siedler-agent, each started with a `/opencode` comment.
 N is given in the trigger comment as `N=<number>` (default 3, hard max 15).
+
+## 0. DS-REQ first (top priority, before inventing anything)
+Before choosing any other task, read `git show origin/clean/integration:docs/AGENT_BOARD.md`, section
+`## Für DeepSeek (Aufträge von Opus)`. Every line `- [ ] DS-REQ <id>: <task> (from Opus, <date>)` is an open request
+from Opus (or Codex) and MUST become a task issue in this run, ahead of everything in section 2 (they count towards N;
+if there are more open DS-REQs than N, take them oldest first; never skip one for an own idea).
+- Skip a DS-REQ only if it is already `[~]`/`[x]` or an open issue/active run already carries its id in the title.
+- Title: `DS-REQ <id>: <short task>`; the `/opencode` comment carries the full request text verbatim plus the context/rules
+  of sections 3-4, and tells the run to mark the board line `[x] #<issue>` (optionally `-> PR #<n>` / one-line result) when done.
+- After creating the issue, mark the board line started: change only `- [ ]` to `- [~] #<issue>` (never edit the request text):
+  ```
+  cd /opt/s5/siedler-sim-rs && git fetch -q origin clean/integration && git checkout -q -B ds-board origin/clean/integration
+  # edit docs/AGENT_BOARD.md: only the marker(s) of the started DS-REQ line(s)
+  git commit -qam "board: DS-REQ <ids> started (#<issues>)" && git push -q origin HEAD:clean/integration
+  ```
+  On a push rejection: `git pull --rebase origin clean/integration` and push again (max 3 tries). Never force-push, never touch other lines or files.
+- Also read the recent Codex and Opus board entries (last ~24h) before inventing own tasks: their findings, wiring requests,
+  handoffs and requests addressed to DeepSeek/Muse take precedence over own ideas and must not be duplicated.
 
 ## 1. Gather state (read-only)
 Use `gh` (GH_TOKEN is set) and the local checkout /opt/s5/siedler-sim-rs (`git fetch -q origin clean/integration`).
@@ -18,6 +37,7 @@ Use `gh` (GH_TOKEN is set) and the local checkout /opt/s5/siedler-sim-rs (`git f
   If a number is missing or stale and time allows, measure: `source $S5_SCRIPTS/s5-env.sh; $S5_SCRIPTS/s5-live.sh <fixture>` (never paste log contents anywhere).
 
 ## 2. Choose N tasks (priority order)
+0. Open DS-REQ board entries (section 0), always first.
 1. `docs/agent-queue/opus-*` items not yet started, then other (Codex) queue items not yet started. For a queue item, the task text is its file content
    (you may NOT move queue files yourself; the run that takes the task claims/moves it).
 2. Boundary-moving WIRED fixes: one task per scenario whose current first divergence is not covered by an active run/open issue (last 12h)/open PR.
@@ -53,4 +73,4 @@ If `gh issue comment` fails, still keep the issue and append the full comment te
 (`gh issue edit $n --body-file ...`); the box refill script will post it.
 
 ## 6. Summary
-Write to $W/summary.txt (max 5 lines): `planner: created #a #b ...` plus one line on which boundaries were used and why fewer than N if so.
+Write to $W/summary.txt (max 5 lines): `planner: created #a #b ...` (list `DS-REQ <id> -> #n` first) plus one line on which boundaries were used and why fewer than N if so.
