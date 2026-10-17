@@ -77,8 +77,18 @@ nb=$(git ls-remote origin refs/heads/$BASE | cut -f1)
 if [ "$nb" != "$bs" ]; then
   git fetch -q origin "+refs/heads/$BASE:refs/remotes/origin/$BASE" || fail "fetch moved base"
   nd=$(git diff --name-only "$bs" "$nb" | grep -vcE '^docs/.*\.md$')
-  [ "$nd" = 0 ] || fail "$BASE moved during gate (code changed); re-run"
-  echo "base moved to ${nb:0:8} (docs/*.md only, code unchanged)" >> "$G/report.txt"
+  if [ "$nd" = 0 ]; then
+    echo "base moved to ${nb:0:8} (docs/*.md only, code unchanged)" >> "$G/report.txt"
+  else
+    # with ~20 parallel runs the base moves during almost every 75-min gate: re-check merge + build + unit tests on the new base
+    # (no second live suite; the live result above stands, later regressions are explained on the board)
+    git checkout -q --detach "$nb" || fail "checkout moved base"
+    git -c user.name=gate -c user.email=gate@local merge -q --no-edit --no-ff refs/gate/pr >/dev/null 2>&1 || { git merge --abort; git checkout -q --detach "$bs"; fail "merge conflict with moved $BASE"; }
+    "$D/s5-build.sh" >/dev/null || { git checkout -q --detach "$bs"; fail "build on moved base failed"; }
+    (cd crates/s5clean && cargo test -q -j "$(nproc)" > $S5/gate-test2.log 2>&1) || { git checkout -q --detach "$bs"; fail "s5clean tests on moved base"; }
+    git checkout -q --detach "$bs"
+    echo "base moved to ${nb:0:8} (code changed): merge+build+s5clean tests green on the new base" >> "$G/report.txt"
+  fi
 fi
 if [ $DRY = 1 ]; then echo "all gates green" >> "$G/report.txt"; finish 0; fi
 gh pr ready "$PR" -R $R >/dev/null 2>&1
