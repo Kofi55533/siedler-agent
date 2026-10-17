@@ -1,0 +1,48 @@
+name: scoreboard
+# Builds the public status page (GitHub Pages, branch gh-pages) every 15 min.
+# Reads the private repo via PRIVATE_REPO_TOKEN; publishes only numbers/titles (data.json) + static index.html.
+# Independent of opencode.yml / refill.yml (own concurrency group, no issues/comments).
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: scoreboard
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with: { sparse-checkout: scripts/scoreboard }
+      - name: Fetch previous history (gh-pages)
+        run: |
+          mkdir -p "$RUNNER_TEMP/out"
+          if git fetch -q --depth 1 origin gh-pages 2>/dev/null; then
+            git show FETCH_HEAD:history.json > "$RUNNER_TEMP/prev.json" 2>/dev/null || echo '[]' > "$RUNNER_TEMP/prev.json"
+          else
+            echo '[]' > "$RUNNER_TEMP/prev.json"
+          fi
+      - name: Build data.json
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          OUT: ${{ runner.temp }}/out
+          PREV: ${{ runner.temp }}/prev.json
+        run: python3 scripts/scoreboard/build.py
+      - name: Publish to gh-pages
+        env:
+          OUT: ${{ runner.temp }}/out
+        run: |
+          cp scripts/scoreboard/index.html "$OUT/index.html"
+          touch "$OUT/.nojekyll"
+          cd "$OUT"
+          git init -q -b gh-pages
+          git config user.name "siedler-scoreboard"
+          git config user.email "Kofi55533@users.noreply.github.com"
+          git add -A
+          git commit -q -m "scoreboard $(TZ=Europe/Berlin date '+%F %H:%M %Z')"
+          git push -q -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" gh-pages
+          echo "Published $(TZ=Europe/Berlin date '+%F %H:%M %Z')" >> "$GITHUB_STEP_SUMMARY"
