@@ -8,11 +8,12 @@ on:
   workflow_dispatch:
 permissions:
   contents: write
-concurrency:
-  group: scoreboard
-  cancel-in-progress: false
 jobs:
   build:
+    # concurrency only on the build job, so a sleeping rearm job never blocks a manual/new build
+    concurrency:
+      group: scoreboard
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -48,7 +49,7 @@ jobs:
           echo "Published $(TZ=Europe/Berlin date '+%F %H:%M %Z')" >> "$GITHUB_STEP_SUMMARY"
   rearm:
     # GitHub's cron schedule did not fire for this repo (17.10.2026), so each run re-dispatches itself
-    # ~13 min later. Extra runs collapse via the `scoreboard` concurrency group (one pending run at most).
+    # ~13 min later. Only the newest run re-dispatches, so parallel chains collapse into one.
     needs: build
     if: always()
     runs-on: ubuntu-latest
@@ -60,4 +61,6 @@ jobs:
           R: ${{ github.repository }}
         run: |
           sleep 780
+          newer=$(gh run list -R "$R" -w scoreboard.yml --limit 20 --json databaseId -q "[.[]|select(.databaseId > ${{ github.run_id }})]|length" || echo 0)
+          if [ "${newer:-0}" -gt 0 ]; then echo "newer run exists -> no re-dispatch"; exit 0; fi
           gh workflow run scoreboard.yml -R "$R" --ref main
