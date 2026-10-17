@@ -533,6 +533,8 @@ def main():
             start, turns, ncmd = 121, 23900, 1504
         if v and not v["identical"] and turns and v["turn"] and v["turn"] >= turns:
             v = dict(v, identical=True)  # matched up to the scenario's last turn = whole run identical
+        if v and v["identical"] and turns and v["turn"] and v["turn"] < turns:
+            v = dict(v, identical=False)  # a turn before the scenario's end cannot be "whole run identical"
         rows.append({"name": name, "new": False, "map": map_, "turn": v["turn"] if v else None,
                      "identical": bool(v and v["identical"]), "measured": bool(v), "source": vsrc,
                      "when": vwhen, "total": turns, "start": start, "commands": ncmd,
@@ -564,6 +566,8 @@ def main():
         m5 = re.search(r"-(\d{3,5})$", name)
         if turns is None and m5:
             turns = int(m5.group(1))
+        if val and val["identical"] and turns and val["turn"] and val["turn"] < turns:
+            val = dict(val, identical=False)  # turn before the scenario's end -> not whole-run identical
         map_ = map_name(f.get("image"), name)
         summ = cmd_summary(f.get("types"))
         CMD_SEEN.setdefault(name, set()).update(cmd_ids(f.get("types")))
