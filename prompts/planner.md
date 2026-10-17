@@ -65,8 +65,9 @@ Then fill the remaining slots (use all N with distinct tasks) from any mix of:
   subsystem, e.g. one CxxBehavior's handlers, 5-25 functions), named with addresses, and must: port them cleanly from the Ghidra
   decompile (siedler-forschung `cloud-re/results/rust_handoff/source/functions.jsonl`) cross-checked against `recomp/` (the lifted
   reference is the truth where they differ), cite each native address in the code, add tests that compare against the reference
-  (recomp/ behaviour or reference fixture state) wherever possible, wire them into World tick/dispatch only if no live scenario
-  regresses, and land a PR. Groups must not overlap with each other, active runs, open PRs or Opus' claimed areas (board/claims);
+  (recomp/ behaviour or reference fixture state) wherever possible, wire them into World tick/dispatch once they are bit-exact against
+  recomp/ (that is the acceptance criterion); if a live scenario then diverges earlier, find and post the real cause on the board
+  (usually another missing function) instead of holding back a bit-exact port, and land a PR. Groups must not overlap with each other, active runs, open PRs or Opus' claimed areas (board/claims);
   prefer groups that run early in the game (COVERAGE first-turn) and are not part of combat-167 formation code.
 Every task must be DISTINCT from each other and from every active run, every open issue of the last 12h and every open agent/* PR
 (compare fixture + turn + subsystem; for coverage: area/map). If you cannot find N genuinely distinct tasks, create fewer. Never invent topics from other Settlers games
