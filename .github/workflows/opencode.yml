@@ -104,7 +104,7 @@ jobs:
           cd "$W"
           set +e
           # Model per run: a 'model: opencode/<id>' line in the comment or issue body (comment wins), else default.
-          MODEL=opencode/deepseek-v4.1-flash-free
+          MODEL=opencode/deepseek-v4.1-flash-free  # A/B 2026-10-17 winner over glm-5.3-flash-free (#504-#507)
           M=$(printf '%s\n%s\n' "$BODY" "$IBODY" | grep -oiE '^[[:space:]]*model:[[:space:]]*opencode/[A-Za-z0-9._-]+' | head -n1 | sed -E 's/.*model:[[:space:]]*//I')
           [ -n "$M" ] && MODEL="$M"
           echo "model=$MODEL"
