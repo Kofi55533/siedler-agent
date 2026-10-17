@@ -103,7 +103,12 @@ jobs:
           P
           cd "$W"
           set +e
-          timeout 200m opencode run -m opencode/muse-spark-1.3-contributor-free "$(cat "$RUNNER_TEMP/prompt.txt")" > "$RUNNER_TEMP/opencode.log" 2>&1
+          # Model per run: a 'model: opencode/<id>' line in the comment or issue body (comment wins), else default.
+          MODEL=opencode/deepseek-v4.1-flash-free
+          M=$(printf '%s\n%s\n' "$BODY" "$IBODY" | grep -oiE '^[[:space:]]*model:[[:space:]]*opencode/[A-Za-z0-9._-]+' | head -n1 | sed -E 's/.*model:[[:space:]]*//I')
+          [ -n "$M" ] && MODEL="$M"
+          echo "model=$MODEL"
+          timeout 200m opencode run -m "$MODEL" "$(cat "$RUNNER_TEMP/prompt.txt")" > "$RUNNER_TEMP/opencode.log" 2>&1
           echo "exit=$? log_lines=$(wc -l < "$RUNNER_TEMP/opencode.log")"
           rm -f ~/.local/share/opencode/auth.json
       - name: Self-merge gate (PRs opened or updated by this run)
