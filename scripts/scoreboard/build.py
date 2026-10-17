@@ -237,6 +237,13 @@ def board_value(entries, name):
                 break
             if mm:
                 ident = bool(mm.group(1))
+                if not ident:
+                    # "economy 360, build 650 ... are all IDENTICAL" -> same sentence says IDENTICAL, none says diverg
+                    a = max(t.rfind(".", 0, mm.start()), t.rfind("\n", 0, mm.start())) + 1
+                    b = min([x for x in (t.find(".", mm.end()), t.find("\n", mm.end())) if x >= 0] or [len(t)])
+                    seg = t[a:b]
+                    if "IDENTICAL" in seg and not re.search(r"(?i)diverg|DIVERGENT", seg):
+                        ident = True
                 n = int(mm.group(2)) if ident and mm.group(2) else (int(mm.group(3)) if mm.group(3) else None)
                 return {"turn": n, "identical": ident, "time": e["time"], "line": e["line"], "agent": e["agent"]}
     return None
@@ -502,6 +509,11 @@ def main():
     rows = []
     for name, map_, what, fdir in SCENARIOS:
         v = matrix.get(name)
+        vsrc, vwhen = ("Opus Live-Matrix", mtime) if v else (None, None)
+        # a board measurement written after the live matrix is newer -> it wins (matrix can be hours old)
+        bv = board_value(entries, name)
+        if bv and (not live or int(bv["line"]) > int(live[0]["line"])):
+            v, vsrc, vwhen = bv, f"Board ({bv['agent']}, Zeile {bv['line']})", bv["time"]
         tk = tot.get(name) or tot.get(ALIAS_TOTAL.get(name, ""))
         ncmd = summ = None
         cp = f"fixtures/{fdir}/commands.jsonl" if fdir else None
@@ -513,8 +525,8 @@ def main():
                 CMD_SEEN.setdefault(name, set()).update(cmd_ids(types))
         start, turns = (tk["start"], tk["turns"]) if tk else (None, None)
         rows.append({"name": name, "new": False, "map": map_, "turn": v["turn"] if v else None,
-                     "identical": bool(v and v["identical"]), "measured": bool(v), "source": "Opus Live-Matrix" if v else None,
-                     "when": mtime if v else None, "total": turns, "start": start, "commands": ncmd,
+                     "identical": bool(v and v["identical"]), "measured": bool(v), "source": vsrc,
+                     "when": vwhen, "total": turns, "start": start, "commands": ncmd,
                      "desc": describe(map_, start, turns, what + (f" · Befehle: {summ}" if summ else ""))})
     pulls_open = safe(lambda: api(f"repos/{PRIV}/pulls?state=open&per_page=100"), [], "open pulls")
     releases = safe(lambda: api(f"repos/{PRIV}/releases?per_page=50"), [], "releases")
@@ -527,7 +539,9 @@ def main():
         lv = matrix.get(name)
         bv = board_value(entries, name)
         iv = f.get("index_value")
-        if lv:
+        if bv and (not lv or not live or int(bv["line"]) > int(live[0]["line"])):
+            val, src, when = bv, f"Board ({bv['agent']}, Zeile {bv['line']})", bv["time"]
+        elif lv:
             val, src, when = lv, "Opus Live-Matrix", mtime
         elif bv:
             val, src, when = bv, f"Board ({bv['agent']}, Zeile {bv['line']})", bv["time"]
