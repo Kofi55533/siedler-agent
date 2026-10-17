@@ -14,7 +14,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with: { sparse-checkout: scripts/scoreboard }
@@ -46,3 +46,18 @@ jobs:
           git commit -q -m "scoreboard $(TZ=Europe/Berlin date '+%F %H:%M %Z')"
           git push -q -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" gh-pages
           echo "Published $(TZ=Europe/Berlin date '+%F %H:%M %Z')" >> "$GITHUB_STEP_SUMMARY"
+  rearm:
+    # GitHub's cron schedule did not fire for this repo (17.10.2026), so each run re-dispatches itself
+    # ~13 min later. Extra runs collapse via the `scoreboard` concurrency group (one pending run at most).
+    needs: build
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Re-dispatch scoreboard in ~13 min
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          R: ${{ github.repository }}
+        run: |
+          sleep 780
+          gh workflow run scoreboard.yml -R "$R" --ref main
