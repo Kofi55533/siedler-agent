@@ -305,6 +305,32 @@ def main():
                            "author": p["user"]["login"]})
     merged.sort(key=lambda p: p["merged"], reverse=True)
     data["deepseek"] = {"running": ds, "count": len(ds), "queued": len(queued), "target": 15, "merged_24h": merged}
+    # activity timestamps for the status badges (UTC ISO; age is computed client-side)
+    def board_utc(b):
+        if not b:
+            return None
+        try:
+            t = datetime.strptime(b["time"], "%Y-%m-%d %H:%M").replace(tzinfo=BERLIN).astimezone(timezone.utc)
+        except ValueError:
+            return None
+        return None if t > NOW + timedelta(minutes=5) else t  # ignore future-dated board entries
+
+    def activity(agent, commit_utc):
+        cands = []
+        if commit_utc:
+            cands.append((commit_utc, "Commit"))
+        bt = board_utc(data[agent].get("last_board"))
+        if bt:
+            cands.append((bt, "Board-Eintrag"))
+        if not cands:
+            return None
+        t, src = max(cands)
+        return {"utc": t.strftime("%Y-%m-%dT%H:%M:%SZ"), "berlin": iso(t), "source": src}
+
+    data["opus"]["activity"] = activity("opus", parse_ts(opus_c["commit"]["committer"]["date"]) if opus_c else None)
+    cc = data["codex"]["last_commit"]
+    data["codex"]["activity"] = activity("codex", cc and datetime.strptime(cc["time"], "%Y-%m-%d %H:%M").replace(tzinfo=BERLIN).astimezone(timezone.utc))
+    data["codex"]["paused_until_utc"] = datetime(2026, 10, 22, 15, 57, tzinfo=BERLIN).astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     data["errors"] = ERRORS
 
     # history (one point per new live-matrix source)

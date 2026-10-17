@@ -24,12 +24,16 @@ th{font-size:.82em;color:var(--mute);font-weight:600}
 ul{padding-left:1.1em;margin:.3em 0}li{margin:.25em 0}
 .sum{display:flex;gap:18px;flex-wrap:wrap}.sum div{min-width:90px}
 @media (max-width:600px){.hide-m{display:none}td,th{padding:6px 3px}}
+.status{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px}
+.st{border-radius:12px;padding:12px 14px;color:#fff}.st .ag{font-size:.95em;opacity:.9}.st .lv{font-size:1.6em;font-weight:800;line-height:1.2}.st .dt{font-size:.85em;opacity:.95}
+.st.g{background:#16a34a}.st.y{background:#ca8a04}.st.r{background:#dc2626}.st.x{background:#6b7280}
 svg.spark{display:block;margin-top:3px}
 </style>
 </head>
 <body><main>
 <h1>🏰 Siedler Scoreboard</h1>
 <div class="mute" id="upd">Lade Daten …</div>
+<div class="card"><div class="status" id="status"></div></div>
 <div class="card"><div class="sum" id="sum"></div></div>
 <div class="card">
 <h2>Szenarien – wie weit läuft die neue Simulation identisch zum Original?</h2>
@@ -61,6 +65,21 @@ function spark(name,hist){
 }
 fetch("data.json?t="+Date.now()).then(r=>r.json()).then(d=>{
   $("upd").innerHTML=`Zuletzt aktualisiert: <b>${esc(d.generated_berlin)}</b> (Berlin) · Stand <code>${esc(d.branch)}</code>${d.head?` @ <code>${esc(d.head.sha)}</code> (${esc(d.head.time)})`:""}`;
+  const now=Date.now();
+  const ago=u=>{const m=Math.max(0,Math.round((now-Date.parse(u))/60000));return m<60?m+" min":m<1440?Math.floor(m/60)+" h "+(m%60)+" min":Math.floor(m/1440)+" Tagen"};
+  function act(a){
+    if(!a||!a.activity)return{c:"r",l:"inaktiv",t:"keine Aktivität gefunden"};
+    const m=(now-Date.parse(a.activity.utc))/60000;
+    const t=`letzter Push vor ${ago(a.activity.utc)} <span style="opacity:.8">(${esc(a.activity.source)}, ${esc(a.activity.berlin)})</span>`;
+    return m<60?{c:"g",l:"aktiv",t}:m<=180?{c:"y",l:"ruhig",t}:{c:"r",l:"inaktiv",t};
+  }
+  const so=act(d.opus);
+  let sc=act(d.codex);
+  if(d.codex.paused_until_utc&&now<Date.parse(d.codex.paused_until_utc))sc={c:"x",l:"pausiert",t:`Limit bis 22.10. 15:57 · letzter Push vor ${d.codex.activity?ago(d.codex.activity.utc):"–"}`};
+  const dn=d.deepseek.count;
+  const sd={c:dn>=1?"g":"r",l:dn>=1?"aktiv":"inaktiv",t:`${dn} von ${d.deepseek.target} Läufen aktiv${d.deepseek.queued?` · ${d.deepseek.queued} wartend`:""}`};
+  const badge=(n,s)=>`<div class="st ${s.c}"><div class="ag">${n}</div><div class="lv">● ${s.l}</div><div class="dt">${s.t}</div></div>`;
+  $("status").innerHTML=badge("🤖 Opus",so)+badge("🧠 Codex",sc)+badge("🐋 DeepSeek",sd);
   const S=d.scenarios||[],hist=d.history||[];
   const main=S.filter(s=>!s.group),gen=S.filter(s=>s.group);
   const ident=main.filter(s=>s.identical).length;
