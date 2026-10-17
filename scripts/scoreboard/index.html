@@ -84,14 +84,14 @@ fetch("data.json?t="+Date.now()).then(r=>r.json()).then(d=>{
   let sc=act(d.codex);
   if(d.codex.paused_until_utc&&now<Date.parse(d.codex.paused_until_utc))sc={c:"x",l:"pausiert",t:`Limit bis 22.10. 15:57 · letzter Push vor ${d.codex.activity?ago(d.codex.activity.utc):"–"}`};
   const dn=d.deepseek.count;
-  const sd={c:dn>=1?"g":"r",l:dn>=1?"aktiv":"inaktiv",t:`${dn} von ${d.deepseek.target} Läufen aktiv${d.deepseek.queued?` · ${d.deepseek.queued} wartend`:""}`};
+  const sd={c:dn>=1?"g":"r",l:dn>=1?"aktiv":"inaktiv",t:`${dn} von ${d.deepseek.target} Läufen aktiv (${["Funktionen","Fehlersuche","Testszenario","Planer"].map(k=>`${(d.deepseek.kinds||{})[k]||0} ${k}`).join(", ")})${d.deepseek.queued?` · ${d.deepseek.queued} wartend`:""}`};
   const badge=(n,s)=>`<div class="st ${s.c}"><div class="ag">${n}</div><div class="lv">● ${s.l}</div><div class="dt">${s.t}</div></div>`;
   $("status").innerHTML=badge("🤖 Opus",so)+badge("🧠 Codex",sc)+badge("🐋 DeepSeek",sd);
   const S=d.scenarios||[],hist=d.history||[];
   const main=S.filter(s=>!s.new);
   const ident=main.filter(s=>s.identical).length;
   $("sum").innerHTML=`<div><div class="big">${ident}/${main.length}</div><div class="mute">Basis-Szenarien identisch</div></div>
-   <div><div class="big">${d.deepseek.count}/${d.deepseek.target}</div><div class="mute">DeepSeek-Läufe aktiv</div></div>
+   <div><div class="big">${d.deepseek.count}/${d.deepseek.target}</div><div class="mute">DeepSeek-Läufe aktiv</div><div class="small">${["Funktionen","Fehlersuche","Testszenario","Planer"].map(k=>`${(d.deepseek.kinds||{})[k]||0} ${k}`).join(" · ")}</div></div>
    <div><div class="big">${d.deepseek.merged_24h.length}</div><div class="mute">PRs gemergt (24 h)</div></div>`;
   function stand(s){
     let st;
