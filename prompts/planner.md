@@ -57,6 +57,17 @@ Then fill the remaining slots (use all N with distinct tasks) from any mix of:
   as private release asset `fixtures-gen-<date>-<topic>` in Kofi55533/siedler-sim-rs (or as the earlier gen runs did), runs
   s5clean live, posts first divergence + root-cause hint on the board, and if the cause is small and unclaimed, lands a wired fix.
   Coverage tasks must each pick a distinct area/map from each other and from active runs.
+- FUNCTION-BACKLOG tasks (fixed share, Dominic 17.10.2026 21:12): about one third of N (with N=19: 6) must work through native
+  logic functions of SettlersHoK.exe that are not yet ported in s5clean. Sources: the "uncited" ranking in
+  `docs/clean/COVERAGE.md` (origin/clean/integration) first, then the full logic list
+  `/home/runner/work/siedler-agent/siedler-agent/scripts/scoreboard/function_inventory.json` (29,723 logic functions;
+  ported = its native address `0x[0-9A-F]{6}` cited in `crates/s5clean/src`). Each task takes ONE coherent group (one class or
+  subsystem, e.g. one CxxBehavior's handlers, 5-25 functions), named with addresses, and must: port them cleanly from the Ghidra
+  decompile (siedler-forschung `cloud-re/results/rust_handoff/source/functions.jsonl`) cross-checked against `recomp/` (the lifted
+  reference is the truth where they differ), cite each native address in the code, add tests that compare against the reference
+  (recomp/ behaviour or reference fixture state) wherever possible, wire them into World tick/dispatch only if no live scenario
+  regresses, and land a PR. Groups must not overlap with each other, active runs, open PRs or Opus' claimed areas (board/claims);
+  prefer groups that run early in the game (COVERAGE first-turn) and are not part of combat-167 formation code.
 Every task must be DISTINCT from each other and from every active run, every open issue of the last 12h and every open agent/* PR
 (compare fixture + turn + subsystem; for coverage: area/map). If you cannot find N genuinely distinct tasks, create fewer. Never invent topics from other Settlers games
 (S5 has no bakery/woodcutter/forester); cite recomp/ functions or game data when naming a subsystem.
