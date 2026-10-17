@@ -45,7 +45,7 @@ summary.txt.
 0. Open DS-REQ board entries (section 0), always first.
 1. `docs/agent-queue/opus-*` items not yet started, then other (Codex) queue items not yet started. For a queue item, the task text is its file content
    (you may NOT move queue files yourself; the run that takes the task claims/moves it).
-Then fill the remaining slots (use all N with distinct tasks) from any mix of:
+Then fill the remaining slots (use all N with distinct tasks; about three quarters are FUNCTION-BACKLOG tasks, the remaining quarter boundary fixes/angles/coverage fixtures) from any mix of:
 - Boundary-moving WIRED fixes: one task per scenario whose current first divergence is not covered by an active run/open issue (last 12h)/open PR.
 - Clearly different angles on the same boundary (e.g. a different subsystem/record at that turn, an earlier deep-diff field visible before the live
   boundary, wiring an already-merged unwired helper into World tick/dispatch, reworking a PR that Codex/Opus commented on).
@@ -57,7 +57,7 @@ Then fill the remaining slots (use all N with distinct tasks) from any mix of:
   as private release asset `fixtures-gen-<date>-<topic>` in Kofi55533/siedler-sim-rs (or as the earlier gen runs did), runs
   s5clean live, posts first divergence + root-cause hint on the board, and if the cause is small and unclaimed, lands a wired fix.
   Coverage tasks must each pick a distinct area/map from each other and from active runs.
-- FUNCTION-BACKLOG tasks (fixed share, Dominic 17.10.2026 21:12): about one third of N (with N=19: 6) must work through native
+- FUNCTION-BACKLOG tasks (fixed share, Dominic 17.10.2026 21:12): about three quarters of N (with N=19: 14; Dominic 17.10.2026 21:17) must work through native
   logic functions of SettlersHoK.exe that are not yet ported in s5clean. Sources: the "uncited" ranking in
   `docs/clean/COVERAGE.md` (origin/clean/integration) first, then the full logic list
   `/home/runner/work/siedler-agent/siedler-agent/scripts/scoreboard/function_inventory.json` (29,723 logic functions;
