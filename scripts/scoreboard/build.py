@@ -634,13 +634,22 @@ def main():
     for i in issues:
         if "pull_request" not in i:
             by_title.setdefault(i["title"], i)
+    def kind(t):
+        tl = t.lower()
+        if t.startswith("[planner]"):
+            return "Planer"
+        if tl.startswith("port") or "function-backlog" in tl or "backlog" in tl or tl.startswith("funktion"):
+            return "Funktionen"
+        if tl.startswith("coverage") or "fixture gen" in tl or "new " in tl and "fixture" in tl or "map-start" in tl:
+            return "Testszenario"
+        return "Fehlersuche"
     ds = []
     for r in sorted(inprog, key=lambda r: r.get("run_started_at") or r["created_at"]):
         st = parse_ts(r.get("run_started_at") or r["created_at"])
         iss = by_title.get(r.get("display_title", ""))
         ds.append({"title": r.get("display_title", "")[:160], "run_url": r["html_url"],
                    "issue": iss["number"] if iss else None, "issue_url": iss["html_url"] if iss else None,
-                   "started": iso(st), "minutes": int((NOW - st).total_seconds() // 60)})
+                   "kind": kind(r.get("display_title", "")), "started": iso(st), "minutes": int((NOW - st).total_seconds() // 60)})
     pulls = safe(lambda: api(f"repos/{PRIV}/pulls?state=closed&base={urllib.parse.quote(BRANCH, safe='')}&sort=updated&direction=desc&per_page=100"), [], "pulls")
     merged = []
     for p in pulls:
@@ -648,7 +657,10 @@ def main():
             merged.append({"number": p["number"], "title": p["title"][:160], "merged": iso(parse_ts(p["merged_at"])),
                            "author": p["user"]["login"]})
     merged.sort(key=lambda p: p["merged"], reverse=True)
-    data["deepseek"] = {"running": ds, "count": len(ds), "queued": len(queued), "target": 20, "merged_24h": merged}
+    kinds = {}
+    for x in ds:
+        kinds[x["kind"]] = kinds.get(x["kind"], 0) + 1
+    data["deepseek"] = {"running": ds, "kinds": kinds, "count": len(ds), "queued": len(queued), "target": 20, "merged_24h": merged}
     # activity timestamps for the status badges (UTC ISO; age is computed client-side)
     def board_utc(b):
         if not b:

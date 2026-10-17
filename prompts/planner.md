@@ -61,7 +61,7 @@ Then fill the remaining slots (use all N with distinct tasks; about three quarte
   logic functions of SettlersHoK.exe that are not yet ported in s5clean. Sources: the "uncited" ranking in
   `docs/clean/COVERAGE.md` (origin/clean/integration) first, then the full logic list
   `/home/runner/work/siedler-agent/siedler-agent/scripts/scoreboard/function_inventory.json` (29,723 logic functions;
-  ported = its native address `0x[0-9A-F]{6}` cited in `crates/s5clean/src`). Each task takes ONE coherent group (one class or
+  ported = its native address `0x[0-9A-F]{6}` cited in `crates/s5clean/src`). Title of each such task MUST start with `Port:` (the scoreboard classifies runs by title). Each task takes ONE coherent group (one class or
   subsystem, e.g. one CxxBehavior's handlers, 5-25 functions), named with addresses, and must: port them cleanly from the Ghidra
   decompile (siedler-forschung `cloud-re/results/rust_handoff/source/functions.jsonl`) cross-checked against `recomp/` (the lifted
   reference is the truth where they differ), cite each native address in the code, add tests that compare against the reference
