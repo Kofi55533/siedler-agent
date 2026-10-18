@@ -76,7 +76,9 @@ def board_claims(board, include_legacy=False):
 
 
 def observe(state):
-    all_runs = {pool: active_runs(pool) for pool in POOLS}
+    # A detached pool uses another source branch/queue and must not consume slots
+    # or delay this pool's legacy drain or integration.
+    all_runs = {pool: active_runs(pool) for pool in state["config"]["pools"]}
     legacy_names = {"opencode.yml", "gate.yml", "muse-gate.yml"}
     cutover = state["config"].get("cutover_at", "9999")
     legacy = []
