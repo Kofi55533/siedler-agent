@@ -35,3 +35,8 @@ and land a **wired** fix (hooked into World tick/dispatch) that moves that bound
 No doc-only analysis PRs and no unwired helpers. If wiring is in a Codex/Opus-claimed area, post an explicit
 wiring request on `docs/AGENT_BOARD.md` instead. Self-merge gate criterion remains no-regression.
 
+# Shared fleet
+
+The two Actions pools now use the private queue and integration protocol in
+[SHARED_FLEET.md](SHARED_FLEET.md). The old issue-comment worker and sleeping refill
+chain are replaced by private task admission and completion-driven scheduling.
