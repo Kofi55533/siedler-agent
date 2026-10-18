@@ -15,6 +15,9 @@ draft PRs to the private repos; this repo contains only the workflow, and commen
   and, when a `soft` path (former claimed area, e.g. economy/, world/commands.rs) is touched, at least one frontier moves later.
   Runs inline in `opencode.yml` and manually via `muse-gate.yml`/`gate.yml`.
   Never targets main.
+- `scripts/close-stale-drafts.sh [--dry-run]` + `stale-drafts.yml` (hourly): closes siedler-sim-rs draft PRs older than 48 h that are
+  conflicted or were gate-measured without moving a boundary (comment with reason; branches kept; opus/codex/haiku heads and
+  non-clean/integration bases never touched).
 
 ## Priority rule (Dominic 2026-10-17 00:11)
 Progress is measured ONLY by first-divergence turns moving forward on the live scenarios.

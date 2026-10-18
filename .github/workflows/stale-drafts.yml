@@ -1,0 +1,30 @@
+name: stale-drafts
+# Opus decision 2026-10-18 (rule 4): close DRAFT PRs in siedler-sim-rs older than 48 h that are conflicted
+# (mergeable_state dirty) or measured by the s5-gate without moving any boundary. Reason is commented on each PR;
+# branches are never deleted; opus/*, codex/*, haiku/* heads and bases other than clean/integration are never touched.
+# Logic: scripts/close-stale-drafts.sh (manual run defaults to dry-run).
+on:
+  schedule:
+    - cron: '41 * * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run: { description: 'true = list only, close nothing', default: 'true' }
+permissions:
+  contents: read
+concurrency:
+  group: stale-drafts
+  cancel-in-progress: false
+jobs:
+  close:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Close stale draft PRs
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          DRY: ${{ github.event.inputs.dry_run || 'false' }}
+          GH_PROMPT_DISABLED: '1'
+        run: |
+          [ "$DRY" = false ] && a= || a=--dry-run
+          scripts/close-stale-drafts.sh $a | tee -a "$GITHUB_STEP_SUMMARY"
