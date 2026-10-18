@@ -55,6 +55,7 @@ svg.spark{display:block;margin-top:3px}
 <div class="card" id="ds"></div>
 <div class="card" id="codex"></div>
 </div>
+<div class="card" id="fleet" style="display:none"></div>
 <div class="card" id="merged"></div>
 <div class="mute small" id="foot">Aktualisiert automatisch alle 15 Minuten (GitHub Actions). Nur Zahlen und Titel, kein Code.</div>
 </main>
@@ -143,6 +144,23 @@ fetch("data.json?t="+Date.now()).then(r=>r.json()).then(d=>{
   $("codex").innerHTML=`<h2>🧠 Codex</h2><div class="badge div">${esc(c.note)}</div>`+
     (c.last_commit?`<div style="margin-top:8px"><b>Letzter Commit:</b> ${esc(c.last_commit.time)} <span class="mute small">(${esc(c.last_commit.branch)})</span><br><code>${esc(c.last_commit.sha)}</code> ${esc(c.last_commit.subject)}</div>`:"")+
     (c.last_board?`<div style="margin-top:8px"><b>Letzter Board-Eintrag:</b> ${esc(c.last_board.time)}<br><span class="small">${esc(c.last_board.summary)}</span></div>`:"");
+  const F=d.fleet;
+  if(F&&F.pools&&F.pools.length){
+    $("fleet").style.display="";
+    $("fleet").innerHTML=`<h2>🐋 DeepSeek-Flotte (fleet-worker) – getrennt nach Pool</h2><div class="mute small">Gemeinsame Aufgabenliste <code>fleet/state.json</code> (agents/control) · ${fmt(F.queued_tasks)} Aufgaben wartend · „heute“ = seit ${esc(F.today_since)} (Berlin)</div><div class="grid" style="margin-top:8px">`+
+      F.pools.map(p=>{const t=p.today||{},ts=p.tasks_today||{};
+        const st=p.held?`<span class="badge div">angehalten</span>`:(p.blocked_until?`<span class="badge div">gesperrt bis ${esc(p.blocked_until)}</span>`:`<span class="badge ok">frei</span>`);
+        return `<div><div class="name">${esc(p.pool)}</div><div class="mute small">Konto ${esc(p.account)} · ${esc(p.label)} · ${fmt(p.configured_slots)} Plätze</div>
+        <div style="margin-top:6px">${st}${p.held&&p.blocked_until?` <span class="badge na">Sperre bis ${esc(p.blocked_until)}</span>`:""}</div>
+        ${p.held?`<div class="small" style="margin-top:4px">Grund: ${esc(p.hold_reason)}</div>`:""}
+        <div class="sum" style="margin-top:8px"><div><div class="big">${p.active==null?"–":p.active}</div><div class="mute small">Läufe aktiv</div></div>
+        <div><div class="big">${t.success==null?"–":t.success}</div><div class="mute small">heute erfolgreich</div></div>
+        <div><div class="big">${t.failure==null?"–":t.failure}</div><div class="mute small">heute fehlgeschlagen</div></div></div>
+        <div class="small" style="margin-top:6px">Aufgaben heute: ${Object.keys(ts).length?Object.entries(ts).map(([k,v])=>`${v} ${esc(k)}`).join(" · "):"–"}${t.other?` · ${t.other} Läufe sonstig`:""}</div>
+        <div class="small">Letzter Erfolg: <b>${esc(p.last_success||"–")}</b>${p.provider_errors?` · ${p.provider_errors} Anbieterfehler`:""}</div>
+        <div class="small">PRs aus diesem Pool: <b>${p.pr_count}</b>${(p.prs||[]).length?"<ul>"+p.prs.map(r=>`<li><a href="${esc(r.url)}">#${r.number}</a> ${esc(r.title)} <span class="mute">(${esc(r.status)})</span></li>`).join("")+"</ul>":""}</div>
+        <div class="small"><a href="${esc(p.runs_url)}">fleet-worker Läufe</a>${(p.active_runs||[]).length?" · "+p.active_runs.map((r,i)=>`<a href="${esc(r.url)}">#${i+1}</a>`).join(" "):""}</div></div>`;}).join("")+`</div>`;
+  }
   $("merged").innerHTML=`<h2>✅ Gemergte PRs in clean/integration (letzte 24 h): ${ds.merged_24h.length}</h2><ul class="small">`+
     ds.merged_24h.map(p=>`<li><b>#${p.number}</b> ${esc(p.title)} <span class="mute">– ${esc(p.merged)}</span></li>`).join("")+`</ul>`;
   if(d.errors&&d.errors.length)$("foot").innerHTML+=`<br>Hinweis: einige Daten fehlen (${esc(d.errors.join("; "))}).`;

@@ -103,11 +103,12 @@ def describe(map_, start, turns, what):
     return (t + ": " if t else "") + (what or "")
 
 
-def api(path, raw=False):
+def api(path, raw=False, auth=True):
     url = path if path.startswith("http") else "https://api.github.com/" + path.lstrip("/")
-    req = urllib.request.Request(url, headers={
-        "Authorization": "Bearer " + TOKEN, "Accept": "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "siedler-scoreboard"})
+    hdr = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "siedler-scoreboard"}
+    if auth and TOKEN:
+        hdr["Authorization"] = "Bearer " + TOKEN
+    req = urllib.request.Request(url, headers=hdr)
     with urllib.request.urlopen(req, timeout=60) as r:
         data = r.read()
     return data if raw else json.loads(data)
@@ -130,6 +131,16 @@ def content(repo, path, ref):
 
 
 import urllib.parse  # noqa: E402
+
+
+def api_public(path):
+    """Public repo read: token first (rate limit), anonymous if the token is not allowed for that repo."""
+    try:
+        return api(path)
+    except urllib.error.HTTPError as e:
+        if e.code in (401, 403, 404):
+            return api(path, auth=False)
+        raise
 
 
 def iso(dt):
@@ -487,6 +498,72 @@ def test_coverage(rows):
     }
 
 
+# ---------------- shared fleet (both DeepSeek pools) ----------------
+FLEET_BRANCH = "agents/control"
+POOLS = [("Kofi55533/siedler-agent", "Kofi55533", "Dominics eigener Pool"),
+         ("Dominickofi00/opencode-runner", "Dominickofi00", "zweites Konto")]
+
+
+def fleet_pools():
+    state = safe(lambda: json.loads(content(PRIV, "fleet/state.json", FLEET_BRANCH)), {}, "fleet state")
+    cfg = state.get("config") or {}
+    holds = cfg.get("pool_holds") or {}
+    provs = state.get("providers") or {}
+    tasks = list((state.get("tasks") or {}).values())
+    midnight = NOW.astimezone(BERLIN).replace(hour=0, minute=0, second=0, microsecond=0)
+    since = midnight.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    out = []
+    for repo, account, label in POOLS:
+        def wruns(q):
+            res, page = [], 1
+            while page <= 5:
+                d = api_public(f"repos/{repo}/actions/workflows/fleet-worker.yml/runs?per_page=100&page={page}&{q}")
+                res += d.get("workflow_runs", [])
+                if len(d.get("workflow_runs", [])) < 100:
+                    break
+                page += 1
+            return res
+        today = safe(lambda: wruns("created=" + urllib.parse.quote(">=" + since)), None, f"fleet-worker runs {account}")
+        active = safe(lambda: wruns("status=in_progress") + wruns("status=queued"), None, f"fleet-worker active {account}")
+        conc = {}
+        for r in today or []:
+            k = r.get("conclusion") or r.get("status")
+            conc[k] = conc.get(k, 0) + 1
+        prov = provs.get(repo) or {}
+        bu = prov.get("blocked_until") or 0
+        blocked_until = datetime.fromtimestamp(bu, timezone.utc) if bu else None
+        hold = holds.get(repo)
+        mine = [t for t in tasks if (t.get("lease") or {}).get("pool") == repo]
+        tstat = {}
+        for t in mine:
+            if (t.get("updated") or "") >= midnight.astimezone(timezone.utc).isoformat()[:19]:
+                tstat[t["status"]] = tstat.get(t["status"], 0) + 1
+        prs = sorted({(t["pr"], t.get("pr_url") or f"https://github.com/{PRIV}/pull/{t['pr']}", t["title"][:140], t["status"])
+                      for t in mine if t.get("pr")}, reverse=True)
+        ls = prov.get("last_success")
+        out.append({
+            "pool": repo, "account": account, "label": label,
+            "configured_slots": (cfg.get("pools") or {}).get(repo),
+            "active": len(active) if active is not None else None,
+            "active_runs": [{"url": r["html_url"], "started": iso(parse_ts(r.get("run_started_at") or r["created_at"])),
+                             "status": r["status"]} for r in (active or [])][:40],
+            "today": {"total": len(today) if today is not None else None, "success": conc.get("success", 0),
+                      "failure": conc.get("failure", 0),
+                      "other": sum(v for k, v in conc.items() if k not in ("success", "failure"))},
+            "tasks_today": tstat,
+            "held": bool(hold),
+            "hold_reason": (re.split(r"(?<=[.!?])\s", hold.strip())[0][:160] if hold else None),
+            "blocked_until": iso(blocked_until) if blocked_until and blocked_until > NOW else None,
+            "provider_errors": prov.get("errors", 0),
+            "last_success": iso(parse_ts(ls)) if ls else None,
+            "prs": [{"number": n, "url": u, "title": ti, "status": st} for n, u, ti, st in prs][:30],
+            "pr_count": len(prs),
+            "runs_url": f"https://github.com/{repo}/actions/workflows/fleet-worker.yml",
+        })
+    return {"pools": out, "today_since": iso(midnight), "enabled": cfg.get("enabled"),
+            "model": cfg.get("model"), "queued_tasks": sum(1 for t in tasks if t.get("status") == "queued")} if state else None
+
+
 # ---------------- main ----------------
 def main():
     os.makedirs(OUT, exist_ok=True)
@@ -695,6 +772,7 @@ def main():
     for x in ds:
         kinds[x["kind"]] = kinds.get(x["kind"], 0) + 1
     data["deepseek"] = {"running": ds, "kinds": kinds, "count": len(ds), "queued": len(queued), "target": 20, "merged_24h": merged}
+    data["fleet"] = fleet_pools()
     # activity timestamps for the status badges (UTC ISO; age is computed client-side)
     def board_utc(b):
         if not b:
@@ -749,7 +827,7 @@ def main():
     data["history"] = hist[-200:]
     json.dump(hist[-200:], open(os.path.join(OUT, "history.json"), "w"), ensure_ascii=False, indent=1)
     json.dump(data, open(os.path.join(OUT, "data.json"), "w"), ensure_ascii=False, indent=1)
-    print(f"scenarios={len(rows)} live={'yes' if live else 'no'} ds_running={len(ds)} merged24h={len(merged)} errors={len(ERRORS)}")
+    print(f"scenarios={len(rows)} live={'yes' if live else 'no'} ds_running={len(ds)} merged24h={len(merged)} fleet={[(p["account"], p["active"], p["today"]) for p in (data["fleet"] or {}).get("pools", [])]} errors={len(ERRORS)}")
 
 
 if __name__ == "__main__":
