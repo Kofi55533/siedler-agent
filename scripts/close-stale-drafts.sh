@@ -32,6 +32,8 @@ while read -r n head created; do
     [ "$meas" -gt 0 ] && [ "$better" = 0 ] && reason="the s5-gate live matrix measured it and it moves no boundary (no fixture's first divergence later)"
   fi
   if [ -z "$reason" ]; then echo "keep #$n $head (state=$ms)"; continue; fi
+  if gh pr view "$n" -R $R --json comments -q '.comments[].body' 2>/dev/null | grep -qi 'needs-codex'; then
+    echo "keep #$n $head (handed to Codex: needs-codex)"; continue; fi
   msg="Auto-closed by the stale-draft rule (Opus decision 2026-10-18): draft older than ${H} h and $reason. The branch \`$head\` is kept; reopen or rebase it if it moves a frontier (see siedler-agent issue \"Work split 2026-10-18 (Opus decision)\")."
   if [ $DRY = 1 ]; then echo "WOULD CLOSE #$n $head created=$created: $reason"
   else gh pr close "$n" -R $R --comment "$msg" >/dev/null && echo "closed #$n $head: $reason" || echo "close #$n failed"; fi
