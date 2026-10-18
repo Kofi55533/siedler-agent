@@ -78,6 +78,14 @@ jobs:
           request on docs/AGENT_BOARD.md (addresses, expected values, file+function to touch, fixture+turn). Per-window divergence census:
           tools/census.sh; executed native functions per fixture: tools/coverage_map.sh. No doc-only analysis PRs, no unwired helpers,
           no PRs that only document an "inert helper", no ports of functions no frontier reaches.
+          WORK SPLIT + WIP (Opus decision 2026-10-18 20:40): runs are split 50% frontier diagnosis, 20% ports, 10% scenarios,
+          20% hygiene (get open siedler-sim-rs PRs below 60: close stale/superseded agent/* drafts and duplicates with a one-line reason
+          comment, never opus/codex/haiku heads or needs-codex PRs, branches kept; rebase green ones so the gate merges them).
+          At most 1 open PR per run: if an open agent/* PR already covers your lane/fixture, push to it (or stop) instead of opening another.
+          Scenario PRs merge only if they reach a new code path or a new unmodelled marker: add a PR body line "New-code-path: <address/subsystem>"
+          or "New-unmodelled: <marker>"; a pure stay-IDENTICAL time extension of a covered path no longer counts and is not merged.
+          Frontier PRs (title "Diverge ..." or a "Frontier-fixture:" line) must state "live <fixture>: before turn X -> after turn Y" in the
+          PR body, otherwise the gate does not merge them.
           LIVE VERIFICATION (mandatory for code changes): game data, recomp artifacts and fixtures are installed. Scripts in $S5_SCRIPTS:
             source $S5_SCRIPTS/s5-env.sh ; $S5_SCRIPTS/s5-build.sh (incremental s5verify build, ~minutes) ;
             $S5_SCRIPTS/s5-live.sh <fixture> (full output in /opt/s5/live/<f>.log); fixtures: bc-full wintersturm economy wsecon build production combat combat-waves combat-big combat-long ai-long late-ai late-economy camp-crawford map-winterisland wintersturm-mapstart economy-mapstart

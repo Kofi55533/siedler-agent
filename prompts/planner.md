@@ -10,8 +10,8 @@ N is given in the trigger comment as `N=<number>` (default 3, hard max 15).
 Before choosing any other task, read `git show origin/clean/integration:docs/AGENT_BOARD.md`, section
 `## Für DeepSeek (Aufträge von Opus)`. Every line `- [ ] DS-REQ <id>: <task> (from Opus, <date>)` is an open request
 from Opus (or Codex) and MUST become a task issue in this run, ahead of everything in section 2 (they count towards N
-and against the 10% DS-REQ/hygiene bucket of section 2; if there are more open DS-REQs than that bucket, the extra ones
-take slots from the 50% frontier-diagnosis bucket; if there are more than N, take them oldest first; never skip one for an own idea).
+and against the bucket of section 2 they fit, by default the 50% frontier-diagnosis bucket; if that bucket is full, the extra
+ones take slots from the other buckets; if there are more than N, take them oldest first; never skip one for an own idea).
 - Skip a DS-REQ only if it is already `[~]`/`[x]` or an open issue/active run already carries its id in the title.
 - Title: `DS-REQ <id>: <short task>`; the `/opencode` comment carries the full request text verbatim plus the context/rules
   of sections 3-4, and tells the run to mark the board line `[x] #<issue>` (optionally `-> PR #<n>` / one-line result) when done.
@@ -45,14 +45,17 @@ Use `gh` (GH_TOKEN is set) and the local checkout /opt/s5/siedler-sim-rs (`git f
   combat-big combat-long ai-long late-ai late-economy camp-crawford map-winterisland): take the latest numbers from the board.
   If a number is missing or stale and time allows, measure: `source $S5_SCRIPTS/s5-env.sh; $S5_SCRIPTS/s5-live.sh <fixture>` (never paste log contents anywhere).
 
-## 2. Choose N tasks (work split, Opus decision 2026-10-18)
+## 2. Choose N tasks (work split, Opus decision 2026-10-18 20:40)
 The goal is the same as Opus': a bit-identical clean Rust port (s5clean) of Settlers 5, verified turn by turn against the
 reference. Progress = FRONTIERS (first-divergence turns of the live scenarios and generated fixtures) moving later.
-Split N into four buckets: floor(0.5N) frontier diagnosis, floor(0.2N) frontier-reached ports, floor(0.2N) new/longer
-scenarios, floor(0.1N) DS-REQs + hygiene; give the remaining slots in that order (diagnosis, ports, scenarios, hygiene).
-Example N=19: 10 / 4 / 4 / 1. Open DS-REQs (section 0) are created first and count in the 10% bucket (overflow: diagnosis bucket).
+Split N into four buckets: floor(0.5N) frontier diagnosis, floor(0.2N) frontier-reached ports, floor(0.1N) scenarios,
+floor(0.2N) hygiene; give the remaining slots in the order diagnosis, ports, hygiene, scenarios.
+Examples: N=19 -> 10 / 4 / 1 / 4, N=20 -> 10 / 4 / 2 / 4, N=10 -> 5 / 2 / 1 / 2 (diagnosis / ports / scenarios / hygiene).
+Open DS-REQs (section 0) are created first and count in the bucket they fit (default: diagnosis).
 Queue items (`docs/agent-queue/`) are used only if they fit one of the buckets and count there. If a bucket has no qualifying
-task, give its slots to diagnosis, then scenarios; never pad with a non-qualifying task. Justify the split in one summary line.
+task, give its slots to diagnosis, then hygiene; never pad with a non-qualifying task. Justify the split in one summary line.
+WIP LIMIT: at most 1 open PR per run (= per agent lane / issue). Never create a task for a lane, fixture/scenario or function group
+that already has an open agent/* PR in siedler-sim-rs; that PR is handled by a hygiene task (D) instead.
 
 A. FRONTIER DIAGNOSIS (50%). One task per frontier fixture; never two tasks (incl. active runs, open issues of the last 24h,
    open PRs) on the same frontier fixture + first differing entity. Order by earliest divergence turn first (2026-10-18:
@@ -73,17 +76,25 @@ B. FRONTIER-REACHED PORTS (20%). Title prefix `Port:`. A function qualifies ONLY
    the frontier fixture + turn named. Port from the Ghidra decompile (siedler-forschung
    `cloud-re/results/rust_handoff/source/functions.jsonl`) cross-checked against `recomp/` (the lift is the truth), cite each address,
    unit-test bit-exact against recomp/, WIRE it; the PR merges only if NO fixture regresses (no exception any more).
-C. NEW / LONGER SCENARIOS (20%). Extend fixtures that are IDENTICAL over their whole length further in time, or write generators
-   for unexercised systems (trade, weather, campaign scripts, AI attacks, sieges, ...) with `docs/clean/new-fixtures/RUNNER.md`,
+C. SCENARIOS (10%). Only scenarios that reach a NEW code path (a native handler no current fixture executes) or a NEW
+   unmodelled marker (`World::unmodelled`); a pure stay-IDENTICAL time extension of an already covered path no longer counts and
+   no longer merges. Name the expected new path/marker in the task; the PR body must carry `New-code-path: <address/subsystem>` or
+   `New-unmodelled: <marker>` (gate rule). Write generators for unexercised systems (trade, weather, campaign scripts, AI attacks,
+   sieges, ...) or extend a fixture only if the extension reaches such a path, with `docs/clean/new-fixtures/RUNNER.md`,
    `tools/genb_fixtures.py`, `docs/clean/new-fixtures/gen_commands.py`, gen-c. Upload as private release asset
    `fixtures-gen-<date>-<topic>` in Kofi55533/siedler-sim-rs, run s5clean live and post the first divergence on the board: every new
    divergence becomes a frontier (bucket A picks it up next run). Each task a distinct area/map from active runs.
-D. DS-REQs + HYGIENE (10%). Open DS-REQs (section 0) first; remaining slots: rebase or close stale PRs (title `Rebase PR #<n> ...`
-   for a PR that still moves a boundary; otherwise the stale-draft workflow closes it).
+D. HYGIENE (20%). Goal: open PRs in siedler-sim-rs below 60. Each task names its PRs as `PR #<n>` (the gate re-measures every
+   `PR #<n>` named in the title that the run pushed to): rebase green ones onto clean/integration so the gate can merge them
+   (title `Rebase PR #<n> ...`), or close stale/superseded drafts and duplicates (title `Hygiene: close PR #<n> PR #<m> ...`):
+   only agent/* heads, never opus/codex/haiku heads or PRs handed to Codex (needs-codex comment), always a one-line reason comment
+   naming the superseding PR/merge, branches kept. Pick the oldest conflicted/duplicate PRs first; no two hygiene tasks on one PR.
+   If open PRs are already below 60, give these slots to diagnosis.
 
 STOP (never create these): ports from COVERAGE.md / function_inventory.json that no frontier census reaches; duplicate tasks (dedupe
 every candidate against open issues AND open PRs AND active runs: same fixture+turn+entity, same function addresses, same area/map);
-tasks or PRs that only document an "inert helper"; tasks whose only output is a self-merge board entry.
+tasks or PRs that only document an "inert helper"; tasks whose only output is a self-merge board entry; pure stay-IDENTICAL
+time extensions of already covered paths; a second task/PR on a lane that already has an open agent/* PR (WIP limit 1).
 Every task must be DISTINCT from each other and from every active run, open issue of the last 24h and open agent/* PR. If you cannot
 find N genuinely distinct qualifying tasks, create fewer. Never invent topics from other Settlers games (S5 has no bakery/woodcutter/
 forester); cite recomp/ functions or game data when naming a subsystem.
@@ -107,10 +118,13 @@ addressed to Opus (fixture, turn, entity/field, what was tried, links) and use t
 - Never change, revert or overwrite code that Opus pushed; Opus has final say (Opus > Codex > Muse). Codex instructions override Muse.
 - Frontier owners (2026-10-18): bc-full 1501 + gen-a-wintersturm 1352 = Codex; economy-long, late-economy, combat/combat-waves/combat-big/ai-long = Opus. Diagnose those only without duplicating the owner's work (prefer unowned frontiers).
 - Read docs/AGENT_BOARD.md first, post a claim line, post real findings/handoffs; agents may talk to each other freely on the board.
-- s5-live before and after; report `live <fixture>: before X -> after Y`.
+- s5-live before and after; report `live <fixture>: before X -> after Y`. Frontier PRs (title `Diverge ...` or `Frontier-fixture:` line)
+  MUST state these live before -> after turn numbers in the PR body, or the gate does not merge them.
+- WIP limit: at most 1 open PR per run; if an open agent/* PR already covers the lane, push to it (or stop) instead of opening another.
+- Scenario PRs merge only with a body line `New-code-path: ...` or `New-unmodelled: ...`; stay-IDENTICAL time extensions do not merge.
 
 ## 4. Task format (follow exactly, like earlier refill tasks)
-- Title: one line, specific, with the bucket prefix: `Diverge <fixture>-<turn>: ...` (A), `Port: ...` (B), `Coverage ...` (C), `DS-REQ <id>: ...` / `Rebase PR #<n> ...` (D).
+- Title: one line, specific, with the bucket prefix: `Diverge <fixture>-<turn>: ...` (A), `Port: ...` (B), `Coverage ...` (C), `Rebase PR #<n> ...` / `Hygiene: close PR #<n> ...` (D); DS-REQs: `DS-REQ <id>: ...`.
 - Issue body: ONE short generic sentence (e.g. `Muse task (planner). Details in the /opencode comment.`) — no private code, no log content.
 - Comment: starts with `/opencode ` then one dense paragraph: target fixture + current turn, angle, what to trace read-only in recomp/,
   base branch/PR, branch name, success criterion; then a ` Context (re-measure yourself, board = docs/AGENT_BOARD.md on clean/integration,
@@ -127,4 +141,4 @@ If `gh issue comment` fails, still keep the issue and append the full comment te
 (`gh issue edit $n --body-file ...`); the box refill script will post it.
 
 ## 6. Summary
-Write to $W/summary.txt (max 5 lines): `planner: created #a #b ...` (list `DS-REQ <id> -> #n` first) plus one line with the bucket split (diagnosis / ports / scenarios / DS-REQ+hygiene) and why fewer than N if so.
+Write to $W/summary.txt (max 5 lines): `planner: created #a #b ...` (list `DS-REQ <id> -> #n` first) plus one line with the bucket split (diagnosis / ports / scenarios / hygiene, open PR count) and why fewer than N if so.
