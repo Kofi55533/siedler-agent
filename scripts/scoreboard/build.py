@@ -145,7 +145,7 @@ def clean_md(s):
 
 
 # ---------------- board ----------------
-ENTRY_RE = re.compile(r"^(?:#+\s*)?(\d{4}-\d{2}-\d{2} \d{1,2}:\d{2}) Berlin\s*[—–-]+\s*([A-Za-z]+)(.*)$")
+ENTRY_RE = re.compile(r"^(?:#+\s*)?(\d{4}-\d{2}-\d{2})(?:\s+(\d{1,2}:\d{2}))?(?:\s+Berlin)?\s*(?:[—–-]+\s*)?([A-Z][A-Za-z]+)\b(.*)$")
 
 
 def board_entries(text):
@@ -154,7 +154,10 @@ def board_entries(text):
     for i, line in enumerate(text.splitlines(), 1):
         m = ENTRY_RE.match(line.strip())
         if m:
-            cur = {"line": i, "time": m.group(1), "agent": m.group(2), "head": line.strip(), "text": line}
+            # entries without a clock time ("2026-10-18 Berlin — Opus result") inherit the previous entry's time
+            prev = entries[-1]["time"] if entries else ""
+            when = f"{m.group(1)} {m.group(2)}" if m.group(2) else (prev if prev.startswith(m.group(1)) else m.group(1) + " 00:00")
+            cur = {"line": i, "time": when, "agent": m.group(3), "head": line.strip(), "text": line}
             entries.append(cur)
         elif cur is not None:
             if line.startswith("## ") or line.startswith("# "):
@@ -245,6 +248,10 @@ def board_value(entries, name, floor=0):
                     if "IDENTICAL" in seg and not re.search(r"(?i)diverg|DIVERGENT", seg):
                         ident = True
                 n = int(mm.group(2)) if ident and mm.group(2) else (int(mm.group(3)) if mm.group(3) else None)
+                arrow = re.match(r"\s*(?:->|→)\s*(?:DIVERGENT\s*)?(?:turn\s*)?(IDENTICAL)?\s*(\d+)?", t[mm.end():])
+                if pi > 0 and arrow and (arrow.group(1) or arrow.group(2)):  # "bc-full 763 -> 1501": the after-value counts
+                    ident = bool(arrow.group(1))
+                    n = int(arrow.group(2)) if arrow.group(2) else n
                 if pi > 0 and not ident and (n or 0) < floor:
                     continue  # loose mention below the known value (often another fixture's note) -> keep looking
                 return {"turn": n, "identical": ident, "time": e["time"], "line": e["line"], "agent": e["agent"],
