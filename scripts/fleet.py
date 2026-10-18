@@ -176,6 +176,21 @@ def control():
             return
         if observed["legacy_active"]:
             print("Fleet migration: code workers drain; new workers may investigate unreserved source modules read-only.")
+        # Integration does not call the model and can continue during a provider
+        # hold, once the legacy writers have drained.
+        integration_active = any(r["path"].endswith("fleet-integrate.yml") for pool in runs.values() for r in pool)
+        if (not observed["legacy_active"] and
+                any(t["status"] == "review" and t.get("not_before", 0) <= time.time()
+                    for t in state["tasks"].values()) and not integration_active):
+            if STORE.update(lambda s: acquire(s, "integration-dispatch", OWNER, 600), "reserve integration dispatch"):
+                try:
+                    dispatch("fleet-integrate.yml")
+                except Exception:
+                    STORE.update(lambda s: release(s, "integration-dispatch", OWNER), "release failed gate dispatch")
+                    raise
+        if config.get("pool_holds", {}).get(POOL):
+            print("Model pool requires an approved access configuration; no repeated model starts.")
+            return
         if state["providers"].get(POOL, {}).get("blocked_until", 0) > time.time():
             print("Model pool is cooling down after provider errors.")
             return
@@ -199,15 +214,6 @@ def control():
                     dispatch("fleet-plan.yml")
                 except Exception:
                     STORE.update(lambda s: release(s, slot, OWNER), "release failed planner dispatch")
-                    raise
-        integration_active = any(r["path"].endswith("fleet-integrate.yml") for pool in runs.values() for r in pool)
-        if (any(t["status"] == "review" and t.get("not_before", 0) <= time.time()
-                for t in state["tasks"].values()) and not integration_active):
-            if STORE.update(lambda s: acquire(s, "integration-dispatch", OWNER, 600), "reserve integration dispatch"):
-                try:
-                    dispatch("fleet-integrate.yml")
-                except Exception:
-                    STORE.update(lambda s: release(s, "integration-dispatch", OWNER), "release failed gate dispatch")
                     raise
         pool_active = [r for r in runs[POOL] if r["path"].endswith("fleet-worker.yml")]
         total = sum(r["path"].endswith("fleet-worker.yml") for values in runs.values() for r in values)
@@ -280,19 +286,29 @@ def model_run(directory, prompt, heartbeat, minutes=75):
             output = path.read_text(errors="replace")
             private_log("model", output)
             lowered = output.lower()
+            restricted = any(x in lowered for x in
+                             ("abusive traffic from this ip address", "free models aren't available from your current network"))
             provider_error = any(x in lowered for x in
                                  ("invalid api key", "unauthorized", "insufficient quota", "rate limit exceeded",
                                   "model not found", "payment required", "authentication failed"))
-            if provider_error or proc.returncode:
+            if restricted or provider_error or proc.returncode:
                 def cooldown(s):
                     previous = s["providers"].get(POOL, {}).get("errors", 0)
                     s["providers"][POOL] = {"errors": previous + 1,
                         "blocked_until": time.time() + min(14400, 900 * 2 ** min(previous, 4)),
                         "last_error_run": RUN_URL}
+                    if restricted:
+                        s["config"].setdefault("pool_holds", {})[POOL] = (
+                            "Der Modellanbieter hat kostenlosen Zugriff vom Runner-Netz abgewiesen. "
+                            "Zugelassenen Ausführungsweg konfigurieren; keine automatischen Neustarts zur IP-Rotation.")
                 STORE.update(cooldown, "provider backoff")
                 raise RuntimeError("Model failed; private diagnostics saved")
-            STORE.update(lambda s: s["providers"].update({POOL: {"errors": 0, "blocked_until": 0,
-                                                              "last_success": stamp()}}), "provider accepted run")
+            def accepted(s):
+                values = s["providers"].setdefault(POOL, {})
+                values.update(errors=0, last_success=stamp())
+                if not s["config"].get("pool_holds", {}).get(POOL):
+                    values["blocked_until"] = 0
+            STORE.update(accepted, "provider accepted run")
             return output
         finally:
             if proc.poll() is None:
@@ -542,7 +558,7 @@ def worker():
         print("Worker result saved privately; draft queued for integration.")
     except Exception as error:
         try:
-            finish_task(task["id"], "blocked", "Arbeiter angehalten: " + safe_error(error) + ". Details im privaten Laufprotokoll.")
+            finish_task(task["id"], "blocked", "Arbeiter angehalten: " + redact(str(error))[:2500] + ". Details im privaten Laufprotokoll.")
             private_log("failure", repr(error))
         finally:
             raise
@@ -598,7 +614,8 @@ def integrate():
             elif proc.returncode == 75:
                 finish_task(task["id"], "review", task["summary"], not_before=time.time() + 300)
             else:
-                finish_task(task["id"], "blocked", task["summary"] + "\nIntegrationsgate fehlgeschlagen; privater PR enthält den Befund.")
+                reasons = [line for line in log.splitlines() if "GATE FAIL:" in line or "REGRESSION" in line]
+                finish_task(task["id"], "blocked", task["summary"] + "\nIntegrationsgate: " + "\n".join(reasons)[-2500:])
     except Exception as error:
         if task:
             finish_task(task["id"], "review", task.get("summary", "Integration interrupted"), not_before=time.time() + 900)

@@ -84,4 +84,9 @@ repositories and its own Actions dispatches. The provider secret remains central
 copy is needed. Provider errors cool down the affected pool with backoff instead
 of creating endless failing jobs.
 
+A provider network-access refusal places that pool on an explicit access hold.
+It is not retried by launching new runner IPs. Other already-authorized work may
+finish, and the integration queue can continue without a model call. An operator
+must choose an approved provider/execution configuration before releasing the hold.
+
 Data setup omits the unused `opus-extra` archives. REA is not a fleet dependency.

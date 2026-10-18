@@ -128,6 +128,8 @@ def status_markdown(state):
     for pool, values in state.get("providers", {}).items():
         lines.append(f"- {pool}: Modellfehler in Folge {values.get('errors', 0)}; "
                      f"letzter Erfolg {values.get('last_success', 'noch keiner')}.")
+    for pool, reason in config.get("pool_holds", {}).items():
+        lines.append(f"- **{pool} angehalten:** {reason}")
     if state.get("last_plan"):
         lines += ["", "## Letzter Plan", "", state["last_plan"].get("summary", "")]
     lines += ["", "Pause: `python scripts/fleet.py configure --enabled false`. "
@@ -308,6 +310,7 @@ def claim(state, owner, pool, run_id, run_url):
     config = state["config"]
     observed = state.get("observed", {})
     if (not config["enabled"] or pool not in config["pools"]
+            or config.get("pool_holds", {}).get(pool)
             or time.time() - observed.get("at", 0) > 900
             or state["providers"].get(pool, {}).get("blocked_until", 0) > time.time()):
         return None
