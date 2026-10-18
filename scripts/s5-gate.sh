@@ -8,7 +8,9 @@
 # Opus/Codex LANE-CLAIM on docs/AGENT_BOARD.md names a touched file (scripts/lane-claims.py), recomp s5verify builds,
 # s5clean tests pass, every fixture's first divergence on (PR merged onto clean/integration) >= clean/integration itself,
 # and, if a SOFT path (former claimed area, e.g. economy/, world/commands.rs) or topic marker is touched, at least one
-# fixture's first divergence moved later. A moved base re-checks merge+build+tests on the new base instead of failing.
+# fixture's first divergence moved later. Opus 2026-10-18 20:40: a source-free scenario/coverage/fixture PR needs a body line
+# "New-code-path: ..." or "New-unmodelled: ..." (pure stay-IDENTICAL extensions no longer merge), and a frontier PR
+# (title "Diverge ..." or a "Frontier-fixture:" line) needs live before -> after turn numbers in its body. A moved base re-checks merge+build+tests on the new base instead of failing.
 # Never merges into main. Prints only fixture names and turn numbers (no log contents). Needs GH_TOKEN.
 set -uo pipefail
 D=$(cd "$(dirname "$0")" && pwd); source "$D/s5-env.sh"
@@ -48,9 +50,23 @@ lc=$(python3 "$D/lane-claims.py" "$G/board.md" "$G/files.txt" --owners Opus,Code
 soft=$(grep -Ef "$G/soft.re" "$G/files.txt" | head -5 | tr '\n' ' ')
 t=$(grep '^+' "$G/pr.diff" | grep -cEf "$G/topics.re"); [ "$t" != 0 ] && soft="$soft topic-markers($t lines)"
 echo "claims: ok ($(wc -l < "$G/files.txt") files)${soft:+; former claimed area touched, frontier move required: $soft}" >> "$G/report.txt"
+# Opus decision 2026-10-18 20:40: scenario PRs merge only with a new code path / new unmodelled marker; frontier PRs must
+# state live before -> after turn numbers. Checked from title/body/files before the (expensive) live suite.
+gh pr view "$PR" -R $R --json title -q .title > "$G/title.txt" 2>/dev/null || : > "$G/title.txt"
+gh pr view "$PR" -R $R --json body -q .body > "$G/body.txt" 2>/dev/null || : > "$G/body.txt"
+if ! grep -qE '^crates/' "$G/files.txt" && { grep -qE '(^|/)(new-fixtures|fixtures-gen)/' "$G/files.txt" || grep -qiE '^[[:space:]]*(coverage|fixtures?|scenarios?)\b' "$G/title.txt"; }; then
+  grep -qiE '^[[:space:]]*(new-code-path|new-unmodelled(-marker)?):[[:space:]]*[^[:space:]]' "$G/body.txt" ||
+    fail "scenario/coverage/fixture PR without a new code path or new unmodelled marker (a pure stay-IDENTICAL extension no longer merges; add a body line 'New-code-path: <native address/subsystem first reached>' or 'New-unmodelled: <World::unmodelled marker>')"
+  echo "scenario PR: body names a new code path / unmodelled marker" >> "$G/report.txt"
+fi
+if grep -qiE '^[[:space:]]*diverge\b' "$G/title.txt" || grep -qiE '^[[:space:]]*frontier-fixture:' "$G/body.txt"; then
+  grep -qiE 'before[^0-9]{0,40}[0-9]+.{0,80}(->|→)[^0-9]{0,40}[0-9]+' "$G/body.txt" ||
+    fail "frontier PR without live before/after turn numbers in the PR body (add 'live <fixture>: before turn X -> after turn Y', measured with s5-live.sh)"
+  echo "frontier PR: body states live before -> after turns" >> "$G/report.txt"
+fi
 # optional extra frontier fixtures named in the PR body ("Frontier-fixture: gen-campaign"), only if installed on this runner
 FIX="$S5_GATE_FIXTURES"
-for x in $(gh pr view "$PR" -R $R --json body -q .body 2>/dev/null | grep -oiE '^[[:space:]]*frontier-fixture:[[:space:]]*[a-z0-9-]+' | sed -E 's/.*:[[:space:]]*//' | sort -u); do
+for x in $(cat "$G/body.txt" | grep -oiE '^[[:space:]]*frontier-fixture:[[:space:]]*[a-z0-9-]+' | sed -E 's/.*:[[:space:]]*//' | sort -u); do
   case " $FIX " in *" $x "*) continue ;; esac
   if [ -f "$S5_NF/fixtures/$x/scenario.json" ]; then FIX="$FIX $x"; echo "extra frontier fixture: $x" >> "$G/report.txt"
   else echo "extra frontier fixture $x not installed on this runner (skipped)" >> "$G/report.txt"; fi
