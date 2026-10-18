@@ -34,6 +34,8 @@ svg.spark{display:block;margin-top:3px}
 <body><main>
 <h1>🏰 Siedler Scoreboard</h1>
 <div class="mute" id="upd">Lade Daten …</div>
+<div class="card" id="ds"></div>
+<div class="card" id="fleet" style="display:none"></div>
 <div class="card"><div class="status" id="status"></div></div>
 <div class="card" id="pct"></div>
 <div class="card"><div class="sum" id="sum"></div></div>
@@ -52,10 +54,8 @@ svg.spark{display:block;margin-top:3px}
 <h2 style="margin-top:18px">Agenten</h2>
 <div class="grid">
 <div class="card" id="opus"></div>
-<div class="card" id="ds"></div>
 <div class="card" id="codex"></div>
 </div>
-<div class="card" id="fleet" style="display:none"></div>
 <div class="card" id="merged"></div>
 <div class="mute small" id="foot">Aktualisiert automatisch alle 15 Minuten (GitHub Actions). Nur Zahlen und Titel, kein Code.</div>
 </main>
@@ -85,14 +85,14 @@ fetch("data.json?t="+Date.now()).then(r=>r.json()).then(d=>{
   let sc=act(d.codex);
   if(d.codex.paused_until_utc&&now<Date.parse(d.codex.paused_until_utc))sc={c:"x",l:"pausiert",t:`Limit bis 22.10. 15:57 · letzter Push vor ${d.codex.activity?ago(d.codex.activity.utc):"–"}`};
   const dn=d.deepseek.count;
-  const sd={c:dn>=1?"g":"r",l:dn>=1?"aktiv":"inaktiv",t:`${dn} von ${d.deepseek.target} Läufen aktiv (${["Funktionen","Fehlersuche","Testszenario","Planer"].map(k=>`${(d.deepseek.kinds||{})[k]||0} ${k}`).join(", ")})${d.deepseek.queued?` · ${d.deepseek.queued} wartend`:""}`};
+  const sd={c:dn>=1?"g":"r",l:dn>=1?"aktiv":"inaktiv",t:`${dn} von ${d.deepseek.target} Läufen aktiv (${["Funktionen","Fehlersuche","Testszenario","Code","Planer"].map(k=>`${(d.deepseek.kinds||{})[k]||0} ${k}`).join(", ")})${d.deepseek.queued?` · ${d.deepseek.queued} wartend`:""}`};
   const badge=(n,s)=>`<div class="st ${s.c}"><div class="ag">${n}</div><div class="lv">● ${s.l}</div><div class="dt">${s.t}</div></div>`;
   $("status").innerHTML=badge("🤖 Opus",so)+badge("🧠 Codex",sc)+badge("🐋 DeepSeek",sd);
   const S=d.scenarios||[],hist=d.history||[];
   const main=S.filter(s=>!s.new);
   const ident=main.filter(s=>s.identical).length;
   $("sum").innerHTML=`<div><div class="big">${ident}/${main.length}</div><div class="mute">Basis-Szenarien identisch</div></div>
-   <div><div class="big">${d.deepseek.count}/${d.deepseek.target}</div><div class="mute">DeepSeek-Läufe aktiv</div><div class="small">${["Funktionen","Fehlersuche","Testszenario","Planer"].map(k=>`${(d.deepseek.kinds||{})[k]||0} ${k}`).join(" · ")}</div></div>
+   <div><div class="big">${d.deepseek.count}/${d.deepseek.target}</div><div class="mute">DeepSeek-Läufe aktiv</div><div class="small">${["Funktionen","Fehlersuche","Testszenario","Code","Planer"].map(k=>`${(d.deepseek.kinds||{})[k]||0} ${k}`).join(" · ")}</div></div>
    <div><div class="big">${d.deepseek.merged_24h.length}</div><div class="mute">PRs gemergt (24 h)</div></div>`;
   function stand(s){
     let st;
@@ -137,9 +137,9 @@ fetch("data.json?t="+Date.now()).then(r=>r.json()).then(d=>{
     (o.last_commit?`<div><b>Letzter Commit:</b> ${esc(o.last_commit.time)}<br><code>${esc(o.last_commit.sha)}</code> ${esc(o.last_commit.subject)}</div>`:"<div class='mute'>kein Commit mit Claude-Session gefunden</div>")+
     (o.last_board?`<div style="margin-top:8px"><b>Letzter Board-Eintrag:</b> ${esc(o.last_board.time)}<br><span class="small">${esc(o.last_board.summary)}</span></div>`:"");
   const ds=d.deepseek;
-  $("ds").innerHTML=`<h2>🐋 DeepSeek</h2><div><b>${ds.count}</b> von Ziel <b>${ds.target}</b> Läufen aktiv${ds.queued?` · ${ds.queued} wartend`:""}</div><div class="small" style="margin-top:4px">`+
-    ["Funktionen","Fehlersuche","Testszenario","Planer"].map(k=>`<b>${(ds.kinds||{})[k]||0}</b> ${k==="Funktionen"?"Funktionen nachbauen (von 29.723)":k}`).join(" · ")+`</div><ul class="small">`+
-    ds.running.map(r=>`<li><span class="badge">${esc(r.kind||"")}</span> ${r.issue?`<a href="${esc(r.issue_url)}">#${r.issue}</a> `:""}${esc(r.title)} <span class="mute">– läuft seit ${dur(r.minutes)} (<a href="${esc(r.run_url)}">Run</a>)</span></li>`).join("")+`</ul>`;
+  $("ds").innerHTML=`<h2>🐋 DeepSeek</h2><div><b>${ds.count}</b> von Ziel <b>${ds.target}</b> Läufen aktiv${ds.queued?` · ${ds.queued} wartend`:""}</div><div class="mute small">${ds.fleet_count||0} fleet-worker (beide Pools) + ${ds.legacy_count==null?ds.count:ds.legacy_count} opencode.yml · Ziel = konfigurierte Pool-Plätze</div><div class="small" style="margin-top:4px">`+
+    ["Funktionen","Fehlersuche","Testszenario","Code","Planer"].map(k=>`<b>${(ds.kinds||{})[k]||0}</b> ${k==="Funktionen"?"Funktionen nachbauen (von 29.723)":k}`).join(" · ")+`</div><ul class="small">`+
+    ds.running.map(r=>`<li><span class="badge">${esc(r.kind||"")}</span> <span class="badge na">${esc(r.account||"")} · ${esc(r.source||"")}${r.task_kind?" · "+esc(r.task_kind):""}</span> ${r.issue?`<a href="${esc(r.issue_url)}">#${r.issue}</a> `:""}${esc(r.title)} <span class="mute">– läuft seit ${dur(r.minutes)} (<a href="${esc(r.run_url)}">Run</a>)</span></li>`).join("")+`</ul>`;
   const c=d.codex;
   $("codex").innerHTML=`<h2>🧠 Codex</h2><div class="badge div">${esc(c.note)}</div>`+
     (c.last_commit?`<div style="margin-top:8px"><b>Letzter Commit:</b> ${esc(c.last_commit.time)} <span class="mute small">(${esc(c.last_commit.branch)})</span><br><code>${esc(c.last_commit.sha)}</code> ${esc(c.last_commit.subject)}</div>`:"")+

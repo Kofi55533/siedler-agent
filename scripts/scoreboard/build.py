@@ -504,6 +504,18 @@ POOLS = [("Kofi55533/siedler-agent", "Kofi55533", "Dominics eigener Pool"),
          ("Dominickofi00/opencode-runner", "Dominickofi00", "zweites Konto")]
 
 
+FLEET_KIND = {"port": "Funktionen", "diagnose": "Fehlersuche", "scenario": "Testszenario", "code": "Code", "hygiene": "Code"}
+
+
+def fleet_run(r, repo, account, by_run):
+    st = parse_ts(r.get("run_started_at") or r["created_at"])
+    t = by_run.get(str(r["id"])) or {}
+    return {"url": r["html_url"], "run_id": r["id"], "status": r["status"], "started": iso(st),
+            "minutes": int((NOW - st).total_seconds() // 60), "pool": repo, "account": account,
+            "task_id": t.get("id"), "task_kind": t.get("kind"), "task_title": (t.get("title") or "")[:160] or None,
+            "kind": FLEET_KIND.get(t.get("kind"), "Fehlersuche" if not t else "Code")}
+
+
 def fleet_pools():
     state = safe(lambda: json.loads(content(PRIV, "fleet/state.json", FLEET_BRANCH)), {}, "fleet state")
     cfg = state.get("config") or {}
@@ -512,6 +524,11 @@ def fleet_pools():
     tasks = list((state.get("tasks") or {}).values())
     midnight = NOW.astimezone(BERLIN).replace(hour=0, minute=0, second=0, microsecond=0)
     since = midnight.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    by_run = {}
+    for t in tasks:
+        rid = str((t.get("lease") or {}).get("run_id") or "")
+        if rid and (rid not in by_run or t.get("status") == "running"):
+            by_run[rid] = t
     out = []
     for repo, account, label in POOLS:
         def wruns(q):
@@ -545,8 +562,7 @@ def fleet_pools():
             "pool": repo, "account": account, "label": label,
             "configured_slots": (cfg.get("pools") or {}).get(repo),
             "active": len(active) if active is not None else None,
-            "active_runs": [{"url": r["html_url"], "started": iso(parse_ts(r.get("run_started_at") or r["created_at"])),
-                             "status": r["status"]} for r in (active or [])][:40],
+            "active_runs": [fleet_run(r, repo, account, by_run) for r in sorted(active or [], key=lambda r: r.get("run_started_at") or r["created_at"])][:40],
             "today": {"total": len(today) if today is not None else None, "success": conc.get("success", 0),
                       "failure": conc.get("failure", 0),
                       "other": sum(v for k, v in conc.items() if k not in ("success", "failure"))},
@@ -561,7 +577,8 @@ def fleet_pools():
             "runs_url": f"https://github.com/{repo}/actions/workflows/fleet-worker.yml",
         })
     return {"pools": out, "today_since": iso(midnight), "enabled": cfg.get("enabled"),
-            "model": cfg.get("model"), "queued_tasks": sum(1 for t in tasks if t.get("status") == "queued")} if state else None
+            "model": cfg.get("model"), "queued_tasks": sum(1 for t in tasks if t.get("status") == "queued"),
+            "slots": sum(int(v) for v in (cfg.get("pools") or {}).values()) if cfg.get("pools") else None} if state else None
 
 
 # ---------------- main ----------------
@@ -758,7 +775,8 @@ def main():
     for r in sorted(inprog, key=lambda r: r.get("run_started_at") or r["created_at"]):
         st = parse_ts(r.get("run_started_at") or r["created_at"])
         iss = by_title.get(r.get("display_title", ""))
-        ds.append({"title": r.get("display_title", "")[:160], "run_url": r["html_url"],
+        ds.append({"title": r.get("display_title", "")[:160], "run_url": r["html_url"], "source": "opencode.yml",
+                   "pool": PUB, "account": "Kofi55533",
                    "issue": iss["number"] if iss else None, "issue_url": iss["html_url"] if iss else None,
                    "kind": kind(r.get("display_title", "")), "started": iso(st), "minutes": int((NOW - st).total_seconds() // 60)})
     pulls = safe(lambda: api(f"repos/{PRIV}/pulls?state=closed&base={urllib.parse.quote(BRANCH, safe='')}&sort=updated&direction=desc&per_page=100"), [], "pulls")
@@ -768,11 +786,25 @@ def main():
             merged.append({"number": p["number"], "title": p["title"][:160], "merged": iso(parse_ts(p["merged_at"])),
                            "author": p["user"]["login"]})
     merged.sort(key=lambda p: p["merged"], reverse=True)
+    data["fleet"] = fleet_pools()
+    # active fleet-worker runs of both pools join the legacy opencode.yml runs in the main DeepSeek card
+    fleet_ds = []
+    for p in (data["fleet"] or {}).get("pools", []):
+        for r in p["active_runs"]:
+            fleet_ds.append({"title": r["task_title"] or "fleet-worker (Aufgabe noch nicht zugeordnet)", "run_url": r["url"],
+                             "issue": None, "issue_url": None, "kind": r["kind"], "task_kind": r["task_kind"],
+                             "started": r["started"], "minutes": r["minutes"], "source": "fleet-worker",
+                             "pool": r["pool"], "account": r["account"], "status": r["status"]})
+    fleet_queued = sum(1 for x in fleet_ds if x["status"] == "queued")
+    fleet_ds = [x for x in fleet_ds if x["status"] != "queued"]
+    ds = sorted(ds + fleet_ds, key=lambda x: x["started"])
     kinds = {}
     for x in ds:
         kinds[x["kind"]] = kinds.get(x["kind"], 0) + 1
-    data["deepseek"] = {"running": ds, "kinds": kinds, "count": len(ds), "queued": len(queued), "target": 20, "merged_24h": merged}
-    data["fleet"] = fleet_pools()
+    slots = (data["fleet"] or {}).get("slots")
+    data["deepseek"] = {"running": ds, "kinds": kinds, "count": len(ds), "queued": len(queued) + fleet_queued,
+                        "target": slots or 20, "target_source": "fleet config.pools" if slots else "fest",
+                        "fleet_count": len(fleet_ds), "legacy_count": len(ds) - len(fleet_ds), "merged_24h": merged}
     # activity timestamps for the status badges (UTC ISO; age is computed client-side)
     def board_utc(b):
         if not b:
