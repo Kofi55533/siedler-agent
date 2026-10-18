@@ -36,6 +36,8 @@ Write the requested external result file as strict JSON:
  "frontier_fixture":"fixture-name or empty string",
  "before":"measured value or not measured with reason",
  "after":"measured value or not measured with reason",
+ "new_code_path":"newly reached native address/subsystem for scenario work, otherwise empty",
+ "new_unmodelled":"newly exposed unmodelled marker for scenario work, otherwise empty",
  "next_step":"specific follow-up if blocked or diagnosing"}.
 Do not include raw logs, code, secrets or game content. If the task is blocked,
 state the precise reason instead of inventing another task. The wrapper checks

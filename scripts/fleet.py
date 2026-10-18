@@ -529,6 +529,10 @@ def worker():
                 if not re.fullmatch(r"[a-z0-9-]+", fixture):
                     raise ValueError("Invalid frontier fixture name")
                 body += f"\nFrontier-fixture: {fixture}\n"
+                body += f"\nlive {fixture}: before {result.get('before', 'not measured')} -> after {result.get('after', 'not measured')}\n"
+            for field, label in (("new_code_path", "New-code-path"), ("new_unmodelled", "New-unmodelled")):
+                if result.get(field):
+                    body += f"\n{label}: " + str(result[field]).replace("\n", " ")[:500] + "\n"
             # Recover an already-created PR if the result state write was interrupted.
             existing = api(f"repos/{PROJECT}/pulls?state=open&head=" + urllib.parse.quote(PROJECT.split('/')[0] + ':' + branch, safe=""))
             pr = existing[0] if existing else api(f"repos/{PROJECT}/pulls", "POST", {
