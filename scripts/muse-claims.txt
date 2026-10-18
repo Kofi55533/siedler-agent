@@ -1,16 +1,23 @@
-# Paths Muse may NOT self-merge (claimed by Opus/Codex; hierarchy Opus > Codex > Muse). ERE, matched against changed paths.
-# Opus/Codex can edit this list; a PR touching any of these stays a draft for Codex/Opus review.
-^recomp/
-^crates/s5clean/src/lifecycle/
-^crates/s5clean/src/net/commands\.rs$
-^crates/s5clean/src/world/commands\.rs$
-^crates/s5clean/src/entity/animal\.rs$
-^crates/s5clean/src/economy/
-^crates/s5clean/src/workers/
-^crates/s5clean/src/scenario\.rs$
-^crates/s5clean/src/script/
-^crates/s5verify|^crates/s5diff/
-^docs/agent-queue/
-^\.github/
-# Added-line markers for claimed topics (69657 extraction routing = Opus; loader/dispatch = Codex)
+# DeepSeek (Muse) self-merge path policy for scripts/s5-gate.sh (Opus decision 2026-10-18). ERE, matched against changed paths.
+# Directory-wide claims are gone; ownership is now per file/function via LANE-CLAIM lines on docs/AGENT_BOARD.md
+# (6 h expiry, parsed by scripts/lane-claims.py; a fresh Opus/Codex claim on a touched file keeps the PR draft).
+#
+# hard <re>  : never auto-merged; the PR stays draft for Opus/Codex review (verifier/oracle/tooling/CI).
+# soft <re>  : former claimed areas; auto-merge only if the PR MOVES a frontier (>= 1 fixture later), its s5clean
+#              tests pass (bit-exact unit tests) and no fixture of the live matrix regresses.
+# @@ <re>    : added-line topic markers, treated like soft (former 69657 extraction claim).
+hard ^recomp/
+hard ^oracle/
+hard ^crates/s5verify
+hard ^crates/s5diff/
+hard ^\.github/
+soft ^crates/s5clean/src/lifecycle/
+soft ^crates/s5clean/src/net/commands\.rs$
+soft ^crates/s5clean/src/world/commands\.rs$
+soft ^crates/s5clean/src/entity/animal\.rs$
+soft ^crates/s5clean/src/economy/
+soft ^crates/s5clean/src/workers/
+soft ^crates/s5clean/src/scenario\.rs$
+soft ^crates/s5clean/src/script/
+soft ^docs/agent-queue/
 @@ 69657|ExtractResource|NetEventExtract

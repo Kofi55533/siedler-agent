@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 # s5-gate.sh <pr-number> [--dry-run]
 # Muse self-merge gate for Kofi55533/siedler-sim-rs PRs into clean/integration.
-# Intent (Dominic 2026-10-17): progress is measured by first-divergence turns moving forward; Muse runs should land
-# WIRED World tick/dispatch fixes that move a scenario boundary. This gate's merge criterion remains no-regression:
-# Merges (squash) only if: base is clean/integration, head is agent/*, no claimed path/topic touched (muse-claims.txt),
-# recomp s5verify builds, crates/s5clean cargo test passes, and for EVERY live fixture in $S5_GATE_FIXTURES the
-# first-divergence turn of (PR merged onto current clean/integration) >= the same on clean/integration itself.
+# Merge rule (Opus decision 2026-10-18): bit-exact unit tests (crates/s5clean cargo test green) AND no regression on the
+# full live matrix ($S5_GATE_FIXTURES, plus any installed "Frontier-fixture: <name>" named in the PR body). No exceptions
+# (the 2026-10-17 "Port:" regression exception is revoked). Merges (squash) only if: base is clean/integration, head is
+# agent/*, no HARD path touched (scripts/muse-claims.txt: recomp/, oracle/, s5verify/s5diff, .github/), no fresh (<6 h)
+# Opus/Codex LANE-CLAIM on docs/AGENT_BOARD.md names a touched file (scripts/lane-claims.py), recomp s5verify builds,
+# s5clean tests pass, every fixture's first divergence on (PR merged onto clean/integration) >= clean/integration itself,
+# and, if a SOFT path (former claimed area, e.g. economy/, world/commands.rs) or topic marker is touched, at least one
+# fixture's first divergence moved later. A moved base re-checks merge+build+tests on the new base instead of failing.
 # Never merges into main. Prints only fixture names and turn numbers (no log contents). Needs GH_TOKEN.
 set -uo pipefail
 D=$(cd "$(dirname "$0")" && pwd); source "$D/s5-env.sh"
@@ -34,14 +37,27 @@ echo "pr=#$PR head=$h@${hs:0:8} base=$BASE@${bs:0:8}" >> "$G/report.txt"
 python -c "import json,sys;[print(f['path']) for f in json.loads(sys.argv[1])['files']]" "$j" > "$G/files.txt"
 [ -s "$G/files.txt" ] || fail "empty file list"
 gh pr diff "$PR" -R $R > "$G/pr.diff" || fail "pr diff"
-grep -vE '^(#|@@|$)' "$D/muse-claims.txt" > "$G/paths.re"; grep '^@@ ' "$D/muse-claims.txt" | sed 's/^@@ //' > "$G/topics.re"
-c=$(grep -Ef "$G/paths.re" "$G/files.txt" | head -5 | tr '\n' ' ')
-[ -n "$c" ] && fail "touches claimed area (Opus/Codex): $c"
-t=$(grep '^+' "$G/pr.diff" | grep -cEf "$G/topics.re"); [ "$t" != 0 ] && fail "adds claimed topic markers (69657/extraction): $t lines"
-echo "claims: ok ($(wc -l < "$G/files.txt") files)" >> "$G/report.txt"
+sed -n 's/^hard //p' "$D/muse-claims.txt" > "$G/hard.re"; sed -n 's/^soft //p' "$D/muse-claims.txt" > "$G/soft.re"
+grep '^@@ ' "$D/muse-claims.txt" | sed 's/^@@ //' > "$G/topics.re"
+c=$(grep -Ef "$G/hard.re" "$G/files.txt" | head -5 | tr '\n' ' ')
+[ -n "$c" ] && fail "touches hard-blocked path (recomp/oracle/s5verify/s5diff/.github; Opus/Codex review): $c"
+# lane claims: a fresh (<6 h) Opus/Codex LANE-CLAIM line on the board naming a touched file keeps the PR draft
+git show "origin/$BASE:docs/AGENT_BOARD.md" > "$G/board.md" 2>/dev/null || : > "$G/board.md"
+lc=$(python3 "$D/lane-claims.py" "$G/board.md" "$G/files.txt" --owners Opus,Codex --hours 6 2>/dev/null | head -5 | tr '\n' ';')
+[ -n "$lc" ] && fail "fresh lane claim on a touched file (kept draft; wait for expiry or ask the owner on the board): $lc"
+soft=$(grep -Ef "$G/soft.re" "$G/files.txt" | head -5 | tr '\n' ' ')
+t=$(grep '^+' "$G/pr.diff" | grep -cEf "$G/topics.re"); [ "$t" != 0 ] && soft="$soft topic-markers($t lines)"
+echo "claims: ok ($(wc -l < "$G/files.txt") files)${soft:+; former claimed area touched, frontier move required: $soft}" >> "$G/report.txt"
+# optional extra frontier fixtures named in the PR body ("Frontier-fixture: gen-campaign"), only if installed on this runner
+FIX="$S5_GATE_FIXTURES"
+for x in $(gh pr view "$PR" -R $R --json body -q .body 2>/dev/null | grep -oiE '^[[:space:]]*frontier-fixture:[[:space:]]*[a-z0-9-]+' | sed -E 's/.*:[[:space:]]*//' | sort -u); do
+  case " $FIX " in *" $x "*) continue ;; esac
+  if [ -f "$S5_NF/fixtures/$x/scenario.json" ]; then FIX="$FIX $x"; echo "extra frontier fixture: $x" >> "$G/report.txt"
+  else echo "extra frontier fixture $x not installed on this runner (skipped)" >> "$G/report.txt"; fi
+done
 suite(){ # $1=label -> $G/$1.tsv (fixture turn)
   : > "$G/$1.tsv"
-  for f in $S5_GATE_FIXTURES; do
+  for f in $FIX; do
     out=$("$D/s5-live.sh" "$f" 2>/dev/null); n=$(grep -oE 'DIVERGENT turn [0-9]+' <<<"$out" | grep -oE '[0-9]+$')
     if [ -z "$n" ]; then k=$(grep -oE 'IDENTICAL [0-9]+ ticks' <<<"$out" | grep -oE '[0-9]+'); [ -n "$k" ] && n=$((k+1000000)) || n=0; fi
     echo "$f $n" >> "$G/$1.tsv"; done; }
@@ -64,13 +80,12 @@ while read -r f n0; do n1=$(awk -v f="$f" '$1==f{print $2}' "$G/pr.tsv")
   if [ "$n1" -lt "$n0" ]; then s=REGRESSION; reg=1; elif [ "$n1" -gt "$n0" ]; then s=better; else s=same; fi
   printf '%-22s base %-12s pr %-12s %s\n' "$f" "$(show $n0)" "$(show $n1)" "$s" >> "$G/report.txt"
 done < "$G/base.tsv"
-# Function-port rule (Dominic 2026-10-17, 6ee99cf): a "Port:" PR (ported original function, unit test bit-exact vs recomp/)
-# merges even if a scenario diverges earlier; the regression is announced on the board for the run/Opus to explain.
-pt=$(gh pr view "$PR" -R $R --json title -q .title 2>/dev/null)
-port=0; { [[ "${ISSUE_TITLE:-}" == Port:* ]] || grep -qiE '(^|[^a-z])port(ed)?[: ]' <<<"$pt"; } && port=1
-if [ $reg = 1 ]; then
-  [ $port = 1 ] || fail "first divergence earlier on at least one fixture"
-  echo "port rule: regression accepted (unit tests green; cause goes on the board)" >> "$G/report.txt"
+# Opus decision 2026-10-18: no regression exception (the 2026-10-17 "Port:" rule is revoked) -> any earlier first divergence fails.
+[ $reg = 0 ] || fail "first divergence earlier on at least one fixture (no-regression rule, no Port: exception)"
+moved=$(grep -cE ' better$' "$G/report.txt")
+if [ -n "$soft" ]; then
+  [ "$moved" -gt 0 ] || fail "touches a former claimed area ($soft) but moves no frontier"
+  echo "former claimed area: frontier moved on $moved fixture(s), allowed" >> "$G/report.txt"
 fi
 # base moved meanwhile: still valid if every new base commit only touched docs/*.md (board, notes) -> measured code unchanged
 nb=$(git ls-remote origin refs/heads/$BASE | cut -f1)
@@ -90,6 +105,10 @@ if [ "$nb" != "$bs" ]; then
     echo "base moved to ${nb:0:8} (code changed): merge+build+s5clean tests green on the new base" >> "$G/report.txt"
   fi
 fi
+# re-check lane claims on the newest board (a claim may have been posted during the ~75 min live suite)
+git fetch -q origin "+refs/heads/$BASE:refs/remotes/origin/$BASE" 2>/dev/null && git show "origin/$BASE:docs/AGENT_BOARD.md" > "$G/board.md" 2>/dev/null
+lc=$(python3 "$D/lane-claims.py" "$G/board.md" "$G/files.txt" --owners Opus,Codex --hours 6 2>/dev/null | head -5 | tr '\n' ';')
+[ -n "$lc" ] && fail "fresh lane claim on a touched file appeared during the gate (kept draft): $lc"
 if [ $DRY = 1 ]; then echo "all gates green" >> "$G/report.txt"; finish 0; fi
 gh pr ready "$PR" -R $R >/dev/null 2>&1
 gh pr merge "$PR" -R $R --squash --match-head-commit "$hs" >/dev/null 2>&1 || fail "gh pr merge refused"
@@ -99,11 +118,11 @@ t=$(gh pr view "$PR" -R $R --json title -q .title)
 for i in 1 2 3; do
   [ -f .git/shallow ] && { git fetch -q --unshallow origin 2>/dev/null || git fetch -q --deepen=5000 origin; }
 git fetch -q origin "+refs/heads/$BASE:refs/remotes/origin/$BASE" && git checkout -q --detach origin/$BASE || break
-  printf '\n## %s Muse self-merge\n\n#%s `%s` (%s) squash-merged by s5-gate: build+s5clean tests green%s.\n%s%s\n' \
+  # exactly one self-merge entry per PR (no duplicates from re-gates or retries)
+  grep -qF "#$PR \`$h\` " docs/AGENT_BOARD.md && { echo "board: already announced" >> "$G/report.txt"; break; }
+  printf '\n## %s Muse self-merge\n\n#%s `%s` (%s) squash-merged by s5-gate: build+s5clean tests green, no first divergence earlier.\n%s\n' \
     "$(TZ=Europe/Berlin date '+%Y-%m-%d %H:%M') Berlin —" "$PR" "$h" "$t" \
-    "$([ $reg = 1 ] && echo ' (function-port rule: merged despite an earlier divergence)' || echo ', no first divergence earlier')" \
-    "$(grep -E ' (better|same)$' "$G/report.txt" | awk '$NF=="better"{printf "%s %s->%s; ",$1,$3,$5}')" \
-    "$(grep -E ' REGRESSION$' "$G/report.txt" | awk '{printf "REGRESSION %s %s->%s (cause: please explain on this board); ",$1,$3,$5}')" >> docs/AGENT_BOARD.md
+    "$(grep -E ' (better|same)$' "$G/report.txt" | awk '$NF=="better"{printf "%s %s->%s; ",$1,$3,$5}')" >> docs/AGENT_BOARD.md
   git -c user.name=siedler-agent -c user.email=Kofi55533@users.noreply.github.com commit -qam "board: Muse self-merge #$PR" &&
     git push -q origin HEAD:refs/heads/$BASE && { echo "board: announced" >> "$G/report.txt"; break; }
   git reset -q --hard origin/$BASE; done

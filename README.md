@@ -8,9 +8,12 @@ draft PRs to the private repos; this repo contains only the workflow, and commen
 - `data-v2` (private `siedler-data`) now also carries `newfix.tzst`: the extra Codex box fixtures/images
   (ai-long, late-ai, late-economy, camp-crawford, map-winterisland, combat-waves/big/long), extracted to `/opt/s5/data/newfix`.
   `s5-live.sh` covers every Codex live gate (`$S5_GATE_FIXTURES`).
-- `scripts/s5-gate.sh <pr> [--dry-run]`: Muse may squash-merge its own `agent/*` PR into `clean/integration` only if
-  s5verify builds, `crates/s5clean` tests pass, every fixture's first divergence >= clean/integration baseline, and no
-  path/topic in `scripts/muse-claims.txt` (Opus/Codex lanes) is touched. Runs inline in `opencode.yml` and manually via `muse-gate.yml`.
+- `scripts/s5-gate.sh <pr> [--dry-run]` (Opus decision 2026-10-18): DeepSeek may squash-merge its own `agent/*` PR into
+  `clean/integration` only if s5verify builds, `crates/s5clean` tests pass (bit-exact unit tests), NO fixture of the live
+  matrix diverges earlier (no "Port:" exception), no `hard` path of `scripts/muse-claims.txt` (recomp/, oracle/, s5verify/s5diff,
+  .github/) is touched, no fresh (<6 h) Opus/Codex `LANE-CLAIM` line on the board names a touched file (`scripts/lane-claims.py`),
+  and, when a `soft` path (former claimed area, e.g. economy/, world/commands.rs) is touched, at least one frontier moves later.
+  Runs inline in `opencode.yml` and manually via `muse-gate.yml`/`gate.yml`.
   Never targets main.
 
 ## Priority rule (Dominic 2026-10-17 00:11)
