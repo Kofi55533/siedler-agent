@@ -10,7 +10,7 @@
 # and, if a SOFT path (former claimed area, e.g. economy/, world/commands.rs) or topic marker is touched, at least one
 # fixture's first divergence moved later. Opus 2026-10-18 20:40: a source-free scenario/coverage/fixture PR needs a body line
 # "New-code-path: ..." or "New-unmodelled: ..." (pure stay-IDENTICAL extensions no longer merge), and a frontier PR
-# (title "Diverge ..." or a "Frontier-fixture:" line) needs live before -> after turn numbers in its body. A moved base re-checks merge+build+tests on the new base instead of failing.
+# (title "Diverge ..." or a "Frontier-fixture:" line) needs live before -> after turn numbers in its body. A changed code base requires a fresh full gate (exit 75).
 # Never merges into main. Prints only fixture names and turn numbers (no log contents). Needs GH_TOKEN.
 set -uo pipefail
 D=$(cd "$(dirname "$0")" && pwd); source "$D/s5-env.sh"
@@ -18,6 +18,7 @@ PR=$1; DRY=0; [ "${2:-}" = --dry-run ] && DRY=1
 R=Kofi55533/siedler-sim-rs; BASE=clean/integration
 G=$S5/gate/$PR; rm -rf "$G"; mkdir -p "$G"
 fail(){ echo "GATE FAIL: $*" | tee -a "$G/report.txt"; finish 1; }
+retry(){ echo "GATE RETRY: $*" | tee -a "$G/report.txt"; finish 75; }
 finish(){
   local rc=$1 v; [ $rc = 0 ] && v=PASS || v=FAIL; [ $DRY = 1 ] && v="$v (dry-run, no merge)"
   { echo "### Muse self-merge gate: $v"; echo '```'; cat "$G/report.txt"; echo '```'; } > "$G/comment.md"
@@ -26,6 +27,7 @@ finish(){
 : > "$G/report.txt"
 j=$(gh pr view "$PR" -R $R --json baseRefName,headRefName,headRefOid,state,isCrossRepository,files) || fail "pr lookup"
 read -r b h hs st x < <(python -c "import json,sys;d=json.loads(sys.argv[1]);print(d['baseRefName'],d['headRefName'],d['headRefOid'],d['state'],d['isCrossRepository'])" "$j")
+[ -z "${S5_GATE_EXPECT_HEAD:-}" ] || [ "$hs" = "$S5_GATE_EXPECT_HEAD" ] || fail "head differs from the queued worker result"
 [ "$b" = $BASE ] || fail "base is $b, not $BASE"
 [ "$st" = OPEN ] && [ "$x" = False ] || fail "state=$st cross=$x"
 case $h in agent/*) ;; *) fail "head $h is not agent/*" ;; esac
@@ -69,13 +71,20 @@ FIX="$S5_GATE_FIXTURES"
 for x in $(cat "$G/body.txt" | grep -oiE '^[[:space:]]*frontier-fixture:[[:space:]]*[a-z0-9-]+' | sed -E 's/.*:[[:space:]]*//' | sort -u); do
   case " $FIX " in *" $x "*) continue ;; esac
   if [ -f "$S5_NF/fixtures/$x/scenario.json" ]; then FIX="$FIX $x"; echo "extra frontier fixture: $x" >> "$G/report.txt"
-  else echo "extra frontier fixture $x not installed on this runner (skipped)" >> "$G/report.txt"; fi
+  else fail "required frontier fixture $x is unavailable; cannot verify this result"; fi
 done
 suite(){ # $1=label -> $G/$1.tsv (fixture turn)
   : > "$G/$1.tsv"
   for f in $FIX; do
-    out=$("$D/s5-live.sh" "$f" 2>/dev/null); n=$(grep -oE 'DIVERGENT turn [0-9]+' <<<"$out" | grep -oE '[0-9]+$')
-    if [ -z "$n" ]; then k=$(grep -oE 'IDENTICAL [0-9]+ ticks' <<<"$out" | grep -oE '[0-9]+'); [ -n "$k" ] && n=$((k+1000000)) || n=0; fi
+    out=$("$D/s5-live.sh" "$f" 2>/dev/null); rc=$?
+    n=$(grep -oE 'DIVERGENT turn [0-9]+' <<<"$out" | grep -oE '[0-9]+$')
+    if [ -n "$n" ]; then
+      [ "$rc" = 1 ] || fail "invalid divergent verdict for $f (exit=$rc)"
+    else
+      k=$(grep -oE 'IDENTICAL [0-9]+ ticks' <<<"$out" | grep -oE '[0-9]+')
+      [ "$rc" = 0 ] && [ -n "$k" ] || fail "missing/failed live verdict for $f (exit=$rc)"
+      n=$((k+1000000))
+    fi
     echo "$f $n" >> "$G/$1.tsv"; done; }
 show(){ [ "$1" -ge 1000000 ] && echo "IDENT($(( $1-1000000 )))" || echo "$1"; }
 # baseline = current clean/integration
@@ -111,20 +120,15 @@ if [ "$nb" != "$bs" ]; then
   if [ "$nd" = 0 ]; then
     echo "base moved to ${nb:0:8} (docs/*.md only, code unchanged)" >> "$G/report.txt"
   else
-    # with ~20 parallel runs the base moves during almost every 75-min gate: re-check merge + build + unit tests on the new base
-    # (no second live suite; the live result above stands, later regressions are explained on the board)
-    git checkout -q --detach "$nb" || fail "checkout moved base"
-    git -c user.name=gate -c user.email=gate@local merge -q --no-edit --no-ff refs/gate/pr >/dev/null 2>&1 || { git merge --abort; git checkout -q --detach "$bs"; fail "merge conflict with moved $BASE"; }
-    "$D/s5-build.sh" >/dev/null || { git checkout -q --detach "$bs"; fail "build on moved base failed"; }
-    (cd crates/s5clean && cargo test -q -j "$(nproc)" > $S5/gate-test2.log 2>&1) || { git checkout -q --detach "$bs"; fail "s5clean tests on moved base"; }
-    git checkout -q --detach "$bs"
-    echo "base moved to ${nb:0:8} (code changed): merge+build+s5clean tests green on the new base" >> "$G/report.txt"
+    retry "code base moved to ${nb:0:8}; repeat the full live matrix on that base"
   fi
 fi
 # re-check lane claims on the newest board (a claim may have been posted during the ~75 min live suite)
-git fetch -q origin "+refs/heads/$BASE:refs/remotes/origin/$BASE" 2>/dev/null && git show "origin/$BASE:docs/AGENT_BOARD.md" > "$G/board.md" 2>/dev/null
+git fetch -q origin "+refs/heads/$BASE:refs/remotes/origin/$BASE" 2>/dev/null || fail "cannot refresh final lane claims"
+git show "origin/$BASE:docs/AGENT_BOARD.md" > "$G/board.md" 2>/dev/null || fail "cannot read final lane claims"
 lc=$(python3 "$D/lane-claims.py" "$G/board.md" "$G/files.txt" --owners Opus,Codex --hours 6 2>/dev/null | head -5 | tr '\n' ';')
 [ -n "$lc" ] && fail "fresh lane claim on a touched file appeared during the gate (kept draft): $lc"
+[ "$(git ls-remote origin refs/heads/$BASE | cut -f1)" = "$nb" ] || retry "base moved during final checks"
 if [ $DRY = 1 ]; then echo "all gates green" >> "$G/report.txt"; finish 0; fi
 gh pr ready "$PR" -R $R >/dev/null 2>&1
 gh pr merge "$PR" -R $R --squash --match-head-commit "$hs" >/dev/null 2>&1 || fail "gh pr merge refused"
