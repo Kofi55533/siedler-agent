@@ -43,12 +43,14 @@ jobs:
           echo "START_UTC=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
           t0=$(date +%s)
           set +e
-          SKIP_BC_FULL=1 OUT=$RUNNER_TEMP/COVERAGE.md timeout 50m tools/coverage_map.sh > $RUNNER_TEMP/cov.log 2>&1; rc=$?
+          SKIP_BC_FULL=1 OUT=$RUNNER_TEMP/COVERAGE.md timeout 50m bash tools/coverage_map.sh > $RUNNER_TEMP/cov.log 2>&1; rc=$?
           set -e
           # only fixture names, turn ranges and timings (no game data)
           grep -E '^coverage_map: ' $RUNNER_TEMP/cov.log | sed "s#$RUNNER_TEMP#.#" || true
           echo "coverage_map exit=$rc secs=$(( $(date +%s)-t0 ))"
-          [ $rc = 0 ] && [ -s $RUNNER_TEMP/COVERAGE.md ] || exit 1
+          if [ $rc != 0 ] || [ ! -s $RUNNER_TEMP/COVERAGE.md ]; then
+            echo "last lines (error context only):"; grep -vE '^coverage_map: ' $RUNNER_TEMP/cov.log | tail -n 5 | cut -c1-200; exit 1
+          fi
           wc -c < $RUNNER_TEMP/COVERAGE.md | awk '{print "COVERAGE.md bytes", $1}'
       - name: Publish to release coverage-cache
         env:
