@@ -14,7 +14,7 @@ name: refill
 # TARGET slots (it occupies a runner like any task).
 # Sizing (measured 2026-10-19): mean task run 63 min (18 runs) -> at 20 slots ~11 runs finish per ~35 min planner
 # cycle; BACKLOG_TARGET=14 covers one cycle with margin, LOW_WATER=8 starts the next planner while ~8 are still queued.
-# Backoff: no new planner within 60 min of a planner that queued fewer than 2 tasks (nothing planable; saves a slot).
+# Backoff: no new planner within 20 min of a planner that queued fewer than 2 tasks (nothing planable; saves a slot).
 # Also re-dispatches coverage.yml when the published coverage map is older than 55 min (schedules do not fire here)
 # and gate-baseline.yml (s5-gate baseline cache warm-up) whenever none is running.
 # Only opencode.yml runs are counted, so this workflow's own runs never count as active.
@@ -106,11 +106,11 @@ jobs:
                      -q "[.[]|select((.title|startswith(\"[planner]\")) and .createdAt > \"$since\")]|length")
           isnum "$recent" || { log "recent-planner check failed -> skip"; exit 1; }
           if [ "$recent" -gt 0 ]; then log "planner issue <15min old -> skip"; exit 0; fi
-          # backoff: if the last planner (< 60 min ago) found fewer than 2 tasks, the planable work is exhausted for now
+          # backoff: if the last planner (< 20 min ago) found fewer than 2 tasks, the planable work is exhausted for now
           lp=$(gh_ issue list -R "$R" --state all --limit 30 --json title,createdAt -q '[.[]|select(.title|startswith("[planner]"))]|first|.createdAt // ""')
-          if [ -n "$lp" ] && [[ "$lp" > "$(date -u -d '-60 min' +%FT%TZ)" ]]; then
+          if [ -n "$lp" ] && [[ "$lp" > "$(date -u -d '-20 min' +%FT%TZ)" ]]; then
             got=$(gh_ issue list -R "$R" --label planner-task --state all --limit 50 --json createdAt -q "[.[]|select(.createdAt > \"$lp\")]|length")
-            if isnum "$got" && [ "$got" -lt 2 ]; then log "last planner ($lp) queued $got task(s) -> backoff until 60 min after it"; exit 0; fi
+            if isnum "$got" && [ "$got" -lt 2 ]; then log "last planner ($lp) queued $got task(s) -> backoff until 20 min after it"; exit 0; fi
           fi
           N=$((BACKLOG_TARGET-backlog)); [ "$N" -gt 15 ] && N=15
           [ "$N" -lt 1 ] && { log "N=$N -> nothing"; exit 0; }
