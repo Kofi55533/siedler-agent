@@ -36,22 +36,45 @@ jobs:
           cargo build --release -j "$(nproc)" -p s5recomp > $S5/build-recomp.log 2>&1; rc=$?
           echo "s5recomp build exit=$rc secs=$(( $(date +%s)-t0 ))"
           [ $rc = 0 ] || { echo "error lines: $(grep -c '^error' $S5/build-recomp.log) (log suppressed, private)"; exit 1; }
-      - name: Coverage map (quiet)
+      - name: Coverage map (quiet, parallel per fixture)
         run: |
           source scripts/s5-env.sh
           cd $S5_REPO
           echo "START_UTC=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
+          OUTF=$RUNNER_TEMP/COVERAGE.md; P=$RUNNER_TEMP/par; rm -rf $P; mkdir -p $P/merged
           t0=$(date +%s)
+          # bc-full skipped (SKIP_BC_FULL behaviour); each fixture traced by its own coverage_map.sh with its own TMPDIR,
+          # traces kept, then ONE aggregation over all <fixture>/<turn>.bin dirs (layout coverage_map.py --traces expects)
+          FIX=$(for f in $S5_GATE_FIXTURES; do [ "$f" = bc-full ] || echo "$f"; done)
+          export P
           set +e
-          SKIP_BC_FULL=1 OUT=$RUNNER_TEMP/COVERAGE.md timeout 50m bash tools/coverage_map.sh > $RUNNER_TEMP/cov.log 2>&1; rc=$?
-          set -e
-          # only fixture names, turn ranges and timings (no game data)
-          grep -E '^coverage_map: ' $RUNNER_TEMP/cov.log | sed "s#$RUNNER_TEMP#.#" || true
-          echo "coverage_map exit=$rc secs=$(( $(date +%s)-t0 ))"
-          if [ $rc != 0 ] || [ ! -s $RUNNER_TEMP/COVERAGE.md ]; then
-            echo "last lines (error context only):"; grep -vE '^coverage_map: ' $RUNNER_TEMP/cov.log | tail -n 5 | cut -c1-200; exit 1
+          printf '%s\n' $FIX | timeout 50m xargs -P "$(nproc)" -I{} bash -c \
+            'mkdir -p $P/tmp-{} && TMPDIR=$P/tmp-{} KEEP_TRACES=1 OUT=$P/tmp-{}/COV.md bash tools/coverage_map.sh {} > $P/{}.log 2>&1 || touch $P/FAILED-{}'
+          rc=$?; nf=$(ls $P | grep -c '^FAILED-'); [ "$nf" = 0 ] || { echo "failed fixtures: $(ls $P | sed -n 's/^FAILED-//p' | tr '\n' ' ')"; rc=1; }
+          grep -hE '^coverage_map: .*(sampled|traced)' $P/*.log
+          for d in $P/tmp-*/coverage.*/traces/*; do [ -d "$d" ] && ln -s "$d" $P/merged/$(basename "$d"); done
+          n=$(ls $P/merged | wc -l)
+          echo "parallel trace exit=$rc fixtures_traced=$n/$(echo $FIX | wc -w) secs=$(( $(date +%s)-t0 ))"
+          if [ $rc = 0 ] && [ "$n" -gt 0 ]; then
+            python3 tools/coverage_map.py --traces $P/merged --depth 0 --top 50 --out $OUTF > $P/agg.log 2>&1; rc=$?
+            echo "aggregate exit=$rc"
           fi
-          wc -c < $RUNNER_TEMP/COVERAGE.md | awk '{print "COVERAGE.md bytes", $1}'
+          rm -rf $P/tmp-*/coverage.*
+          if [ $rc != 0 ] || [ ! -s $OUTF ]; then
+            echo "parallel failed -> sequential fallback"
+            tail -n 3 $P/agg.log 2>/dev/null | cut -c1-200
+            SKIP_BC_FULL=1 OUT=$OUTF timeout 50m bash tools/coverage_map.sh > $RUNNER_TEMP/cov.log 2>&1; rc=$?
+            grep -E '^coverage_map: ' $RUNNER_TEMP/cov.log | sed "s#$RUNNER_TEMP#.#" || true
+            echo "MODE=sequential" >> "$GITHUB_ENV"
+          else
+            echo "MODE=parallel" >> "$GITHUB_ENV"
+          fi
+          set -e
+          echo "coverage_map exit=$rc total_secs=$(( $(date +%s)-t0 ))"
+          if [ $rc != 0 ] || [ ! -s $OUTF ]; then
+            echo "last lines (error context only):"; grep -vhE '^coverage_map: ' $RUNNER_TEMP/cov.log | tail -n 5 | cut -c1-200; exit 1
+          fi
+          wc -c < $OUTF | awk '{print "COVERAGE.md bytes", $1}'
       - name: Publish to release coverage-cache
         env:
           GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
@@ -62,7 +85,7 @@ jobs:
             echo "generated_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
             echo "started_utc=$START_UTC"
             echo "workflow_run=$GITHUB_SERVER_URL/$R/actions/runs/$GITHUB_RUN_ID"
-            echo "cmd=SKIP_BC_FULL=1 tools/coverage_map.sh (default fixtures)"; } > coverage-meta.txt
+            echo "cmd=tools/coverage_map.sh per fixture (default fixtures minus bc-full), mode=$MODE"; } > coverage-meta.txt
           if ! gh release view coverage-cache -R "$R" >/dev/null 2>&1; then
             gh release create coverage-cache -R "$R" --target main --prerelease -t coverage-cache \
               -n "Hourly coverage map of siedler-sim-rs clean/integration (coverage.yml). Assets are overwritten each run." >/dev/null
