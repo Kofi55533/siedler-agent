@@ -127,7 +127,9 @@ jobs:
           echo "exit=$? log_lines=$(wc -l < "$RUNNER_TEMP/opencode.log")"
           rm -f ~/.local/share/opencode/auth.json
       - name: Self-merge gate (PRs opened or updated by this run)
-        if: always()
+        # Planner runs open no PRs; without this guard they gated every PR other runs opened meanwhile
+        # (same @me author), e.g. 42 min on 2026-10-18, blocking refill while the planner counts as active.
+        if: always() && !startsWith(github.event.issue.title, '[planner]')
         env:
           GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
           ISSUE_TITLE: ${{ github.event.issue.title }}

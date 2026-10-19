@@ -36,16 +36,19 @@ Use `gh` (GH_TOKEN is set) and the local checkout /opt/s5/siedler-sim-rs (`git f
 - Active runs: `gh run list -R Kofi55533/siedler-agent -w opencode.yml --limit 60 --json status,displayTitle` (status queued/in_progress = active task; its displayTitle is the issue title).
 - Open PR files (for dedupe): for each open agent/* PR, `gh pr view <n> -R Kofi55533/siedler-sim-rs --json title,body,files`
   (native addresses `0x[0-9A-F]{6}` in title/body = functions already covered).
-- Refresh the coverage view EVERY planner run (local only, never commit it):
-  `cd /opt/s5/siedler-sim-rs && git checkout -q --detach origin/clean/integration && SKIP_BC_FULL=1 OUT=$W/COVERAGE.md timeout 45m tools/coverage_map.sh`
-  (block-traces the reference with `s5recomp TRACE=... TRACE_TURNS=...` and aggregates with `tools/coverage_map.py`). If it fails or
-  times out, use the committed `docs/clean/COVERAGE.md`, but in BOTH cases re-check "ported" yourself: a function counts as ported if its
-  address is cited anywhere in `crates/s5clean/src` on origin/clean/integration (`git grep -i <addr> origin/clean/integration -- crates/s5clean/src`).
+- Coverage view: NEVER run `tools/coverage_map.sh` (or any s5recomp block trace) in a planner run. The hourly workflow
+  `coverage.yml` computes it on origin/clean/integration and publishes it; just download it (local only, never commit it):
+  `gh release download coverage-cache -R Kofi55533/siedler-agent -D $W --clobber` (gives `$W/COVERAGE.md` and `$W/coverage-meta.txt`
+  with `clean_integration_sha=` and `generated_utc=`). If the download fails, a file is missing/empty, or `generated_utc` is older
+  than 3 h, use the committed `docs/clean/COVERAGE.md` on origin/clean/integration instead. In BOTH cases re-check "ported" yourself:
+  a function counts as ported if its address is cited anywhere in `crates/s5clean/src` on origin/clean/integration
+  (`git grep -i <addr> origin/clean/integration -- crates/s5clean/src`).
 - Current first-divergence boundaries per live scenario (bc-full wintersturm economy wsecon build production combat combat-waves
   combat-big combat-long ai-long late-ai late-economy camp-crawford map-winterisland): take the latest numbers from the board.
   If a number is missing or stale and time allows, measure: `source $S5_SCRIPTS/s5-env.sh; $S5_SCRIPTS/s5-live.sh <fixture>` (never paste log contents anywhere).
 
 ## 2. Choose N tasks (work split, Opus decision 2026-10-18 20:40)
+Create each task issue (with its `/opencode` comment, section 5) as soon as that task is chosen; do not wait until all N are chosen.
 The goal is the same as Opus': a bit-identical clean Rust port (s5clean) of Settlers 5, verified turn by turn against the
 reference. Progress = FRONTIERS (first-divergence turns of the live scenarios and generated fixtures) moving later.
 Split N into four buckets: floor(0.5N) frontier diagnosis, floor(0.2N) frontier-reached ports, floor(0.1N) scenarios,
