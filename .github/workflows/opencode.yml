@@ -17,6 +17,10 @@ jobs:
       github.event.issue.pull_request == null
     runs-on: ubuntu-latest
     timeout-minutes: 300
+    env:
+      # planner runs ([planner] issues) only read GitHub state + the siedler-sim-rs git history: slim setup, no game data,
+      # no siedler-forschung, no build; scripts/planner_state.py precomputes their state file
+      PLANNER: ${{ startsWith(github.event.issue.title, '[planner]') }}
     steps:
       - name: Runner specs
         run: |
@@ -27,12 +31,33 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: '3.11' }
       - name: Setup game data, toolchain, build cache (quiet)
+        if: env.PLANNER != 'true'
         env:
           T: ${{ secrets.PRIVATE_REPO_TOKEN }}
         run: |
           scripts/s5-setup.sh codex/clean-commands 1
           echo "S5_SCRIPTS=$GITHUB_WORKSPACE/scripts" >> "$GITHUB_ENV"
+      - name: Planner slim setup (siedler-sim-rs clone only)
+        if: env.PLANNER == 'true'
+        env:
+          T: ${{ secrets.PRIVATE_REPO_TOKEN }}
+        run: |
+          t0=$(date +%s)
+          sudo mkdir -p /opt/s5 && sudo chown "$(id -u):$(id -g)" /opt/s5
+          git clone -q --depth 1 --no-single-branch "https://x-access-token:${T}@github.com/Kofi55533/siedler-sim-rs.git" /opt/s5/siedler-sim-rs
+          git -C /opt/s5/siedler-sim-rs checkout -q --detach origin/clean/integration
+          echo "S5_SCRIPTS=$GITHUB_WORKSPACE/scripts" >> "$GITHUB_ENV"
+          mkdir -p "$W" && ln -s /opt/s5/siedler-sim-rs "$W/siedler-sim-rs"
+          git config --global user.name "siedler-agent"
+          git config --global user.email "Kofi55533@users.noreply.github.com"
+          echo "planner setup secs=$(( $(date +%s)-t0 ))"
+      - name: Planner state file
+        if: env.PLANNER == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+        run: python3 scripts/planner_state.py "$W" /opt/s5/siedler-sim-rs
       - name: Clone siedler-forschung (quiet, sparse)
+        if: env.PLANNER != 'true'
         env:
           T: ${{ secrets.PRIVATE_REPO_TOKEN }}
           GIT_LFS_SKIP_SMUDGE: "1"
@@ -46,6 +71,7 @@ jobs:
           git -C siedler-forschung checkout -q main
           df -h / | awk 'NR==2{print "disk_free="$4}'
       - name: Baseline build (quiet)
+        if: env.PLANNER != 'true'
         run: $S5_SCRIPTS/s5-build.sh || true
       - name: Install opencode
         run: npm i -g opencode-ai >/dev/null 2>&1 && opencode --version
@@ -65,6 +91,8 @@ jobs:
           {"$schema":"https://opencode.ai/config.json","permission":{"edit":"allow","bash":"allow","webfetch":"allow","external_directory":"allow"}}
           J
           TASK="${BODY#*/opencode}"
+          # queued planner tasks carry their /opencode text in the body too (refill posts it); do not repeat it
+          IBODY="${IBODY%%---PLANNER-COMMENT---*}"
           cat > "$RUNNER_TEMP/prompt.txt" <<P
           You work in $W containing private repos siedler-sim-rs/ (symlink) and siedler-forschung/ (shallow; all branch tips of siedler-sim-rs fetched; forschung cloud-re excluded).
           RULES: Push results ONLY as new branches (prefix agent/) to those private repos and open DRAFT PRs with gh (never merge, never push to main).

@@ -3,7 +3,7 @@
 This run overrides the generic "every run MUST target a divergence / write code" instruction of the wrapper:
 you write NO code, push NO branch, open NO PR, and do NOT edit siedler-sim-rs, with ONE exception: the DS-REQ
 markers in `docs/AGENT_BOARD.md` on clean/integration (section 0).
-Your only output is N new task issues in Kofi55533/siedler-agent, each started with a `/opencode` comment.
+Your only output is N new QUEUED task issues in Kofi55533/siedler-agent (section 5; the refill workflow launches them into free slots).
 N is given in the trigger comment as `N=<number>` (default 3, hard max 15).
 
 ## 0. DS-REQ first (top priority, before inventing anything)
@@ -26,6 +26,12 @@ ones take slots from the other buckets; if there are more than N, take them olde
   handoffs and requests addressed to DeepSeek/Muse take precedence over own ideas and must not be duplicated.
 
 ## 1. Gather state (read-only)
+FIRST read `$W/planner_state.md`: precomputed by the workflow right before this run (frontiers from the scoreboard, all DS-REQ
+and recent LANE-CLAIM board lines, every open siedler-sim-rs PR with draft/mergeable/checks/cited addresses/files, active runs,
+QUEUED tasks (= not yet launched, count as existing tasks for dedupe), task issues of the last 24 h with their last result line,
+and which coverage map to use). It replaces the individual gh calls listed below; make such a call only for a detail the file
+lacks (e.g. a PR body/file list beyond the shown excerpt) or to re-check right before queueing.
+This planner runner has NO game data, no siedler-forschung clone and no build: never run s5-live/s5-build/s5recomp here.
 Use `gh` (GH_TOKEN is set) and the local checkout /opt/s5/siedler-sim-rs (`git fetch -q origin clean/integration`).
 - `git show origin/clean/integration:docs/AGENT_BOARD.md` (read the last ~200 lines carefully: claims, lanes, wiring requests, Opus/Codex notes).
 - `docs/agent-queue/*.md` and `docs/agent-queue/started/` on origin/clean/integration; `docs/OPUS_NOTES.md` if present.
@@ -37,18 +43,19 @@ Use `gh` (GH_TOKEN is set) and the local checkout /opt/s5/siedler-sim-rs (`git f
 - Open PR files (for dedupe): for each open agent/* PR, `gh pr view <n> -R Kofi55533/siedler-sim-rs --json title,body,files`
   (native addresses `0x[0-9A-F]{6}` in title/body = functions already covered).
 - Coverage view: NEVER run `tools/coverage_map.sh` (or any s5recomp block trace) in a planner run. The hourly workflow
-  `coverage.yml` computes it on origin/clean/integration and publishes it; just download it (local only, never commit it):
+  `coverage.yml` computes it on origin/clean/integration and publishes it; planner_state.md already downloaded it and says which
+  map to use. Manual equivalent (local only, never commit it):
   `gh release download coverage-cache -R Kofi55533/siedler-agent -D $W --clobber -p COVERAGE.md -p coverage-meta.txt` (gives `$W/COVERAGE.md` and `$W/coverage-meta.txt`
   with `clean_integration_sha=` and `generated_utc=`). If the download fails, a file is missing/empty, or `generated_utc` is older
   than 3 h, use the committed `docs/clean/COVERAGE.md` on origin/clean/integration instead. In BOTH cases re-check "ported" yourself:
   a function counts as ported if its address is cited anywhere in `crates/s5clean/src` on origin/clean/integration
   (`git grep -i <addr> origin/clean/integration -- crates/s5clean/src`).
 - Current first-divergence boundaries per live scenario (bc-full wintersturm economy wsecon build production combat combat-waves
-  combat-big combat-long ai-long late-ai late-economy camp-crawford map-winterisland): take the latest numbers from the board.
-  If a number is missing or stale and time allows, measure: `source $S5_SCRIPTS/s5-env.sh; $S5_SCRIPTS/s5-live.sh <fixture>` (never paste log contents anywhere).
+  combat-big combat-long ai-long late-ai late-economy camp-crawford map-winterisland): take the latest numbers from planner_state.md
+  / the board (no live measurement on this runner; a task may tell its run to re-measure).
 
 ## 2. Choose N tasks (work split, Opus decision 2026-10-18 20:40)
-Create each task issue (with its `/opencode` comment, section 5) as soon as that task is chosen; do not wait until all N are chosen.
+Queue each task issue (section 5) as soon as that task is chosen; do not wait until all N are chosen.
 The goal is the same as Opus': a bit-identical clean Rust port (s5clean) of Settlers 5, verified turn by turn against the
 reference. Progress = FRONTIERS (first-divergence turns of the live scenarios and generated fixtures) moving later.
 Split N into four buckets: floor(0.5N) frontier diagnosis, floor(0.2N) frontier-reached ports, floor(0.1N) scenarios,
@@ -128,20 +135,22 @@ addressed to Opus (fixture, turn, entity/field, what was tried, links) and use t
 
 ## 4. Task format (follow exactly, like earlier refill tasks)
 - Title: one line, specific, with the bucket prefix: `Diverge <fixture>-<turn>: ...` (A), `Port: ...` (B), `Coverage ...` (C), `Rebase PR #<n> ...` / `Hygiene: close PR #<n> ...` (D); DS-REQs: `DS-REQ <id>: ...`.
-- Issue body: ONE short generic sentence (e.g. `Muse task (planner). Details in the /opencode comment.`) — no private code, no log content.
+- Issue body: ONE short generic sentence (e.g. `Muse task (planner). Details in the /opencode comment.`), then the line `---PLANNER-COMMENT---` and the full comment text (section 5) — no private code, no log content.
 - Comment: starts with `/opencode ` then one dense paragraph: target fixture + current turn, angle, what to trace read-only in recomp/,
   base branch/PR, branch name, success criterion; then a ` Context (re-measure yourself, board = docs/AGENT_BOARD.md on clean/integration,
   read it first and post your claim/result there): ...` paragraph listing latest relevant merges and open drafts not to duplicate; then the rules of section 3 in short form.
 
-## 5. Create and start them
-For each task:
+## 5. Queue them (the refill workflow launches them)
+For each task, as soon as it is chosen (comment.txt starts with "/opencode "):
 ```
-n=$(gh issue create -R Kofi55533/siedler-agent --label planner-task --title "$TITLE" --body "Muse task (planner). Details in the /opencode comment." | grep -oE '[0-9]+$')
-gh issue comment "$n" -R Kofi55533/siedler-agent --body-file comment.txt     # comment.txt starts with "/opencode "
+printf 'Muse task (planner). Details in the /opencode comment.\n\n---PLANNER-COMMENT---\n' > body.txt && cat comment.txt >> body.txt
+n=$(gh issue create -R Kofi55533/siedler-agent --label planner-task --label queued --title "$TITLE" --body-file body.txt | grep -oE '[0-9]+$')
 ```
-Create them sequentially, verify each comment exists (`gh issue view $n -R Kofi55533/siedler-agent --comments`). Do not comment `/opencode` on this planner issue or on any other existing issue.
-If `gh issue comment` fails, still keep the issue and append the full comment text to the issue body under a line `---PLANNER-COMMENT---`
-(`gh issue edit $n --body-file ...`); the box refill script will post it.
+Do NOT post the `/opencode` comment yourself and do not comment `/opencode` on this planner issue or on any other issue: the
+refill workflow (every ~5 min) posts the text after `---PLANNER-COMMENT---` as the `/opencode` comment when a slot is free
+(DS-REQ first, then oldest) and swaps the label `queued` -> `launched`; queued tasks older than 6 h are closed as stale.
+Verify each issue exists with both labels (`gh issue view $n -R Kofi55533/siedler-agent --json labels,body`).
+Dedupe against active runs, QUEUED issues and recent issues alike (all listed in planner_state.md).
 
 ## 6. Summary
-Write to $W/summary.txt (max 5 lines): `planner: created #a #b ...` (list `DS-REQ <id> -> #n` first) plus one line with the bucket split (diagnosis / ports / scenarios / hygiene, open PR count) and why fewer than N if so.
+Write to $W/summary.txt (max 5 lines): `planner: queued #a #b ...` (list `DS-REQ <id> -> #n` first) plus one line with the bucket split (diagnosis / ports / scenarios / hygiene, open PR count) and why fewer than N if so.

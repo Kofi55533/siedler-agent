@@ -1,14 +1,24 @@
 name: refill
-# Zero-LLM DeepSeek refill (ported from the box script deepseek-refill/refill.sh).
-# Keeps ~TARGET opencode runs active: if gap >= 2 and no planner is running / was created < 15 min ago,
-# opens a `[planner] refill ... N=<gap-1>` issue and comments `/opencode PLANNER RUN N=...`.
-# GH_TOKEN = PRIVATE_REPO_TOKEN (Kofi55533 PAT), so issue + comment are authored by Kofi55533 and trigger
-# opencode.yml (GITHUB_TOKEN-authored events would not). Only opencode.yml runs are counted, so this
-# workflow's own runs never count as active.
-# Note: GitHub may delay or drop scheduled runs under load; schedules are disabled after 60 days of repo inactivity.
+# Zero-LLM DeepSeek refill + launcher (ported from the box script deepseek-refill/refill.sh).
+# Backlog queue (Dominic 2026-10-20): the planner only QUEUES task issues (labels planner-task + queued, the /opencode
+# text in the body under ---PLANNER-COMMENT---, no comment). This workflow
+#   1) closes queued tasks older than STALE_H hours (never launched -> likely stale; the planner re-plans),
+#   2) launches queued tasks into free slots (DS-REQ first, then oldest): posts the /opencode comment (authored by
+#      Kofi55533 via PRIVATE_REPO_TOKEN, which is what triggers opencode.yml), then swaps label queued -> launched.
+#      A task that already has an /opencode comment is never commented again (no double start).
+#      Launching does NOT wait for the planner.
+#   3) opens a `[planner] refill ... N=<n>` issue only if no planner is active, none was created < 15 min ago,
+#      a slot is free and the queued backlog < LOW_WATER; N = BACKLOG_TARGET - backlog (max 15).
+# Slots: active = DISTINCT issue titles among non-completed opencode.yml runs (extra pending runs of the same issue,
+# created by comments during a run and skipped later, are not counted). A running planner counts as 1 of the
+# TARGET slots (it occupies a runner like any task).
+# Sizing (measured 2026-10-19): mean task run 63 min (18 runs) -> at 20 slots ~11 runs finish per ~35 min planner
+# cycle; BACKLOG_TARGET=14 covers one cycle with margin, LOW_WATER=8 starts the next planner while ~8 are still queued.
+# Also re-dispatches coverage.yml when the published coverage map is older than 55 min (schedules do not fire here).
+# Only opencode.yml runs are counted, so this workflow's own runs never count as active.
 on:
   schedule:
-    - cron: '*/15 * * * *'
+    - cron: '*/5 * * * *'
   workflow_dispatch:
     inputs:
       target:
@@ -23,7 +33,7 @@ concurrency:
 jobs:
   refill:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - name: Refill
         env:
@@ -31,64 +41,87 @@ jobs:
           R: ${{ github.repository }}
           TARGET: ${{ github.event.inputs.target || '20' }}
           GH_TIMEOUT: '60'
+          BACKLOG_TARGET: '14'
+          LOW_WATER: '8'
+          STALE_H: '6'
           GH_PROMPT_DISABLED: '1'
           GH_NO_UPDATE_NOTIFIER: '1'
           TZ: Europe/Berlin
         run: |
           set -u
           log(){ echo "$(date '+%F %T %Z') $*"; echo "- $*" >> "$GITHUB_STEP_SUMMARY"; }
-          gh_(){ timeout -k 10 "$GH_TIMEOUT" gh "$@"; }
+          gh_(){ local i; for i in 1 2 3; do timeout -k 10 "$GH_TIMEOUT" gh "$@" && return 0; sleep $((i*3)); done; return 1; }
           isnum(){ [[ "${1:-}" =~ ^[0-9]+$ ]]; }
           isnum "$TARGET" || { log "bad TARGET='$TARGET'"; exit 1; }
-          # 1) fallback: planner-created issues whose /opencode comment is missing -> post it from the body marker
-          L=$(gh_ issue list -R "$R" --label planner-task --state open --limit 50 --json number,body \
-                -q '.[]|select(.body|contains("---PLANNER-COMMENT---"))|.number') || { log "fallback: issue list failed (rc=$?), continuing"; L=""; }
-          for n in $L; do
+          # 0) coverage map freshness (coverage.yml cron does not fire reliably)
+          cu=$(gh_ release view coverage-cache -R "$R" --json assets -q '.assets[]|select(.name=="coverage-meta.txt")|.updatedAt' || true)
+          if [ -z "$cu" ] || [[ "$cu" < "$(date -u -d '-55 min' +%FT%TZ)" ]]; then
+            busy=$(gh_ run list -R "$R" -w coverage.yml --limit 5 --json status -q '[.[]|select(.status!="completed")]|length' || echo 1)
+            [ "$busy" = 0 ] && gh_ workflow run coverage.yml -R "$R" --ref main && log "coverage map from ${cu:-never} -> dispatched coverage.yml"
+          fi
+          # 1) active slots = distinct issue titles of non-completed opencode runs
+          J=$(gh_ run list -R "$R" -w opencode.yml --limit 100 --json status,displayTitle) || { log "gh run list failed -> skip"; exit 1; }
+          act=$(jq '[.[]|select(.status!="completed")|.displayTitle]|unique|length' <<<"$J")
+          plan=$(jq '[.[]|select(.status!="completed" and (.displayTitle|startswith("[planner]")))|.displayTitle]|unique|length' <<<"$J")
+          isnum "$act" && isnum "$plan" || { log "bad run list json -> skip"; exit 1; }
+          # 2) queued backlog; close stale ones
+          Q=$(gh_ issue list -R "$R" --label queued --state open --limit 100 --json number,title,createdAt) || { log "queued list failed -> skip"; exit 1; }
+          stale=$(date -u -d "-${STALE_H} hours" +%FT%TZ)
+          for n in $(jq -r --arg s "$stale" '.[]|select(.createdAt < $s)|.number' <<<"$Q"); do
+            gh_ issue comment "$n" -R "$R" --body "Stale queued task (queued > ${STALE_H} h, never launched); closed by refill. The planner re-plans it if still relevant." >/dev/null
+            gh_ issue edit "$n" -R "$R" --remove-label queued >/dev/null; gh_ issue close "$n" -R "$R" >/dev/null && log "closed stale queued #$n"
+          done
+          ORDER=$(jq -r --arg s "$stale" '[.[]|select(.createdAt >= $s)]|sort_by((if (.title|startswith("DS-REQ")) then 0 else 1 end), .createdAt)|.[].number' <<<"$Q")
+          backlog=$(wc -w <<<"$ORDER")
+          log "opencode active=$act (planner=$plan), queued=$backlog, target=$TARGET"
+          # 3) launch into free slots (even while a planner runs)
+          launched=""
+          for n in $ORDER; do
+            [ "$act" -ge "$TARGET" ] && break
             c=$(gh_ issue view "$n" -R "$R" --json comments -q '[.comments[]|select(.body|startswith("/opencode"))]|length') || continue
-            if [ "$c" = 0 ]; then
-              gh_ issue view "$n" -R "$R" --json body -q .body | sed -n '/---PLANNER-COMMENT---/,$p' | tail -n +2 > c.txt
-              if grep -q '^/opencode' c.txt; then
-                gh_ issue comment "$n" -R "$R" --body-file c.txt >/dev/null && log "fallback: posted /opencode on #$n" || log "fallback: comment on #$n failed"
-              fi
+            if [ "$c" != 0 ]; then
+              gh_ issue edit "$n" -R "$R" --remove-label queued --add-label launched >/dev/null; log "#$n already started -> label fixed"; backlog=$((backlog-1)); continue
+            fi
+            gh_ issue view "$n" -R "$R" --json body -q .body | sed -n '/---PLANNER-COMMENT---/,$p' | tail -n +2 > c.txt
+            grep -q '^/opencode' c.txt || { log "#$n queued without /opencode text -> skipped"; continue; }
+            if timeout -k 10 "$GH_TIMEOUT" gh issue comment "$n" -R "$R" --body-file c.txt >/dev/null; then
+              gh_ issue edit "$n" -R "$R" --remove-label queued --add-label launched >/dev/null
+              act=$((act+1)); backlog=$((backlog-1)); launched="$launched #$n"
+            else
+              log "comment on #$n failed (not retried this round)"
             fi
           done
-          # 2) count active opencode runs (only opencode.yml; this workflow is not included)
-          J=$(gh_ run list -R "$R" -w opencode.yml --limit 100 --json status,displayTitle) || { log "gh run list failed (rc=$?) -> skip"; exit 1; }
-          act=$(jq '[.[]|select(.status!="completed")]|length' <<<"$J")
-          plan=$(jq '[.[]|select(.status!="completed" and (.displayTitle|startswith("[planner]")))]|length' <<<"$J")
-          isnum "$act" && isnum "$plan" || { log "bad run list json -> skip"; exit 1; }
-          log "opencode runs: active=$act (in_progress=$(jq '[.[]|select(.status=="in_progress")]|length' <<<"$J"), queued/waiting/pending=$(jq '[.[]|select(.status!="completed" and .status!="in_progress")]|length' <<<"$J")), planner active=$plan, target=$TARGET"
-          if [ "$plan" -gt 0 ]; then log "active=$act planner running -> skip"; exit 0; fi
-          # fail closed: if this check errors, skip rather than risk a duplicate planner
+          [ -n "$launched" ] && log "launched$launched -> active=$act queued=$backlog"
+          # 4) planner: only when idle, backlog low and a slot free
+          if [ "$plan" -gt 0 ]; then log "planner running -> no new planner"; exit 0; fi
+          if [ "$backlog" -ge "$LOW_WATER" ]; then log "backlog $backlog >= low-water $LOW_WATER -> no planner"; exit 0; fi
+          if [ "$act" -ge "$TARGET" ]; then log "no free slot for a planner"; exit 0; fi
           since=$(date -u -d '-15 min' +%FT%TZ)
           recent=$(gh_ issue list -R "$R" --state all --limit 10 --json title,createdAt \
                      -q "[.[]|select((.title|startswith(\"[planner]\")) and .createdAt > \"$since\")]|length")
-          isnum "$recent" || { log "active=$act recent-planner check failed -> skip"; exit 1; }
-          if [ "$recent" -gt 0 ]; then log "active=$act planner issue <15min old -> skip"; exit 0; fi
-          gap=$((TARGET-act))
-          if [ "$act" -ge "$TARGET" ]; then log "active=$act >= $TARGET -> nothing"; exit 0; fi
-          # planner itself occupies one slot; gap>=2 starts a planner (N=gap-1), gap=1 is skipped
-          N=$((gap-1))
-          if [ "$N" -lt 1 ]; then log "active=$act gap=$gap too small"; exit 0; fi
+          isnum "$recent" || { log "recent-planner check failed -> skip"; exit 1; }
+          if [ "$recent" -gt 0 ]; then log "planner issue <15min old -> skip"; exit 0; fi
+          N=$((BACKLOG_TARGET-backlog)); [ "$N" -gt 15 ] && N=15
+          [ "$N" -lt 1 ] && { log "N=$N -> nothing"; exit 0; }
           url=$(gh_ issue create -R "$R" --title "[planner] refill $(date '+%F %H:%M') N=$N" \
                   --body "Planner run (GitHub Actions refill workflow, run $GITHUB_SERVER_URL/$R/actions/runs/$GITHUB_RUN_ID). Details in the /opencode comment.")
           n=$(grep -oE '[0-9]+$' <<<"$url")
           [ -z "$n" ] && { log "issue create failed"; exit 1; }
-          gh_ issue comment "$n" -R "$R" --body "/opencode PLANNER RUN N=$N. Read /home/runner/work/siedler-agent/siedler-agent/prompts/planner.md and follow it exactly (it overrides the coding-run instructions: no code, no PR, only create N task issues with label planner-task and start each with a /opencode comment)." >/dev/null \
-            && log "active=$act -> planner #$n started N=$N" || { log "comment on #$n failed"; exit 1; }
+          timeout -k 10 "$GH_TIMEOUT" gh issue comment "$n" -R "$R" --body "/opencode PLANNER RUN N=$N. Read /home/runner/work/siedler-agent/siedler-agent/prompts/planner.md and follow it exactly (it overrides the coding-run instructions: no code, no PR, only QUEUE N task issues with labels planner-task + queued and the /opencode text in the issue body; the refill workflow launches them). Start with \$W/planner_state.md." >/dev/null \
+            && log "backlog=$backlog -> planner #$n started N=$N" || { log "comment on #$n failed"; exit 1; }
   rearm:
-    # GitHub's cron schedule for this workflow did not fire at all (19:30-20:33 Berlin, 17.10.2026),
-    # so each run re-dispatches itself ~13 min later. Extra runs collapse via the `refill` concurrency group
+    # GitHub's cron schedule for this workflow did not fire at all (19:30-20:33 Berlin, 17.10.2026; still not on 19.10.),
+    # so each run re-dispatches itself ~5 min later. Extra runs collapse via the `refill` concurrency group
     # (only one pending run is kept), so parallel chains cannot multiply.
     needs: refill
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - name: Re-dispatch refill in ~13 min
+      - name: Re-dispatch refill in ~5 min
         env:
           GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
           R: ${{ github.repository }}
         run: |
-          sleep 780
+          sleep 270
           gh workflow run refill.yml -R "$R" --ref main
