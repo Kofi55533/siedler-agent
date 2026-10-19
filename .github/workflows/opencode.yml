@@ -34,8 +34,15 @@ jobs:
         if: env.PLANNER != 'true'
         env:
           T: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          GIT_LFS_SKIP_SMUDGE: "1"
         run: |
+          # siedler-forschung clone runs in parallel with the data/toolchain setup (was a separate ~1.8 min step)
+          mkdir -p "$W"
+          ( cd "$W" && git clone -q --depth 1 --filter=blob:limit=5m --no-checkout "https://x-access-token:${T}@github.com/Kofi55533/siedler-forschung.git" siedler-forschung \
+              && git -C siedler-forschung sparse-checkout set --no-cone '/*' '!/cloud-re/' && git -C siedler-forschung checkout -q main && touch "$RUNNER_TEMP/forschung.ok" ) > "$RUNNER_TEMP/forschung.log" 2>&1 &
+          FP=$!
           scripts/s5-setup.sh codex/clean-commands 1
+          wait $FP && echo "forschung clone ok" || echo "forschung clone failed (retried in next step)"
           echo "S5_SCRIPTS=$GITHUB_WORKSPACE/scripts" >> "$GITHUB_ENV"
       - name: Planner slim setup (siedler-sim-rs clone only)
         if: env.PLANNER == 'true'
@@ -56,7 +63,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
         run: python3 scripts/planner_state.py "$W" /opt/s5/siedler-sim-rs
-      - name: Clone siedler-forschung (quiet, sparse)
+      - name: Workdir + siedler-forschung check (clone if the background clone failed)
         if: env.PLANNER != 'true'
         env:
           T: ${{ secrets.PRIVATE_REPO_TOKEN }}
@@ -66,9 +73,12 @@ jobs:
           git config --global user.name "siedler-agent"
           git config --global user.email "Kofi55533@users.noreply.github.com"
           ln -s /opt/s5/siedler-sim-rs siedler-sim-rs
-          git clone -q --depth 1 --filter=blob:limit=5m --no-checkout "https://x-access-token:${T}@github.com/Kofi55533/siedler-forschung.git" siedler-forschung
-          git -C siedler-forschung sparse-checkout set --no-cone '/*' '!/cloud-re/'
-          git -C siedler-forschung checkout -q main
+          if [ ! -e "$RUNNER_TEMP/forschung.ok" ]; then
+            rm -rf siedler-forschung
+            git clone -q --depth 1 --filter=blob:limit=5m --no-checkout "https://x-access-token:${T}@github.com/Kofi55533/siedler-forschung.git" siedler-forschung
+            git -C siedler-forschung sparse-checkout set --no-cone '/*' '!/cloud-re/'
+            git -C siedler-forschung checkout -q main
+          fi
           df -h / | awk 'NR==2{print "disk_free="$4}'
       - name: Baseline build (quiet)
         if: env.PLANNER != 'true'
