@@ -14,7 +14,8 @@ name: refill
 # TARGET slots (it occupies a runner like any task).
 # Sizing (measured 2026-10-19): mean task run 63 min (18 runs) -> at 20 slots ~11 runs finish per ~35 min planner
 # cycle; BACKLOG_TARGET=14 covers one cycle with margin, LOW_WATER=8 starts the next planner while ~8 are still queued.
-# Also re-dispatches coverage.yml when the published coverage map is older than 55 min (schedules do not fire here).
+# Also re-dispatches coverage.yml when the published coverage map is older than 55 min (schedules do not fire here)
+# and gate-baseline.yml (s5-gate baseline cache warm-up) whenever none is running.
 # Only opencode.yml runs are counted, so this workflow's own runs never count as active.
 on:
   schedule:
@@ -59,6 +60,9 @@ jobs:
             busy=$(gh_ run list -R "$R" -w coverage.yml --limit 5 --json status -q '[.[]|select(.status!="completed")]|length' || echo 1)
             [ "$busy" = 0 ] && gh_ workflow run coverage.yml -R "$R" --ref main && log "coverage map from ${cu:-never} -> dispatched coverage.yml"
           fi
+          # 0b) keep the s5-gate baseline cache warm for the current clean/integration code tree (pre-check exits in ~20 s on a hit)
+          wb=$(gh_ run list -R "$R" -w gate-baseline.yml --limit 5 --json status -q '[.[]|select(.status!="completed")]|length' || echo 1)
+          [ "$wb" = 0 ] && gh_ workflow run gate-baseline.yml -R "$R" --ref main -f mode=warm >/dev/null && log "gate-baseline warm-up dispatched"
           # 1) active slots = distinct issue titles of non-completed opencode runs
           J=$(gh_ run list -R "$R" -w opencode.yml --limit 100 --json status,displayTitle) || { log "gh run list failed -> skip"; exit 1; }
           act=$(jq '[.[]|select(.status!="completed")|.displayTitle]|unique|length' <<<"$J")

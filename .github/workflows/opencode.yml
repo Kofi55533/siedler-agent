@@ -164,16 +164,27 @@ jobs:
         run: |
           [ -x /opt/s5/siedler-sim-rs/recomp/target/release/s5verify ] || exit 0
           R=Kofi55533/siedler-sim-rs
-          new=$(gh pr list -R $R --state open --base clean/integration --author @me --json number,headRefName,createdAt \
-              -q "[.[] | select(.createdAt >= \"$T0\" and (.headRefName|startswith(\"agent/\")))] | .[].number")
-          # Rework/rebase tasks name an existing PR in the issue title ("Rebase PR #351 ..."); gate it too if this run pushed to it.
-          upd=
-          for m in $(printf '%s' "$ISSUE_TITLE" | grep -oE 'PR #[0-9]+' | grep -oE '[0-9]+'); do
-            d=$(gh pr view "$m" -R $R --json state,baseRefName,headRefName,commits \
-                -q 'select(.state=="OPEN" and .baseRefName=="clean/integration" and (.headRefName|startswith("agent/"))) | .commits[-1].committedDate' 2>/dev/null) || continue
-            if [ -n "$d" ] && [[ ! "$d" < "$T0" ]]; then upd="$upd $m"; fi
+          # Gate ONLY PRs this run produced: head branch created locally in this runner's clone or pushed from it
+          # (reflog "update by push" of the tracking ref), head sha = that local tip, opened or committed after T0.
+          # (Before 2026-10-20 every open agent/* PR of the shared account since T0 was gated -> 3-6 PRs per run.)
+          cd /opt/s5/siedler-sim-rs
+          git for-each-ref --format='%(refname:strip=2) %(objectname)' refs/heads/agent/ > "$RUNNER_TEMP/own.txt"
+          for r in $(git for-each-ref --format='%(refname)' refs/remotes/origin/agent/); do
+            git reflog show --format=%gs "$r" 2>/dev/null | grep -q 'update by push' && echo "${r#refs/remotes/origin/} $(git rev-parse "$r")" >> "$RUNNER_TEMP/own.txt"
           done
-          for n in $(printf '%s\n' $new $upd | sort -un); do
+          cd - >/dev/null
+          echo "branches produced by this run: $(cut -d' ' -f1 "$RUNNER_TEMP/own.txt" | sort -u | tr '\n' ' ')"
+          sel=
+          for x in $(gh pr list -R $R --state open --base clean/integration --limit 200 --json number,headRefName,headRefOid,createdAt \
+                       -q '.[]|select(.headRefName|startswith("agent/"))|"\(.number)|\(.headRefName)|\(.headRefOid)|\(.createdAt)"'); do
+            IFS='|' read -r m hb ho ca <<<"$x"
+            grep -qx "$hb $ho" "$RUNNER_TEMP/own.txt" || continue
+            if [[ ! "$ca" < "$T0" ]]; then sel="$sel $m"; continue; fi
+            d=$(gh pr view "$m" -R $R --json commits -q '.commits[-1].committedDate' 2>/dev/null)
+            [ -n "$d" ] && [[ ! "$d" < "$T0" ]] && sel="$sel $m"
+          done
+          echo "gating PRs:${sel:- none}"
+          for n in $(printf '%s\n' $sel | sort -un); do
             S5_LIVE_TIMEOUT=900 timeout 75m $S5_SCRIPTS/s5-gate.sh "$n" >> "$W/gate.txt" 2>&1 || true
             sed -n 's/^### Muse self-merge gate: /gate #'"$n"': /p' "$W/gate.txt" | tail -n1 >> "$W/summary.txt"
           done

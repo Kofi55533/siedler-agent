@@ -12,6 +12,12 @@
 # "New-code-path: ..." or "New-unmodelled: ..." (pure stay-IDENTICAL extensions no longer merge), and a frontier PR
 # (title "Diverge ..." or a "Frontier-fixture:" line) needs live before -> after turn numbers in its body. A moved base re-checks merge+build+tests on the new base instead of failing.
 # Never merges into main. Prints only fixture names and turn numbers (no log contents). Needs GH_TOKEN.
+# Speed (2026-10-20, same merge criteria): live fixtures run in parallel (S5_GATE_PARALLEL, default min(nproc, MemAvailable/3 GB));
+# the baseline (clean/integration) matrix is cached as asset base-<key>.tsv on release gate-baseline of siedler-agent,
+# key = code tree of the base without docs/*.md (the same "code unchanged" rule the moved-base check uses) + data-v2 assets
+# + live/build/env script hashes + S5_LIVE_TIMEOUT (S5_GATE_CACHE=0 disables); PR side fails fast on the first fixture that
+# diverges earlier than the baseline (S5_GATE_FAILFAST=0 disables; remaining fixtures are then reported as not run).
+# S5_GATE_BASELINE_ONLY=1 (+ S5_GATE_KEY_ONLY=1 for the key only): only compute/upload the baseline of current clean/integration (warm-up, PR arg ignored).
 set -uo pipefail
 D=$(cd "$(dirname "$0")" && pwd); source "$D/s5-env.sh"
 PR=$1; DRY=0; [ "${2:-}" = --dry-run ] && DRY=1
@@ -24,6 +30,21 @@ finish(){
   [ "${S5_GATE_COMMENT:-1}" = 1 ] && gh pr comment "$PR" -R $R --body-file "$G/comment.md" >/dev/null 2>&1
   cat "$G/comment.md"; exit $rc; }
 : > "$G/report.txt"
+PAR=${S5_GATE_PARALLEL:-}; if [ -z "$PAR" ]; then
+  m=$(awk '/MemAvailable/{print int($2/1048576)}' /proc/meminfo); PAR=$(( m / ${S5_GATE_GB_PER_FIXTURE:-3} )); [ $PAR -gt $(nproc) ] && PAR=$(nproc); [ $PAR -lt 1 ] && PAR=1; fi
+BREL=gate-baseline; BREPO=Kofi55533/siedler-agent
+bkey(){ # $1 = commit -> cache key of its live matrix (fixture list is part of the file, missing fixtures are measured)
+  { git ls-tree -r "$1" | grep -vP '\tdocs/.*\.md$'
+    gh release view data-v2 -R Kofi55533/siedler-data --json assets -q '.assets[]|select(.name|test("tzst"))|"\(.name) \(.size) \(.updatedAt)"' | sort
+    cat "$D/s5-live.sh" "$D/s5-env.sh" "$D/s5-build.sh"; echo "timeout=${S5_LIVE_TIMEOUT:-1800}"; } | sha256sum | cut -c1-16; }
+if [ "${S5_GATE_BASELINE_ONLY:-0}" = 1 ]; then
+  cd $S5_REPO; git fetch -q origin "+refs/heads/$BASE:refs/remotes/origin/$BASE" || fail "fetch"
+  bs=$(git rev-parse origin/$BASE); FIX="$S5_GATE_FIXTURES"
+  # S5_GATE_KEY_ONLY=1: print "<key> <base sha>" and whether the cache has it (warm-up pre-check, no build needed)
+  if [ "${S5_GATE_KEY_ONLY:-0}" = 1 ]; then k=$(bkey "$bs")
+    gh release view $BREL -R $BREPO --json assets -q '.assets[].name' 2>/dev/null | grep -qx "base-$k.tsv" && echo "$k $bs hit" || echo "$k $bs miss"; exit 0; fi
+fi
+if [ "${S5_GATE_BASELINE_ONLY:-0}" != 1 ]; then
 j=$(gh pr view "$PR" -R $R --json baseRefName,headRefName,headRefOid,state,isCrossRepository,files) || fail "pr lookup"
 read -r b h hs st x < <(python -c "import json,sys;d=json.loads(sys.argv[1]);print(d['baseRefName'],d['headRefName'],d['headRefOid'],d['state'],d['isCrossRepository'])" "$j")
 [ "$b" = $BASE ] || fail "base is $b, not $BASE"
@@ -71,17 +92,55 @@ for x in $(cat "$G/body.txt" | grep -oiE '^[[:space:]]*frontier-fixture:[[:space
   if [ -f "$S5_NF/fixtures/$x/scenario.json" ]; then FIX="$FIX $x"; echo "extra frontier fixture: $x" >> "$G/report.txt"
   else echo "extra frontier fixture $x not installed on this runner (skipped)" >> "$G/report.txt"; fi
 done
-suite(){ # $1=label -> $G/$1.tsv (fixture turn)
-  : > "$G/$1.tsv"
-  for f in $FIX; do
-    out=$("$D/s5-live.sh" "$f" 2>/dev/null); n=$(grep -oE 'DIVERGENT turn [0-9]+' <<<"$out" | grep -oE '[0-9]+$')
-    if [ -z "$n" ]; then k=$(grep -oE 'IDENTICAL [0-9]+ ticks' <<<"$out" | grep -oE '[0-9]+'); [ -n "$k" ] && n=$((k+1000000)) || n=0; fi
-    echo "$f $n" >> "$G/$1.tsv"; done; }
+fi  # end of PR-only checks (baseline-only mode skips them)
+live_one(){ # $1=fixture $2=label: one s5-live run -> $G/$2.d/<fixture> "fixture turn secs"; fail-fast vs $G/base.tsv for label pr
+  local f=$1 l=$2 t0 out n k b
+  [ -e "$G/$l.STOP" ] && return 0
+  t0=$(date +%s)
+  out=$("$D/s5-live.sh" "$f" 2>/dev/null); n=$(grep -oE 'DIVERGENT turn [0-9]+' <<<"$out" | grep -oE '[0-9]+$')
+  if [ -z "$n" ]; then k=$(grep -oE 'IDENTICAL [0-9]+ ticks' <<<"$out" | grep -oE '[0-9]+'); [ -n "$k" ] && n=$((k+1000000)) || n=0; fi
+  [ -e "$G/$l.STOP" ] && return 0   # killed by fail-fast: not a measurement
+  echo "$f $n $(( $(date +%s)-t0 ))" > "$G/$l.d/$f"
+  if [ "$l" = pr ] && [ "${S5_GATE_FAILFAST:-1}" = 1 ]; then
+    b=$(awk -v f="$f" '$1==f{print $2}' "$G/base.tsv")
+    if [ -n "$b" ] && [ "$n" -lt "$b" ]; then touch "$G/$l.STOP"; pkill -f 'target/release/s5verify live' 2>/dev/null; fi
+  fi; }
+export -f live_one; export D G S5_GATE_FAILFAST
+suite(){ # $1=label [fixtures] -> $G/$1.tsv (fixture turn [secs]) in FIX order; longest first (secs of the cached baseline)
+  local l=$1 fx=${2:-$FIX} f
+  rm -rf "$G/$l.d" "$G/$l.STOP"; mkdir -p "$G/$l.d"
+  ( while sleep 10; do free -m | awk 'NR==2{print $3}'; done ) > "$G/mem-$l.txt" & local mp=$!
+  local t0=$(date +%s)
+  for f in $fx; do echo "$(awk -v f="$f" '$1==f{print $3+0}' "$G/base.cached" 2>/dev/null || echo 0) $f"; done | sort -rn | awk '{print $2}' |
+    xargs -P "$PAR" -I{} bash -c 'live_one "$1" "$2"' _ {} "$l"
+  kill $mp 2>/dev/null
+  : > "$G/$l.tsv"; for f in $fx; do [ -s "$G/$l.d/$f" ] && cat "$G/$l.d/$f" >> "$G/$l.tsv"; done
+  echo "live $l: $(wc -l < "$G/$l.tsv")/$(wc -w <<<"$fx") fixtures, parallel=$PAR, wall $(( $(date +%s)-t0 ))s, peak used RAM $(sort -n "$G/mem-$l.txt" | tail -n1)M" >> "$G/report.txt"; }
 show(){ [ "$1" -ge 1000000 ] && echo "IDENT($(( $1-1000000 )))" || echo "$1"; }
-# baseline = current clean/integration
+# baseline = current clean/integration: cached per code tree, else measured (and cached)
+: > "$G/base.cached"; BK=""
+if [ "${S5_GATE_CACHE:-1}" = 1 ]; then
+  BK=$(bkey "$bs")
+  gh release download $BREL -R $BREPO -p "base-$BK.tsv" -O "$G/base.cached" --clobber >/dev/null 2>&1 || : > "$G/base.cached"
+fi
+miss=""; for f in $FIX; do grep -q "^$f " "$G/base.cached" || miss="$miss $f"; done
+if [ -n "${miss// /}" ]; then
+  git checkout -q --detach "$bs" || fail "checkout base"
+  "$D/s5-build.sh" >/dev/null || fail "base build"
+  suite base "$miss"
+  cat "$G/base.cached" "$G/base.tsv" | awk '!s[$1]++' > "$G/base.all"
+  if [ -n "$BK" ]; then
+    awk -v fx=" $S5_GATE_FIXTURES " 'index(fx," "$1" ")' "$G/base.all" > "$G/base-$BK.tsv"   # cache only the standard matrix
+    gh release view $BREL -R $BREPO >/dev/null 2>&1 || gh release create $BREL -R $BREPO --target main --prerelease -t $BREL \
+      -n "s5-gate baseline live matrix per clean/integration code tree (s5-gate.sh). fixture turn secs; turn>=1000000 = IDENTICAL." >/dev/null 2>&1
+    gh release upload $BREL -R $BREPO --clobber "$G/base-$BK.tsv" >/dev/null 2>&1 && echo "baseline cached as base-$BK" >> "$G/report.txt"
+  fi
+  mv "$G/base.all" "$G/base.tsv"
+else
+  cp "$G/base.cached" "$G/base.tsv"; echo "baseline: cache hit base-$BK (code tree of ${bs:0:8})" >> "$G/report.txt"
+fi
+if [ "${S5_GATE_BASELINE_ONLY:-0}" = 1 ]; then git checkout -q --detach "$bs"; cat "$G/report.txt"; exit 0; fi
 git checkout -q --detach "$bs" || fail "checkout base"
-"$D/s5-build.sh" >/dev/null || fail "base build"
-suite base
 # candidate = PR merged onto current base
 git -c user.name=gate -c user.email=gate@local merge -q --no-edit --no-ff refs/gate/pr >/dev/null 2>&1 || { git merge --abort; fail "merge conflict with $BASE"; }
 "$D/s5-build.sh" >/dev/null || { git checkout -q --detach "$bs"; fail "build (s5verify) failed"; }
@@ -92,10 +151,13 @@ echo "s5clean tests: exit=$trc ($tl)" >> "$G/report.txt"
 suite pr
 git checkout -q --detach "$bs"
 reg=0
-while read -r f n0; do n1=$(awk -v f="$f" '$1==f{print $2}' "$G/pr.tsv")
+for f in $FIX; do n0=$(awk -v f="$f" '$1==f{print $2}' "$G/base.tsv"); n1=$(awk -v f="$f" '$1==f{print $2}' "$G/pr.tsv")
+  [ -n "$n0" ] || n0=0
+  if [ -z "$n1" ]; then printf '%-22s base %-12s pr %-12s %s\n' "$f" "$(show $n0)" "-" "not run (fail-fast)" >> "$G/report.txt"; continue; fi
   if [ "$n1" -lt "$n0" ]; then s=REGRESSION; reg=1; elif [ "$n1" -gt "$n0" ]; then s=better; else s=same; fi
   printf '%-22s base %-12s pr %-12s %s\n' "$f" "$(show $n0)" "$(show $n1)" "$s" >> "$G/report.txt"
-done < "$G/base.tsv"
+done
+[ -e "$G/pr.STOP" ] && reg=1
 # Opus decision 2026-10-18: no regression exception (the 2026-10-17 "Port:" rule is revoked) -> any earlier first divergence fails.
 [ $reg = 0 ] || fail "first divergence earlier on at least one fixture (no-regression rule, no Port: exception)"
 moved=$(grep -cE ' better$' "$G/report.txt")

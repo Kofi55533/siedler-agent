@@ -1,0 +1,69 @@
+name: gate-baseline
+# Warms the s5-gate baseline cache (release gate-baseline, base-<key>.tsv) for the current clean/integration code tree,
+# so worker gates only measure the PR side. Dispatched by refill.yml when no warm-up runs; exits after a ~20 s
+# pre-check when the key is cached. mode=check-old|check-new runs a DRY-RUN gate on input pr (no merge, no comment)
+# with the pre-2026-10-20 script (commit 06c8174) or the current one, for verdict-equivalence checks.
+on:
+  workflow_dispatch:
+    inputs:
+      mode: { description: 'warm | check-old | check-new', default: 'warm' }
+      pr: { description: 'PR number (check modes)', default: '' }
+permissions:
+  contents: read
+jobs:
+  precheck:
+    if: inputs.mode == 'warm'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      need: ${{ steps.k.outputs.need }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: k
+        env: { T: '${{ secrets.PRIVATE_REPO_TOKEN }}', GH_TOKEN: '${{ secrets.PRIVATE_REPO_TOKEN }}' }
+        run: |
+          sudo mkdir -p /opt/s5 && sudo chown "$(id -u):$(id -g)" /opt/s5
+          git clone -q --depth 1 -b clean/integration "https://x-access-token:${T}@github.com/Kofi55533/siedler-sim-rs.git" /opt/s5/siedler-sim-rs
+          r=$(S5_GATE_BASELINE_ONLY=1 S5_GATE_KEY_ONLY=1 S5_GATE_COMMENT=0 S5_LIVE_TIMEOUT=900 scripts/s5-gate.sh baseline | tail -n1)
+          echo "baseline key: $r"
+          case "$r" in *" hit") echo need=false >> "$GITHUB_OUTPUT" ;; *) echo need=true >> "$GITHUB_OUTPUT" ;; esac
+  warm:
+    needs: precheck
+    if: needs.precheck.outputs.need == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    concurrency: { group: gate-baseline-warm, cancel-in-progress: false }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - name: Setup (quiet)
+        env: { T: '${{ secrets.PRIVATE_REPO_TOKEN }}' }
+        run: scripts/s5-setup.sh codex/clean-commands 1
+      - name: Baseline live matrix (parallel) -> cache
+        env: { GH_TOKEN: '${{ secrets.PRIVATE_REPO_TOKEN }}' }
+        run: |
+          t0=$(date +%s)
+          S5_GATE_BASELINE_ONLY=1 S5_GATE_COMMENT=0 S5_LIVE_TIMEOUT=900 scripts/s5-gate.sh baseline
+          echo "warm secs=$(( $(date +%s)-t0 ))"
+  check:
+    if: inputs.mode == 'check-old' || inputs.mode == 'check-new'
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - name: Setup (quiet)
+        env: { T: '${{ secrets.PRIVATE_REPO_TOKEN }}' }
+        run: |
+          scripts/s5-setup.sh codex/clean-commands 1
+          scripts/s5-build.sh || true
+      - name: Dry-run gate (${{ inputs.mode }})
+        env: { GH_TOKEN: '${{ secrets.PRIVATE_REPO_TOKEN }}' }
+        run: |
+          G=scripts/s5-gate.sh
+          if [ "${{ inputs.mode }}" = check-old ]; then git fetch -q --depth 50 origin main; git show 06c8174:scripts/s5-gate.sh > scripts/s5-gate-old.sh; chmod +x scripts/s5-gate-old.sh; G=scripts/s5-gate-old.sh; fi
+          t0=$(date +%s)
+          S5_GATE_COMMENT=0 S5_LIVE_TIMEOUT=900 timeout 170m $G "${{ inputs.pr }}" --dry-run || true
+          echo "gate secs=$(( $(date +%s)-t0 ))"
