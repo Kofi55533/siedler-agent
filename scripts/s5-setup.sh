@@ -11,24 +11,12 @@ sudo mkdir -p $S5 && sudo chown "$(id -u):$(id -g)" $S5
 APT=$!
 rustup toolchain install 1.99.0 --profile minimal >/dev/null 2>&1 &
 RUST=$!
-# Keep credentials out of .git/config: model processes can inspect their checkout.
-export GH_TOKEN=$T
-ASKPASS=$(mktemp)
-chmod 700 "$ASKPASS"
-cat > "$ASKPASS" <<'ASK'
-#!/bin/sh
-case "$1" in *Username*) printf '%s\n' x-access-token ;; *) printf '%s\n' "$GH_TOKEN" ;; esac
-ASK
-export GIT_ASKPASS=$ASKPASS GIT_TERMINAL_PROMPT=0
-trap 'rm -f "$ASKPASS"' EXIT
-git clone -q --depth 1 --no-single-branch "https://github.com/Kofi55533/siedler-sim-rs.git" $S5_REPO
+git clone -q --depth 1 --no-single-branch "https://x-access-token:${T}@github.com/Kofi55533/siedler-sim-rs.git" $S5_REPO
 wait $APT
 mkdir -p $S5/dl $S5/data/game $S5/data/art $S5/data/fixtures
 export GH_TOKEN=$T
 td=$(date +%s)
-# opus-extra is not used by this setup; avoid downloading 2.55 GB per worker.
-gh release download data-v2 -R Kofi55533/siedler-data -D $S5/dl \
-  -p 'game.tzst.*' -p art.tzst -p fixtures.tzst -p gen.tzst -p newfix.tzst >/dev/null
+gh release download data-v2 -R Kofi55533/siedler-data -D $S5/dl -p '*.tzst*' >/dev/null
 cat $S5/dl/game.tzst.* | zstd -dcq | tar -xf - -C $S5/data/game & P1=$!
 zstd -dcq $S5/dl/art.tzst | tar -xf - -C $S5/data/art & P2=$!
 zstd -dcq $S5/dl/fixtures.tzst | tar -xf - -C $S5/data/fixtures & P3=$!

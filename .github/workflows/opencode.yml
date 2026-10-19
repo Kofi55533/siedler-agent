@@ -1,30 +1,160 @@
 name: opencode
-# Compatibility inbox for requests emitted by planners still running at cutover.
 on:
   issue_comment:
     types: [created]
 permissions:
   contents: read
+  issues: write
 concurrency:
-  group: legacy-inbox-${{ github.event.issue.number }}
+  group: opencode-${{ github.event.issue.number }}
   cancel-in-progress: false
 jobs:
-  admit:
+  run:
     if: >-
       contains(github.event.comment.body, '/opencode') &&
-      (github.event.comment.user.login == 'Kofi55533' || github.event.comment.user.login == 'Dominickofi00') &&
+      github.event.comment.user.login == 'Kofi55533' &&
+      github.event.issue.user.login == 'Kofi55533' &&
       github.event.issue.pull_request == null
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          persist-credentials: false
-      - name: Hand request to private shared planner
-        run: python3 scripts/fleet.py admit-legacy
+      - name: Runner specs
+        run: |
+          echo "T0=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
+          echo "W=$RUNNER_TEMP/work" >> "$GITHUB_ENV"
+          echo "nproc=$(nproc)"; free -h | head -2
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - name: Setup game data, toolchain, build cache (quiet)
+        env:
+          T: ${{ secrets.PRIVATE_REPO_TOKEN }}
+        run: |
+          scripts/s5-setup.sh codex/clean-commands 1
+          echo "S5_SCRIPTS=$GITHUB_WORKSPACE/scripts" >> "$GITHUB_ENV"
+      - name: Clone siedler-forschung (quiet, sparse)
+        env:
+          T: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          GIT_LFS_SKIP_SMUDGE: "1"
+        run: |
+          mkdir -p "$W" && cd "$W"
+          git config --global user.name "siedler-agent"
+          git config --global user.email "Kofi55533@users.noreply.github.com"
+          ln -s /opt/s5/siedler-sim-rs siedler-sim-rs
+          git clone -q --depth 1 --filter=blob:limit=5m --no-checkout "https://x-access-token:${T}@github.com/Kofi55533/siedler-forschung.git" siedler-forschung
+          git -C siedler-forschung sparse-checkout set --no-cone '/*' '!/cloud-re/'
+          git -C siedler-forschung checkout -q main
+          df -h / | awk 'NR==2{print "disk_free="$4}'
+      - name: Baseline build (quiet)
+        run: $S5_SCRIPTS/s5-build.sh || true
+      - name: Install opencode
+        run: npm i -g opencode-ai >/dev/null 2>&1 && opencode --version
+      - name: Run opencode (output not shown, not uploaded)
+        env:
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          BODY: ${{ github.event.comment.body }}
+          TITLE: ${{ github.event.issue.title }}
+          IBODY: ${{ github.event.issue.body }}
+        run: |
+          mkdir -p ~/.local/share/opencode
+          umask 077
+          printf '{"opencode":{"type":"api","key":"%s"}}' "$OPENCODE_API_KEY" > ~/.local/share/opencode/auth.json
+          unset OPENCODE_API_KEY
+          cat > "$W/opencode.json" <<'J'
+          {"$schema":"https://opencode.ai/config.json","permission":{"edit":"allow","bash":"allow","webfetch":"allow","external_directory":"allow"}}
+          J
+          TASK="${BODY#*/opencode}"
+          cat > "$RUNNER_TEMP/prompt.txt" <<P
+          You work in $W containing private repos siedler-sim-rs/ (symlink) and siedler-forschung/ (shallow; all branch tips of siedler-sim-rs fetched; forschung cloud-re excluded).
+          RULES: Push results ONLY as new branches (prefix agent/) to those private repos and open DRAFT PRs with gh (never merge, never push to main).
+          Never commit or copy private content anywhere else. siedler-sim-rs real path is /opt/s5/siedler-sim-rs, checked out at codex/clean-commands with a warm build (s5verify does not exist on opus/clean-rewrite; switching branches triggers a ~6 min rebuild).
+          TOP PRIORITY (Opus decision 2026-10-18): progress is measured by FRONTIERS = first-divergence turns of the live scenarios and
+          generated fixtures (read current numbers from docs/AGENT_BOARD.md / live; e.g. gen-campaign 16, gen-recruit-attack 31, combat set
+          166-173, gen-a-dunkelforst 331, gen-a-wintersturm 1352, bc-full 1501). Every run works on ONE frontier or on functions the reference
+          executes within +-50 turns of a current frontier. Frontier diagnosis: tools/deepdiff.sh (siedler-sim-rs) at the first divergent turn,
+          find the first differing entity+field, trace it to the native handler address and the expected values; then land a minimal WIRED fix
+          (hooked into World tick/dispatch) that moves the boundary, or, if a fresh Opus/Codex LANE-CLAIM covers the file, post a precise wiring
+          request on docs/AGENT_BOARD.md (addresses, expected values, file+function to touch, fixture+turn). Per-window divergence census:
+          tools/census.sh; executed native functions per fixture: tools/coverage_map.sh. No doc-only analysis PRs, no unwired helpers,
+          no PRs that only document an "inert helper", no ports of functions no frontier reaches.
+          WORK SPLIT + WIP (Opus decision 2026-10-18 20:40): runs are split 50% frontier diagnosis, 20% ports, 10% scenarios,
+          20% hygiene (get open siedler-sim-rs PRs below 60: close stale/superseded agent/* drafts and duplicates with a one-line reason
+          comment, never opus/codex/haiku heads or needs-codex PRs, branches kept; rebase green ones so the gate merges them).
+          At most 1 open PR per run: if an open agent/* PR already covers your lane/fixture, push to it (or stop) instead of opening another.
+          Scenario PRs merge only if they reach a new code path or a new unmodelled marker: add a PR body line "New-code-path: <address/subsystem>"
+          or "New-unmodelled: <marker>"; a pure stay-IDENTICAL time extension of a covered path no longer counts and is not merged.
+          Frontier PRs (title "Diverge ..." or a "Frontier-fixture:" line) must state "live <fixture>: before turn X -> after turn Y" in the
+          PR body, otherwise the gate does not merge them.
+          LIVE VERIFICATION (mandatory for code changes): game data, recomp artifacts and fixtures are installed. Scripts in $S5_SCRIPTS:
+            source $S5_SCRIPTS/s5-env.sh ; $S5_SCRIPTS/s5-build.sh (incremental s5verify build, ~minutes) ;
+            $S5_SCRIPTS/s5-live.sh <fixture> (full output in /opt/s5/live/<f>.log); fixtures: bc-full wintersturm economy wsecon build production combat combat-waves combat-big combat-long ai-long late-ai late-economy camp-crawford map-winterisland wintersturm-mapstart economy-mapstart
+            (all Codex box fixtures incl. ai-long, late-ai, late-economy, camp-crawford, map-winterisland, combat-waves/big/long).
+          SELF-MERGE GATE / MERGE RULE (Opus decision 2026-10-18): after you open your draft PR (base clean/integration), the workflow runs
+          $S5_SCRIPTS/s5-gate.sh on it. It squash-merges ONLY if s5verify builds, crates/s5clean tests pass (bit-exact unit tests vs recomp/,
+          cite the original address), and NO fixture of the full live matrix diverges earlier than on clean/integration. There is NO exception
+          for "Port:" PRs any more: a port that makes any scenario diverge earlier is not merged; find the missing partner function first.
+          Hard-blocked (never auto-merged, stays draft for Opus/Codex): recomp/, oracle/, crates/s5verify, crates/s5diff, .github/.
+          Former claimed areas (lifecycle/, net+world/commands.rs, entity/animal.rs, economy/, workers/, scenario.rs, script/, docs/agent-queue/,
+          69657 extraction markers; see $S5_SCRIPTS/muse-claims.txt "soft") ARE open to you, but the gate merges such a PR only if it moves at
+          least one frontier later and regresses nothing. If your target frontier is a generated fixture outside the standard matrix, add a line
+          "Frontier-fixture: <name>" to the PR body (measured by the gate when installed on the runner) and report before/after in the PR body.
+          LANE CLAIMS replace directory claims: a board line "LANE-CLAIM <Owner> <YYYY-MM-DD HH:MM> <file>[::<function>] ... -- <note>" (Berlin time)
+          reserves that file/function for 6 hours. A fresh Opus/Codex lane claim on a file you touch keeps your PR draft; do not edit such a
+          file, post a wiring request instead. You may post your own LANE-CLAIM DeepSeek line for the files you work on (advisory, 6 h).
+          Base your branch on origin/clean/integration, keep PRs small, never merge yourself and never target main.
+          COORDINATION (mandatory, every run; Opus > Codex > Muse): first read siedler-sim-rs docs/AGENT_BOARD.md and docs/agent-queue/ (incl. started/)
+          on origin/clean/integration. Before working, CLAIM your task: for a queue task use the file already moved to started/ (or move it there);
+          append a one-line claim to docs/AGENT_BOARD.md ('<date> Muse claim: <task/fixture/subsystem> on agent/<branch>, issue #<n>'), commit and push
+          to clean/integration (fetch+rebase and retry on conflict). If an equal or overlapping claim by Opus, Codex or another Muse instance exists
+          and is not marked done, do NOT duplicate: pick nothing and say so in summary. Lanes/claims by Opus or Codex on the board always win.
+          At the end append real findings/handoffs (not routine status) to the board the same way. The gate announces self-merges on the board (exactly one entry per PR); never write your own self-merge entries.
+          Run s5-live for the relevant fixture(s) BEFORE your change (baseline) and AFTER. Never paste live log contents or game data into PRs/comments.
+          When finished, you MUST write (with a shell command) a SHORT plain-text summary (max 5 lines, no code, no file contents, no secrets)
+          to $W/summary.txt including 'live <fixture>: before turn X -> after turn Y' (frontier fixes must move it; frontier-reached ports must not regress any fixture). If no changes are requested, make none.
+          Issue: $TITLE
+          $IBODY
+          Task: $TASK
+          P
+          cd "$W"
+          set +e
+          # Model per run: a 'model: opencode/<id>' line in the comment or issue body (comment wins), else default.
+          MODEL=opencode/deepseek-v4.1-flash-free  # A/B 2026-10-17 winner over glm-5.3-flash-free (#504-#507)
+          M=$(printf '%s\n%s\n' "$BODY" "$IBODY" | grep -oiE '^[[:space:]]*model:[[:space:]]*opencode/[A-Za-z0-9._-]+' | head -n1 | sed -E 's/.*model:[[:space:]]*//I')
+          [ -n "$M" ] && MODEL="$M"
+          echo "model=$MODEL"
+          timeout 200m opencode run -m "$MODEL" "$(cat "$RUNNER_TEMP/prompt.txt")" > "$RUNNER_TEMP/opencode.log" 2>&1
+          echo "exit=$? log_lines=$(wc -l < "$RUNNER_TEMP/opencode.log")"
+          rm -f ~/.local/share/opencode/auth.json
+      - name: Self-merge gate (PRs opened or updated by this run)
+        if: always()
         env:
           GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
-          LEGACY_ISSUE: ${{ github.event.issue.number }}
-          LEGACY_TITLE: ${{ github.event.issue.title }}
-          LEGACY_BODY: ${{ github.event.issue.body }}
-          LEGACY_COMMENT: ${{ github.event.comment.body }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+        run: |
+          [ -x /opt/s5/siedler-sim-rs/recomp/target/release/s5verify ] || exit 0
+          R=Kofi55533/siedler-sim-rs
+          new=$(gh pr list -R $R --state open --base clean/integration --author @me --json number,headRefName,createdAt \
+              -q "[.[] | select(.createdAt >= \"$T0\" and (.headRefName|startswith(\"agent/\")))] | .[].number")
+          # Rework/rebase tasks name an existing PR in the issue title ("Rebase PR #351 ..."); gate it too if this run pushed to it.
+          upd=
+          for m in $(printf '%s' "$ISSUE_TITLE" | grep -oE 'PR #[0-9]+' | grep -oE '[0-9]+'); do
+            d=$(gh pr view "$m" -R $R --json state,baseRefName,headRefName,commits \
+                -q 'select(.state=="OPEN" and .baseRefName=="clean/integration" and (.headRefName|startswith("agent/"))) | .commits[-1].committedDate' 2>/dev/null) || continue
+            if [ -n "$d" ] && [[ ! "$d" < "$T0" ]]; then upd="$upd $m"; fi
+          done
+          for n in $(printf '%s\n' $new $upd | sort -un); do
+            S5_LIVE_TIMEOUT=900 timeout 75m $S5_SCRIPTS/s5-gate.sh "$n" >> "$W/gate.txt" 2>&1 || true
+            sed -n 's/^### Muse self-merge gate: /gate #'"$n"': /p' "$W/gate.txt" | tail -n1 >> "$W/summary.txt"
+          done
+      - name: Post summary
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          N: ${{ github.event.issue.number }}
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ -s "$W/summary.txt" ]; then S="$(head -c 800 "$W/summary.txt")"
+          elif [ -s "$RUNNER_TEMP/opencode.log" ]; then S="$(sed 's/\x1b\[[0-9;]*m//g' "$RUNNER_TEMP/opencode.log" | grep -v '^\s*$' | tail -n 3 | head -c 500)"
+          else S='No summary produced.'; fi
+          gh issue comment "$N" -R "$GITHUB_REPOSITORY" --body "$(printf '%s\n\n[run](%s)' "$S" "$RUN")"

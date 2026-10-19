@@ -1,25 +1,94 @@
 name: refill
-# Compatibility entry for old rearm jobs. fleet-control owns replenishment.
+# Zero-LLM DeepSeek refill (ported from the box script deepseek-refill/refill.sh).
+# Keeps ~TARGET opencode runs active: if gap >= 2 and no planner is running / was created < 15 min ago,
+# opens a `[planner] refill ... N=<gap-1>` issue and comments `/opencode PLANNER RUN N=...`.
+# GH_TOKEN = PRIVATE_REPO_TOKEN (Kofi55533 PAT), so issue + comment are authored by Kofi55533 and trigger
+# opencode.yml (GITHUB_TOKEN-authored events would not). Only opencode.yml runs are counted, so this
+# workflow's own runs never count as active.
+# Note: GitHub may delay or drop scheduled runs under load; schedules are disabled after 60 days of repo inactivity.
 on:
+  schedule:
+    - cron: '*/15 * * * *'
   workflow_dispatch:
     inputs:
       target:
-        description: 'Legacy input; shared configuration is authoritative'
+        description: 'Target number of active opencode runs'
+        required: false
         default: '20'
 permissions:
   contents: read
 concurrency:
-  group: fleet-controller
+  group: refill
   cancel-in-progress: false
 jobs:
   refill:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          persist-credentials: false
-      - name: Refresh shared fleet
-        run: python3 scripts/fleet.py control
+      - name: Refill
         env:
           GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          R: ${{ github.repository }}
+          TARGET: ${{ github.event.inputs.target || '20' }}
+          GH_TIMEOUT: '60'
+          GH_PROMPT_DISABLED: '1'
+          GH_NO_UPDATE_NOTIFIER: '1'
+          TZ: Europe/Berlin
+        run: |
+          set -u
+          log(){ echo "$(date '+%F %T %Z') $*"; echo "- $*" >> "$GITHUB_STEP_SUMMARY"; }
+          gh_(){ timeout -k 10 "$GH_TIMEOUT" gh "$@"; }
+          isnum(){ [[ "${1:-}" =~ ^[0-9]+$ ]]; }
+          isnum "$TARGET" || { log "bad TARGET='$TARGET'"; exit 1; }
+          # 1) fallback: planner-created issues whose /opencode comment is missing -> post it from the body marker
+          L=$(gh_ issue list -R "$R" --label planner-task --state open --limit 50 --json number,body \
+                -q '.[]|select(.body|contains("---PLANNER-COMMENT---"))|.number') || { log "fallback: issue list failed (rc=$?), continuing"; L=""; }
+          for n in $L; do
+            c=$(gh_ issue view "$n" -R "$R" --json comments -q '[.comments[]|select(.body|startswith("/opencode"))]|length') || continue
+            if [ "$c" = 0 ]; then
+              gh_ issue view "$n" -R "$R" --json body -q .body | sed -n '/---PLANNER-COMMENT---/,$p' | tail -n +2 > c.txt
+              if grep -q '^/opencode' c.txt; then
+                gh_ issue comment "$n" -R "$R" --body-file c.txt >/dev/null && log "fallback: posted /opencode on #$n" || log "fallback: comment on #$n failed"
+              fi
+            fi
+          done
+          # 2) count active opencode runs (only opencode.yml; this workflow is not included)
+          J=$(gh_ run list -R "$R" -w opencode.yml --limit 100 --json status,displayTitle) || { log "gh run list failed (rc=$?) -> skip"; exit 1; }
+          act=$(jq '[.[]|select(.status!="completed")]|length' <<<"$J")
+          plan=$(jq '[.[]|select(.status!="completed" and (.displayTitle|startswith("[planner]")))]|length' <<<"$J")
+          isnum "$act" && isnum "$plan" || { log "bad run list json -> skip"; exit 1; }
+          log "opencode runs: active=$act (in_progress=$(jq '[.[]|select(.status=="in_progress")]|length' <<<"$J"), queued/waiting/pending=$(jq '[.[]|select(.status!="completed" and .status!="in_progress")]|length' <<<"$J")), planner active=$plan, target=$TARGET"
+          if [ "$plan" -gt 0 ]; then log "active=$act planner running -> skip"; exit 0; fi
+          # fail closed: if this check errors, skip rather than risk a duplicate planner
+          since=$(date -u -d '-15 min' +%FT%TZ)
+          recent=$(gh_ issue list -R "$R" --state all --limit 10 --json title,createdAt \
+                     -q "[.[]|select((.title|startswith(\"[planner]\")) and .createdAt > \"$since\")]|length")
+          isnum "$recent" || { log "active=$act recent-planner check failed -> skip"; exit 1; }
+          if [ "$recent" -gt 0 ]; then log "active=$act planner issue <15min old -> skip"; exit 0; fi
+          gap=$((TARGET-act))
+          if [ "$act" -ge "$TARGET" ]; then log "active=$act >= $TARGET -> nothing"; exit 0; fi
+          # planner itself occupies one slot; gap>=2 starts a planner (N=gap-1), gap=1 is skipped
+          N=$((gap-1))
+          if [ "$N" -lt 1 ]; then log "active=$act gap=$gap too small"; exit 0; fi
+          url=$(gh_ issue create -R "$R" --title "[planner] refill $(date '+%F %H:%M') N=$N" \
+                  --body "Planner run (GitHub Actions refill workflow, run $GITHUB_SERVER_URL/$R/actions/runs/$GITHUB_RUN_ID). Details in the /opencode comment.")
+          n=$(grep -oE '[0-9]+$' <<<"$url")
+          [ -z "$n" ] && { log "issue create failed"; exit 1; }
+          gh_ issue comment "$n" -R "$R" --body "/opencode PLANNER RUN N=$N. Read /home/runner/work/siedler-agent/siedler-agent/prompts/planner.md and follow it exactly (it overrides the coding-run instructions: no code, no PR, only create N task issues with label planner-task and start each with a /opencode comment)." >/dev/null \
+            && log "active=$act -> planner #$n started N=$N" || { log "comment on #$n failed"; exit 1; }
+  rearm:
+    # GitHub's cron schedule for this workflow did not fire at all (19:30-20:33 Berlin, 17.10.2026),
+    # so each run re-dispatches itself ~13 min later. Extra runs collapse via the `refill` concurrency group
+    # (only one pending run is kept), so parallel chains cannot multiply.
+    needs: refill
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Re-dispatch refill in ~13 min
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          R: ${{ github.repository }}
+        run: |
+          sleep 780
+          gh workflow run refill.yml -R "$R" --ref main
