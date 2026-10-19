@@ -243,6 +243,8 @@ def board_value(entries, name, floor=0):
         re.compile(rf"(?<![\w-]){ne}(?![\w-])\s*:?\s*(?:(IDENTICAL)(?:\s+(\d+))?|(?:DIVERGENT\s*)?(?:(?:at\s+)?turn\s*)?(\d+)(?!\s*(?:x|×|%|GB|MB|KB|min|turns|Züge)))"),
         re.compile(rf"(?<![\w-]){ne}(?![\w-])[^\n.;]{{0,40}}?first divergence(?:\s+(?:at\s+)?turn)?\s*(?:(IDENTICAL)(?:\s+(\d+))?|(\d+))"),
     ]
+    if name == "bc-full":  # Codex writes "BC advances 5564 -> 7010" / "BC: 763 -> 1501" (no fixture name)
+        pats.insert(0, re.compile(r"\bBC(?:\s+(?:advances|first divergence))?\s*:?\s*\d+\s*(?:->|→)\s*(?:(IDENTICAL)(?:\s+(\d+))?|(\d+))"))
     for e in reversed(entries):
         t = clean_md(e["text"])
         for pi, p in enumerate(pats):
