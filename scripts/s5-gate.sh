@@ -55,6 +55,10 @@ cd $S5_REPO
 git fetch -q origin "+refs/heads/$BASE:refs/remotes/origin/$BASE" "+refs/pull/$PR/head:refs/gate/pr" || fail "fetch"
 bs=$(git rev-parse origin/$BASE); [ "$(git rev-parse refs/gate/pr)" = "$hs" ] || fail "head moved"
 echo "pr=#$PR head=$h@${hs:0:8} base=$BASE@${bs:0:8}" >> "$G/report.txt"
+# cheap conflict pre-check (same criterion as the merge below, but before the ~40 min baseline suite; 2026-10-18/19:
+# 108 of 355 gates failed on a conflict only after the full baseline). Needs git >= 2.38 (merge-tree --write-tree).
+if git merge-tree --write-tree "$bs" refs/gate/pr >/dev/null 2>&1; then :
+elif [ $? = 1 ]; then fail "merge conflict with $BASE"; fi
 # claims
 # authoritative file list/diff from GitHub (independent of local history depth)
 python -c "import json,sys;[print(f['path']) for f in json.loads(sys.argv[1])['files']]" "$j" > "$G/files.txt"
