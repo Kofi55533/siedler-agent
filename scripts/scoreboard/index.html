@@ -145,7 +145,7 @@ fetch("data.json?t="+Date.now()).then(r=>r.json()).then(d=>{
     (c.last_commit?`<div style="margin-top:8px"><b>Letzter Commit:</b> ${esc(c.last_commit.time)} <span class="mute small">(${esc(c.last_commit.branch)})</span><br><code>${esc(c.last_commit.sha)}</code> ${esc(c.last_commit.subject)}</div>`:"")+
     (c.last_board?`<div style="margin-top:8px"><b>Letzter Board-Eintrag:</b> ${esc(c.last_board.time)}<br><span class="small">${esc(c.last_board.summary)}</span></div>`:"");
   const F=d.fleet;
-  if(F&&F.pools&&F.pools.length){
+  if(false&&F&&F.pools&&F.pools.length){ // fleet card hidden: shared fleet removed 2026-10-19
     $("fleet").style.display="";
     $("fleet").innerHTML=`<h2>🐋 DeepSeek-Flotte (fleet-worker) – getrennt nach Pool</h2><div class="mute small">Gemeinsame Aufgabenliste <code>fleet/state.json</code> (agents/control) · ${fmt(F.queued_tasks)} Aufgaben wartend · „heute“ = seit ${esc(F.today_since)} (Berlin)</div><div class="grid" style="margin-top:8px">`+
       F.pools.map(p=>{const t=p.today||{},ts=p.tasks_today||{};
