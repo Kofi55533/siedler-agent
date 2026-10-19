@@ -115,11 +115,14 @@ suite(){ # $1=label [fixtures] -> $G/$1.tsv (fixture turn [secs]) in FIX order; 
   rm -rf "$G/$l.d" "$G/$l.STOP"; mkdir -p "$G/$l.d"
   ( while sleep 10; do free -m | awk 'NR==2{print $3}'; done ) > "$G/mem-$l.txt" & local mp=$!
   local t0=$(date +%s)
-  for f in $fx; do echo "$(awk -v f="$f" '$1==f{print $3+0}' "$G/base.cached" 2>/dev/null || echo 0) $f"; done | sort -rn | awk '{print $2}' |
+  for f in $fx; do echo "$(awk -v f="$f" '$1==f{print $3+0}' "$G/base.cached" 2>/dev/null || echo 0) $f"; done | sort -rn | awk '{print $NF}' |
     xargs -P "$PAR" -I{} bash -c 'live_one "$1" "$2"' _ {} "$l"
   kill $mp 2>/dev/null
   : > "$G/$l.tsv"; for f in $fx; do [ -s "$G/$l.d/$f" ] && cat "$G/$l.d/$f" >> "$G/$l.tsv"; done
-  echo "live $l: $(wc -l < "$G/$l.tsv")/$(wc -w <<<"$fx") fixtures, parallel=$PAR, wall $(( $(date +%s)-t0 ))s, peak used RAM $(sort -n "$G/mem-$l.txt" | tail -n1)M" >> "$G/report.txt"; }
+  local nr=$(wc -l < "$G/$l.tsv")
+  echo "live $l: $nr/$(wc -w <<<"$fx") fixtures, parallel=$PAR, wall $(( $(date +%s)-t0 ))s, peak used RAM $(sort -n "$G/mem-$l.txt" | tail -n1)M" >> "$G/report.txt"
+  # every fixture must have a result unless the PR side stopped on fail-fast (never treat a missing run as pass)
+  [ "$nr" = "$(wc -w <<<"$fx")" ] || [ -e "$G/$l.STOP" ] || { git checkout -q --detach "$bs"; fail "live $l: only $nr of $(wc -w <<<"$fx") fixtures produced a result"; }; }
 show(){ [ "$1" -ge 1000000 ] && echo "IDENT($(( $1-1000000 )))" || echo "$1"; }
 # baseline = current clean/integration: cached per code tree, else measured (and cached)
 : > "$G/base.cached"; BK=""
