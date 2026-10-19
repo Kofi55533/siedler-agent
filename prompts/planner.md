@@ -38,7 +38,7 @@ Use `gh` (GH_TOKEN is set) and the local checkout /opt/s5/siedler-sim-rs (`git f
   (native addresses `0x[0-9A-F]{6}` in title/body = functions already covered).
 - Coverage view: NEVER run `tools/coverage_map.sh` (or any s5recomp block trace) in a planner run. The hourly workflow
   `coverage.yml` computes it on origin/clean/integration and publishes it; just download it (local only, never commit it):
-  `gh release download coverage-cache -R Kofi55533/siedler-agent -D $W --clobber` (gives `$W/COVERAGE.md` and `$W/coverage-meta.txt`
+  `gh release download coverage-cache -R Kofi55533/siedler-agent -D $W --clobber -p COVERAGE.md -p coverage-meta.txt` (gives `$W/COVERAGE.md` and `$W/coverage-meta.txt`
   with `clean_integration_sha=` and `generated_utc=`). If the download fails, a file is missing/empty, or `generated_utc` is older
   than 3 h, use the committed `docs/clean/COVERAGE.md` on origin/clean/integration instead. In BOTH cases re-check "ported" yourself:
   a function counts as ported if its address is cited anywhere in `crates/s5clean/src` on origin/clean/integration

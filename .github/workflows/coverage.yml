@@ -1,28 +1,66 @@
 name: coverage
-# Hourly native coverage map of origin/clean/integration (tools/coverage_map.sh, SKIP_BC_FULL=1), published as
-# assets COVERAGE.md + coverage-meta.txt on the release `coverage-cache` of this repo. Planner runs only download it
-# (prompts/planner.md section 1) instead of block-tracing the reference themselves. Separate workflow file on purpose:
-# refill.yml only counts opencode.yml runs, so this job never occupies a DeepSeek slot.
+# Native coverage map of siedler-sim-rs origin/clean/integration for the planner (prompts/planner.md section 1),
+# published as COVERAGE.md + coverage-meta.txt on release `coverage-cache` of this repo.
+# The reference traces depend only on recomp/ + the data-v2 game data/fixtures + sampling, not on s5clean, so they are
+# cached per fixture as release assets trace-<fixture>--<key>.json.gz (scripts/coverage_keys.sh); hourly runs only
+# rebuild the map from the cached aggregates + the current crates/s5clean/src cited check, and trace a fixture only
+# when its key changed. Full fixture horizons (COVER_MAX_TURNS=1000000), sampled every 25 turns + command turns.
+# bc-full (~hours) runs as its own job so it never blocks the others.
+# Separate workflow file on purpose: refill.yml only counts opencode.yml runs.
 on:
   schedule:
     - cron: '7 * * * *'
   workflow_dispatch:
 permissions:
   contents: read
-concurrency:
-  group: coverage-cache
-  cancel-in-progress: false
+env:
+  COVER_STEP: '25'
+  COVER_MAX_TURNS: '1000000'
 jobs:
-  coverage:
+  plan:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 20
+    concurrency: { group: coverage-plan, cancel-in-progress: false }
+    outputs:
+      main: ${{ steps.p.outputs.main }}
+      bc: ${{ steps.p.outputs.bc }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - name: Keys, cache check, rebuild COVERAGE.md from cache
+        id: p
+        env:
+          T: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+        run: |
+          t0=$(date +%s)
+          SIM=$RUNNER_TEMP/sim
+          git clone -q --depth 1 -b clean/integration "https://x-access-token:${T}@github.com/Kofi55533/siedler-sim-rs.git" $SIM
+          echo "clean/integration=$(git -C $SIM rev-parse --short HEAD)"
+          scripts/coverage_keys.sh $SIM > keys.txt
+          gh release view coverage-cache -R Kofi55533/siedler-agent --json assets -q '.assets[].name' > assets.txt 2>/dev/null || : > assets.txt
+          main=""; bc=false
+          while read -r f k; do
+            grep -qx "trace-$f--$k.json.gz" assets.txt && continue
+            if [ "$f" = bc-full ]; then bc=true; else main="$main $f"; fi
+          done < keys.txt
+          echo "to trace: main=[${main# }] bc-full=$bc"
+          echo "main=${main# }" >> "$GITHUB_OUTPUT"; echo "bc=$bc" >> "$GITHUB_OUTPUT"
+          scripts/coverage_publish.sh $SIM 1
+          echo "plan secs=$(( $(date +%s)-t0 ))"
+  trace:
+    needs: plan
+    if: needs.plan.outputs.main != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 200
+    concurrency: { group: coverage-main, cancel-in-progress: false }
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: '3.11' }
       - name: Setup game data, toolchain, build cache (quiet)
-        env:
-          T: ${{ secrets.PRIVATE_REPO_TOKEN }}
+        env: { T: '${{ secrets.PRIVATE_REPO_TOKEN }}' }
         run: scripts/s5-setup.sh codex/clean-commands 1
       - name: Checkout clean/integration + build s5recomp (quiet)
         run: |
@@ -30,65 +68,52 @@ jobs:
           cd $S5_REPO
           git fetch -q --depth 1 origin clean/integration
           git checkout -q --detach FETCH_HEAD
-          echo "SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
           echo "clean/integration=$(git rev-parse --short HEAD)"
           cd recomp && t0=$(date +%s)
           cargo build --release -j "$(nproc)" -p s5recomp > $S5/build-recomp.log 2>&1; rc=$?
           echo "s5recomp build exit=$rc secs=$(( $(date +%s)-t0 ))"
           [ $rc = 0 ] || { echo "error lines: $(grep -c '^error' $S5/build-recomp.log) (log suppressed, private)"; exit 1; }
-      - name: Coverage map (quiet, parallel per fixture)
+      - name: Trace changed fixtures (parallel) + upload
+        env: { GH_TOKEN: '${{ secrets.PRIVATE_REPO_TOKEN }}' }
         run: |
           source scripts/s5-env.sh
           cd $S5_REPO
-          echo "START_UTC=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
-          OUTF=$RUNNER_TEMP/COVERAGE.md; P=$RUNNER_TEMP/par; rm -rf $P; mkdir -p $P/merged
-          t0=$(date +%s)
-          # bc-full skipped (SKIP_BC_FULL behaviour); each fixture traced by its own coverage_map.sh with its own TMPDIR,
-          # traces kept, then ONE aggregation over all <fixture>/<turn>.bin dirs (layout coverage_map.py --traces expects)
-          FIX=$(for f in $S5_GATE_FIXTURES; do [ "$f" = bc-full ] || echo "$f"; done)
-          export P
-          set +e
-          printf '%s\n' $FIX | timeout 50m xargs -P "$(nproc)" -I{} bash -c \
-            'mkdir -p $P/tmp-{} && TMPDIR=$P/tmp-{} KEEP_TRACES=1 OUT=$P/tmp-{}/COV.md bash tools/coverage_map.sh {} > $P/{}.log 2>&1 || touch $P/FAILED-{}'
-          rc=$?; nf=$(ls $P | grep -c '^FAILED-'); [ "$nf" = 0 ] || { echo "failed fixtures: $(ls $P | sed -n 's/^FAILED-//p' | tr '\n' ' ')"; rc=1; }
-          grep -hE '^coverage_map: .*(sampled|traced)' $P/*.log
-          for d in $P/tmp-*/coverage.*/traces/*; do [ -d "$d" ] && ln -s "$d" $P/merged/$(basename "$d"); done
-          n=$(ls $P/merged | wc -l)
-          echo "parallel trace exit=$rc fixtures_traced=$n/$(echo $FIX | wc -w) secs=$(( $(date +%s)-t0 ))"
-          if [ $rc = 0 ] && [ "$n" -gt 0 ]; then
-            python3 tools/coverage_map.py --traces $P/merged --depth 0 --top 50 --out $OUTF > $P/agg.log 2>&1; rc=$?
-            echo "aggregate exit=$rc"
-          fi
-          rm -rf $P/tmp-*/coverage.*
-          if [ $rc != 0 ] || [ ! -s $OUTF ]; then
-            echo "parallel failed -> sequential fallback"
-            tail -n 3 $P/agg.log 2>/dev/null | cut -c1-200
-            SKIP_BC_FULL=1 OUT=$OUTF timeout 50m bash tools/coverage_map.sh > $RUNNER_TEMP/cov.log 2>&1; rc=$?
-            grep -E '^coverage_map: ' $RUNNER_TEMP/cov.log | sed "s#$RUNNER_TEMP#.#" || true
-            echo "MODE=sequential" >> "$GITHUB_ENV"
-          else
-            echo "MODE=parallel" >> "$GITHUB_ENV"
-          fi
-          set -e
-          echo "coverage_map exit=$rc total_secs=$(( $(date +%s)-t0 ))"
-          if [ $rc != 0 ] || [ ! -s $OUTF ]; then
-            echo "last lines (error context only):"; grep -vhE '^coverage_map: ' $RUNNER_TEMP/cov.log | tail -n 5 | cut -c1-200; exit 1
-          fi
-          wc -c < $OUTF | awk '{print "COVERAGE.md bytes", $1}'
-      - name: Publish to release coverage-cache
-        env:
-          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
-          R: ${{ github.repository }}
+          $GITHUB_WORKSPACE/scripts/coverage_run.sh "${{ needs.plan.outputs.main }}" 150m
+      - name: Rebuild + publish COVERAGE.md
+        if: always()
+        env: { GH_TOKEN: '${{ secrets.PRIVATE_REPO_TOKEN }}' }
+        run: scripts/coverage_publish.sh /opt/s5/siedler-sim-rs 1
+  bc-full:
+    needs: plan
+    if: needs.plan.outputs.bc == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    concurrency: { group: coverage-bc, cancel-in-progress: false }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - name: Setup game data, toolchain, build cache (quiet)
+        env: { T: '${{ secrets.PRIVATE_REPO_TOKEN }}' }
+        run: scripts/s5-setup.sh codex/clean-commands 1
+      - name: Checkout clean/integration + build s5recomp (quiet)
         run: |
-          cd $RUNNER_TEMP
-          { echo "clean_integration_sha=$SHA"
-            echo "generated_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-            echo "started_utc=$START_UTC"
-            echo "workflow_run=$GITHUB_SERVER_URL/$R/actions/runs/$GITHUB_RUN_ID"
-            echo "cmd=tools/coverage_map.sh per fixture (default fixtures minus bc-full), mode=$MODE"; } > coverage-meta.txt
-          if ! gh release view coverage-cache -R "$R" >/dev/null 2>&1; then
-            gh release create coverage-cache -R "$R" --target main --prerelease -t coverage-cache \
-              -n "Hourly coverage map of siedler-sim-rs clean/integration (coverage.yml). Assets are overwritten each run." >/dev/null
-          fi
-          gh release upload coverage-cache -R "$R" --clobber COVERAGE.md coverage-meta.txt
-          gh release view coverage-cache -R "$R" --json assets -q '.assets[]|"\(.name) \(.size)"'
+          source scripts/s5-env.sh
+          cd $S5_REPO
+          git fetch -q --depth 1 origin clean/integration
+          git checkout -q --detach FETCH_HEAD
+          echo "clean/integration=$(git rev-parse --short HEAD)"
+          cd recomp && t0=$(date +%s)
+          cargo build --release -j "$(nproc)" -p s5recomp > $S5/build-recomp.log 2>&1; rc=$?
+          echo "s5recomp build exit=$rc secs=$(( $(date +%s)-t0 ))"
+          [ $rc = 0 ] || { echo "error lines: $(grep -c '^error' $S5/build-recomp.log) (log suppressed, private)"; exit 1; }
+      - name: Trace bc-full (full horizon) + upload
+        env: { GH_TOKEN: '${{ secrets.PRIVATE_REPO_TOKEN }}' }
+        run: |
+          source scripts/s5-env.sh
+          cd $S5_REPO
+          $GITHUB_WORKSPACE/scripts/coverage_run.sh bc-full 325m
+      - name: Rebuild + publish COVERAGE.md
+        if: always()
+        env: { GH_TOKEN: '${{ secrets.PRIVATE_REPO_TOKEN }}' }
+        run: scripts/coverage_publish.sh /opt/s5/siedler-sim-rs 1
