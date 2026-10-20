@@ -16,9 +16,14 @@ With them (the gate):
     his work on that file (a commit on a <owner>/* branch after the claim time touching the file): then his work is not
     uncommitted any more and he rebases onto the merge. Before he pushes, the older PR stays held (never merge onto a file
     with possibly uncommitted owner work).
+Heartbeat (Dominic 2026-10-20 11:14): with --heartbeat <json> a claim of an owner that publishes a heartbeat (Codex: the box
+loop run_loop.sh uploads codex-heartbeat.json to release `heartbeat` of Kofi55533/siedler-agent) holds a PR only while that
+owner's loop is ACTIVE: heartbeat state "active" and updated less than HB_MAX_AGE_MIN (default 25) minutes ago. A claim of an
+idle, stopped or quota-blocked loop does not hold (printed to stderr as 'stale claim ignored'). Owners without a heartbeat entry
+(Opus) keep the old rule. --heartbeat-unknown (heartbeat download failed) keeps the old rule for everybody (fail-safe: hold).
 Prints one line per holding claim ('<owner> <time> <file>[::<item>] (age <h>h) <reason>'); exit 0 always.
 """
-import re, subprocess, sys
+import json, os, re, subprocess, sys
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
@@ -115,10 +120,32 @@ def changed_lines(diff_text, path):
     return old, new
 
 
+def load_heartbeats(path, now):
+    """{owner: (live: bool, why)} from a heartbeat json ({"owner":..,"state":..,"updated_utc":..} or a list of them)."""
+    try:
+        d = json.load(open(path))
+    except Exception:
+        return None
+    out = {}
+    for h in (d if isinstance(d, list) else [d]):
+        try:
+            owner, state = h["owner"], h.get("state", "?")
+            upd = datetime.fromisoformat(h["updated_utc"].replace("Z", "+00:00"))
+        except Exception:
+            continue
+        mins = (now - upd).total_seconds() / 60
+        live = state == "active" and mins < float(os.environ.get("HB_MAX_AGE_MIN", "25"))
+        out[owner] = (live, f"heartbeat {state} {mins:.0f} min ago" + (f", blocked until {h['until']}" if h.get("until") else ""))
+    for o in os.environ.get("HB_OWNERS", "Codex").split(","):  # owners whose loop publishes a heartbeat: none = not active
+        out.setdefault(o, (False, "no heartbeat published"))
+    return out
+
+
 def main(a):
     board, flist = a[0], a[1]
     owners = {"Opus", "Codex"}; hours = 6.0; now = datetime.now(BER)
     repo = diff = old_rev = new_rev = created = None
+    hb = None
     i = 2
     while i < len(a):
         k, v = a[i], (a[i + 1] if i + 1 < len(a) else None)
@@ -130,8 +157,11 @@ def main(a):
         elif k == "--old-rev": old_rev = v
         elif k == "--new-rev": new_rev = v
         elif k == "--pr-created": created = datetime.fromisoformat(v.replace("Z", "+00:00")) if v else None
+        elif k == "--heartbeat": hb = v
+        elif k == "--heartbeat-unknown": hb = None; i -= 1
         else: sys.exit(f"bad arg {k}")
         i += 2
+    beats = load_heartbeats(hb, now) if hb else None
     touched = {l.strip() for l in open(flist) if l.strip()}
     win = timedelta(hours=hours)
     fine = bool(repo and diff is not None and old_rev and new_rev)
@@ -142,6 +172,10 @@ def main(a):
         if age >= win or age <= -win:  # a future timestamp counts as fresh unless absurd
             continue
         tag = f"{owner} {ts:%Y-%m-%d %H:%M}"
+        if beats is not None and owner in beats and not beats[owner][0]:
+            if any(f in touched for f, _ in items):
+                sys.stderr.write(f"stale claim ignored: {tag} ({beats[owner][1]})\n")
+            continue
         for f, fn in items:
             if f not in touched:
                 continue
