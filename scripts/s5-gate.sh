@@ -14,6 +14,10 @@
 # Merge mechanics (Dominic 2026-10-20): the PR's docs/AGENT_BOARD.md hunks are dropped by a gate commit (board lines go directly
 # to clean/integration), conflicts name the files, Codex lane claims hold only while the Codex loop heartbeat is active, and a
 # "Frontier-fixture:" is installed from git/private releases (scripts/s5-fixture-install.sh) and measured on base and PR.
+# Exact-tree verdicts (Codex strategy 2026-10-20 §4.3/§9, tightening only): live results are typed (no "DIVERGENT turn N" /
+# "IDENTICAL N ticks" = ERROR/TIMEOUT, never turn 0; a base-side error is DEFERRED, a PR-side error FAILs), every comparison
+# is recorded against the merged tree hash ($S5/gate-receipt-<pr>.tsv), a code-changing base move re-measures the new merged
+# tree (no reuse), and a named Frontier-fixture that cannot be installed FAILs instead of being skipped.
 # Never merges into main. Prints only fixture names and turn numbers (no log contents). Needs GH_TOKEN.
 # Code no fixture executes (Dominic 2026-10-20, whole game bit-exact): a "Subsystem <id>:" PR whose newly cited native
 # addresses in crates/s5clean/src include logic functions that no fixture executes (docs/subsystems/subsystems.json flags +
@@ -51,7 +55,7 @@ defer(){ local rs; rs=$(gh api rate_limit -q '[.resources.core, .resources.graph
   [ "${S5_GATE_COMMENT:-1}" = 1 ] && gh pr comment "$PR" -R $R --body-file "$G/comment.md" >/dev/null 2>&1
   cat "$G/comment.md"; exit 3; }
 apifail(){ rl_hit && defer "$1"; fail "$1"; }   # GitHub call failed: rate limit -> DEFERRED, otherwise FAIL as before
-: > "$G/report.txt"
+: > "$G/report.txt"; GT0=$(date +%s)
 PAR=${S5_GATE_PARALLEL:-}; if [ -z "$PAR" ]; then
   m=$(awk '/MemAvailable/{print int($2/1048576)}' /proc/meminfo); PAR=$(( m / ${S5_GATE_GB_PER_FIXTURE:-3} )); [ $PAR -gt $(nproc) ] && PAR=$(nproc); [ $PAR -lt 1 ] && PAR=1; fi
 BREL=gate-baseline; BREPO=Kofi55533/siedler-agent
@@ -164,7 +168,7 @@ for x in $(cat "$G/body.txt" | grep -oiE '^[[:space:]]*frontier-fixture:[[:space
   inst=$("$D/s5-fixture-install.sh" "$x" "$G/body.txt" refs/gate/pr 2>/dev/null | tail -n1)
   if [ -f "$S5_NF/fixtures/$x/scenario.json" ]; then FIX="$FIX $x"; echo "extra frontier fixture: ${inst:-$x}" >> "$G/report.txt"
   elif rl_hit; then defer "Frontier-fixture $x install (release lookup)"
-  else echo "extra frontier fixture ${inst:-$x: not installable} (skipped)" >> "$G/report.txt"; fi
+  else fail "Frontier-fixture $x is named in the PR body but could not be installed (${inst:-not installable}): a required fixture is never skipped"; fi
 done
 # subsystem rule (see header): plan from the diff/body/map before the expensive suite, run the tests after the build
 if grep -qiE '^[[:space:]]*subsystem\b' "$G/title.txt"; then
@@ -193,21 +197,31 @@ xcheck(){ local lk=0 rc p f; [ -f crates/s5xcheck/Cargo.toml ] || { echo "no cra
   [ $lk = 1 ] && rm -f crates/s5xcheck/Cargo.lock
   read -r p f < <(grep -E '^test result' "$S5/gate-xcheck$1.log" | awk '{p+=$4;f+=$6} END{print p+0, f+0}')
   echo "exit=$rc, $p passed, $f failed"; [ $rc = 0 ] && [ "$p" -ge 1 ] && [ "$f" = 0 ]; }
-live_one(){ # $1=fixture $2=label: one s5-live run -> $G/$2.d/<fixture> "fixture turn secs"; fail-fast vs $G/base.tsv for label pr
-  local f=$1 l=$2 t0 out n k b
+# Typed live results (Codex strategy 2026-10-20 §4.3/§9): a run that yields neither "DIVERGENT turn N" nor "IDENTICAL N ticks"
+# is ERROR/TIMEOUT, never turn 0: it gives no comparison and no PASS (base side -> DEFERRED as infrastructure, PR side -> FAIL).
+# Every comparison is bound to the exact merged tree (receipt.tsv: fixture status base pr base_sha candidate_tree pr_head).
+live_one(){ # $1=fixture $2=label: one s5-live run -> $G/$2.d/<fixture> "fixture turn secs" or $G/$2.d/<fixture>.err; fail-fast for label pr
+  local f=$1 l=$2 t0 out rc n k b
   [ -e "$G/$l.STOP" ] && return 0
   t0=$(date +%s)
-  out=$("$D/s5-live.sh" "$f" 2>/dev/null); n=$(grep -oE 'DIVERGENT turn [0-9]+' <<<"$out" | grep -oE '[0-9]+$')
-  if [ -z "$n" ]; then k=$(grep -oE 'IDENTICAL [0-9]+ ticks' <<<"$out" | grep -oE '[0-9]+'); [ -n "$k" ] && n=$((k+1000000)) || n=0; fi
+  out=$("$D/s5-live.sh" "$f" 2>/dev/null); rc=$?; n=$(grep -oE 'DIVERGENT turn [0-9]+' <<<"$out" | grep -oE '[0-9]+$' | head -n1)
+  if [ -z "$n" ]; then k=$(grep -oE 'IDENTICAL [0-9]+ ticks' <<<"$out" | grep -oE '[0-9]+' | head -n1); [ -n "$k" ] && n=$((k+1000000)); fi
   [ -e "$G/$l.STOP" ] && return 0   # killed by fail-fast: not a measurement
+  if ! [[ "$n" =~ ^[0-9]+$ ]] || [ "$n" -le 0 ]; then
+    echo "$f $( [ $rc = 124 ] && echo TIMEOUT || echo ERROR ) exit=$rc secs=$(( $(date +%s)-t0 ))" > "$G/$l.d/$f.err"; return 0; fi
   echo "$f $n $(( $(date +%s)-t0 ))" > "$G/$l.d/$f"
   if [ "$l" = pr ] && [ "${S5_GATE_FAILFAST:-1}" = 1 ]; then
     b=$(awk -v f="$f" '$1==f{print $2}' "$G/base.tsv")
     if [ -n "$b" ] && [ "$n" -lt "$b" ]; then touch "$G/$l.STOP"; pkill -f 'target/release/s5verify live' 2>/dev/null; fi
   fi; }
 export -f live_one; export D G S5_GATE_FAILFAST
+# no verdict for an infrastructure reason (same DEFERRED protocol as the rate limit; refill re-gates DEFERRED PRs)
+blocked(){ { echo "### Muse self-merge gate: DEFERRED (no verdict)"; echo '```'; cat "$G/report.txt"; echo "deferred: $*; merge criteria not evaluated, refill re-gates this PR"; echo '```'; } > "$G/comment.md"
+  git checkout -q --detach "$bs" 2>/dev/null
+  [ "${S5_GATE_COMMENT:-1}" = 1 ] && [ "${S5_GATE_BASELINE_ONLY:-0}" != 1 ] && gh pr comment "$PR" -R $R --body-file "$G/comment.md" >/dev/null 2>&1
+  cat "$G/comment.md"; exit 3; }
 suite(){ # $1=label [fixtures] -> $G/$1.tsv (fixture turn [secs]) in FIX order; longest first (secs of the cached baseline)
-  local l=$1 fx=${2:-$FIX} f
+  local l=$1 fx=${2:-$FIX} f e
   rm -rf "$G/$l.d" "$G/$l.STOP"; mkdir -p "$G/$l.d"
   ( while sleep 10; do free -m | awk 'NR==2{print $3}'; done ) > "$G/mem-$l.txt" & local mp=$!
   local t0=$(date +%s)
@@ -217,81 +231,97 @@ suite(){ # $1=label [fixtures] -> $G/$1.tsv (fixture turn [secs]) in FIX order; 
   : > "$G/$l.tsv"; for f in $fx; do [ -s "$G/$l.d/$f" ] && cat "$G/$l.d/$f" >> "$G/$l.tsv"; done
   local nr=$(wc -l < "$G/$l.tsv")
   echo "live $l: $nr/$(wc -w <<<"$fx") fixtures, parallel=$PAR, wall $(( $(date +%s)-t0 ))s, peak used RAM $(sort -n "$G/mem-$l.txt" | tail -n1)M" >> "$G/report.txt"
+  e=$(cat "$G/$l.d/"*.err 2>/dev/null | head -5 | tr '\n' ';')
+  if [ -n "$e" ]; then echo "live $l: no result for: $e" >> "$G/report.txt"
+    [ "$l" = base ] && blocked "baseline live run produced no result ($e): a failed baseline is an infrastructure blocker, never turn 0"
+    git checkout -q --detach "$bs"; fail "live $l: no result (ERROR/TIMEOUT) for $e - no comparison, no PASS"; fi
   # every fixture must have a result unless the PR side stopped on fail-fast (never treat a missing run as pass)
   [ "$nr" = "$(wc -w <<<"$fx")" ] || [ -e "$G/$l.STOP" ] || { git checkout -q --detach "$bs"; fail "live $l: only $nr of $(wc -w <<<"$fx") fixtures produced a result"; }; }
 show(){ [ "$1" -ge 1000000 ] && echo "IDENT($(( $1-1000000 )))" || echo "$1"; }
-# baseline = current clean/integration: cached per code tree, else measured (and cached)
-: > "$G/base.cached"; BK=""
-[ -z "$DV2" ] && [ "${S5_GATE_CACHE:-1}" = 1 ] && { S5_GATE_CACHE=0; echo "baseline cache off (data-v2 asset list unreadable; baseline measured here)" >> "$G/report.txt"; }
-if [ "${S5_GATE_CACHE:-1}" = 1 ]; then
-  BK=$(bkey "$bs")
-  gh release download $BREL -R $BREPO -p "base-$BK.tsv" -O "$G/base.cached" --clobber >/dev/null 2>&1 || : > "$G/base.cached"
-fi
-miss=""; for f in $FIX; do grep -q "^$f " "$G/base.cached" || miss="$miss $f"; done
-if [ -n "${miss// /}" ]; then
-  git checkout -q --detach "$bs" || fail "checkout base"
-  "$D/s5-build.sh" >/dev/null || fail "base build"
-  suite base "$miss"
-  cat "$G/base.cached" "$G/base.tsv" | awk '!s[$1]++' > "$G/base.all"
-  if [ -n "$BK" ]; then
-    awk -v fx=" $S5_GATE_FIXTURES " 'index(fx," "$1" ")' "$G/base.all" > "$G/base-$BK.tsv"   # cache only the standard matrix
-    gh release view $BREL -R $BREPO >/dev/null 2>&1 || gh release create $BREL -R $BREPO --target main --prerelease -t $BREL \
-      -n "s5-gate baseline live matrix per clean/integration code tree (s5-gate.sh). fixture turn secs; turn>=1000000 = IDENTICAL." >/dev/null 2>&1
-    gh release upload $BREL -R $BREPO --clobber "$G/base-$BK.tsv" >/dev/null 2>&1 && echo "baseline cached as base-$BK" >> "$G/report.txt"
+measure_base(){ # baseline = $bs: cached per code tree (rows with turn 0 = legacy error sentinel are re-measured), else measured
+  : > "$G/base.cached"; BK=""
+  [ -z "$DV2" ] && [ "${S5_GATE_CACHE:-1}" = 1 ] && { S5_GATE_CACHE=0; echo "baseline cache off (data-v2 asset list unreadable; baseline measured here)" >> "$G/report.txt"; }
+  if [ "${S5_GATE_CACHE:-1}" = 1 ]; then
+    BK=$(bkey "$bs")
+    gh release download $BREL -R $BREPO -p "base-$BK.tsv" -O "$G/base.raw" --clobber >/dev/null 2>&1 || : > "$G/base.raw"
+    awk '$2 ~ /^[0-9]+$/ && $2 > 0' "$G/base.raw" > "$G/base.cached"
   fi
-  mv "$G/base.all" "$G/base.tsv"
-else
-  cp "$G/base.cached" "$G/base.tsv"; echo "baseline: cache hit base-$BK (code tree of ${bs:0:8})" >> "$G/report.txt"
-fi
-if [ "${S5_GATE_BASELINE_ONLY:-0}" = 1 ]; then git checkout -q --detach "$bs"; cat "$G/report.txt"; cp "$G/base.tsv" "$S5/baseline-${bs:0:12}.tsv"; exit 0; fi
-git checkout -q --detach "$bs" || fail "checkout base"
-# candidate = PR merged onto current base
-git -c user.name=gate -c user.email=gate@local merge -q --no-edit --no-ff refs/gate/pr >/dev/null 2>&1 || { git merge --abort; fail "merge conflict with $BASE"; }
-"$D/s5-build.sh" >/dev/null || { git checkout -q --detach "$bs"; fail "build (s5verify) failed"; }
-(cd crates/s5clean && cargo test -q -j "$(nproc)" > $S5/gate-test.log 2>&1); trc=$?
-tl=$(grep -E '^test result' $S5/gate-test.log | awk '{p+=$4;f+=$6} END{print p" passed, "f" failed"}')
-echo "s5clean tests: exit=$trc ($tl)" >> "$G/report.txt"
-[ $trc = 0 ] || { git checkout -q --detach "$bs"; fail "s5clean tests"; }
-if [ -n "$XC" ]; then xr=$(xcheck ""); xrc=$?; echo "differential tests ($XC): $xr" >> "$G/report.txt"
-  [ $xrc = 0 ] || { git checkout -q --detach "$bs"; fail "differential tests for code no fixture executes not green ($xr)"; }; XCOK=1; fi
-suite pr
-git checkout -q --detach "$bs"
-reg=0
-for f in $FIX; do n0=$(awk -v f="$f" '$1==f{print $2}' "$G/base.tsv"); n1=$(awk -v f="$f" '$1==f{print $2}' "$G/pr.tsv")
-  [ -n "$n0" ] || n0=0
-  if [ -z "$n1" ]; then printf '%-22s base %-12s pr %-12s %s\n' "$f" "$(show $n0)" "-" "not run (fail-fast)" >> "$G/report.txt"; continue; fi
-  if [ "$n1" -lt "$n0" ]; then s=REGRESSION; reg=1; elif [ "$n1" -gt "$n0" ]; then s=better; else s=same; fi
-  printf '%-22s base %-12s pr %-12s %s\n' "$f" "$(show $n0)" "$(show $n1)" "$s" >> "$G/report.txt"
-done
-[ -e "$G/pr.STOP" ] && reg=1
-# Opus decision 2026-10-18: no regression exception (the 2026-10-17 "Port:" rule is revoked) -> any earlier first divergence fails.
-[ $reg = 0 ] || fail "first divergence earlier on at least one fixture (no-regression rule, no Port: exception)"
-moved=$(grep -cE ' better$' "$G/report.txt")
-if [ -n "$soft" ]; then
-  if [ "$moved" -gt 0 ]; then echo "former claimed area: frontier moved on $moved fixture(s), allowed" >> "$G/report.txt"
-  elif [ "$XCOK" = 1 ] && [ "$XCALL" = 1 ]; then
-    echo "former claimed area: no frontier move, but every newly cited logic function is unexecuted and its differential tests pass (subsystem rule), no fixture earlier" >> "$G/report.txt"
-  else fail "touches a former claimed area ($soft) but moves no frontier"; fi
-fi
-# base moved meanwhile: still valid if every new base commit only touched docs/*.md (board, notes) -> measured code unchanged
-nb=$(git ls-remote origin refs/heads/$BASE | cut -f1)
-if [ "$nb" != "$bs" ]; then
-  git fetch -q origin "+refs/heads/$BASE:refs/remotes/origin/$BASE" || fail "fetch moved base"
-  nd=$(git diff --name-only "$bs" "$nb" | grep -vcE '^docs/.*\.md$')
-  if [ "$nd" = 0 ]; then
-    echo "base moved to ${nb:0:8} (docs/*.md only, code unchanged)" >> "$G/report.txt"
+  miss=""; for f in $FIX; do grep -q "^$f " "$G/base.cached" || miss="$miss $f"; done
+  if [ -n "${miss// /}" ]; then
+    git checkout -q --detach "$bs" || fail "checkout base"
+    "$D/s5-build.sh" >/dev/null || blocked "base build failed on ${bs:0:8} (infrastructure/base problem, not this PR)"
+    suite base "$miss"
+    cat "$G/base.cached" "$G/base.tsv" | awk '!s[$1]++' > "$G/base.all"
+    if [ -n "$BK" ]; then
+      awk -v fx=" $S5_GATE_FIXTURES " 'index(fx," "$1" ")' "$G/base.all" > "$G/base-$BK.tsv"   # cache only the standard matrix
+      gh release view $BREL -R $BREPO >/dev/null 2>&1 || gh release create $BREL -R $BREPO --target main --prerelease -t $BREL \
+        -n "s5-gate baseline live matrix per clean/integration code tree (s5-gate.sh). fixture turn secs; turn>=1000000 = IDENTICAL." >/dev/null 2>&1
+      gh release upload $BREL -R $BREPO --clobber "$G/base-$BK.tsv" >/dev/null 2>&1 && echo "baseline cached as base-$BK" >> "$G/report.txt"
+    fi
+    mv "$G/base.all" "$G/base.tsv"
   else
-    # with ~20 parallel runs the base moves during almost every 75-min gate: re-check merge + build + unit tests on the new base
-    # (no second live suite; the live result above stands, later regressions are explained on the board)
-    git checkout -q --detach "$nb" || fail "checkout moved base"
-    git -c user.name=gate -c user.email=gate@local merge -q --no-edit --no-ff refs/gate/pr >/dev/null 2>&1 || { git merge --abort; git checkout -q --detach "$bs"; fail "merge conflict with moved $BASE"; }
-    "$D/s5-build.sh" >/dev/null || { git checkout -q --detach "$bs"; fail "build on moved base failed"; }
-    (cd crates/s5clean && cargo test -q -j "$(nproc)" > $S5/gate-test2.log 2>&1) || { git checkout -q --detach "$bs"; fail "s5clean tests on moved base"; }
-    if [ -n "$XC" ]; then xr=$(xcheck 2) || { git checkout -q --detach "$bs"; fail "differential tests on moved base ($xr)"; }; fi
-    git checkout -q --detach "$bs"
-    echo "base moved to ${nb:0:8} (code changed): merge+build+s5clean tests green on the new base" >> "$G/report.txt"
-  fi
-fi
+    cp "$G/base.cached" "$G/base.tsv"; echo "baseline: cache hit base-$BK (code tree of ${bs:0:8})" >> "$G/report.txt"
+  fi; }
+evaluate(){ # candidate = PR merged onto $bs: build, s5clean tests, differential tests, live matrix, comparison -> $G/cmp.txt, moved
+  git checkout -q --detach "$bs" || fail "checkout base"
+  git -c user.name=gate -c user.email=gate@local merge -q --no-edit --no-ff refs/gate/pr >/dev/null 2>&1 || { git merge --abort; git checkout -q --detach "$bs"; fail "merge conflict with $BASE@${bs:0:8}"; }
+  CT=$(git rev-parse 'HEAD^{tree}')
+  echo "candidate: PR head ${hs:0:8} merged onto $BASE@${bs:0:8}, tree ${CT:0:12}" >> "$G/report.txt"
+  "$D/s5-build.sh" >/dev/null || { git checkout -q --detach "$bs"; fail "build (s5verify) failed on the merged tree ${CT:0:12}"; }
+  (cd crates/s5clean && cargo test -q -j "$(nproc)" > $S5/gate-test.log 2>&1); trc=$?
+  tl=$(grep -E '^test result' $S5/gate-test.log | awk '{p+=$4;f+=$6} END{print p" passed, "f" failed"}')
+  echo "s5clean tests: exit=$trc ($tl)" >> "$G/report.txt"
+  [ $trc = 0 ] || { git checkout -q --detach "$bs"; fail "s5clean tests"; }
+  if [ -n "$XC" ]; then xr=$(xcheck ""); xrc=$?; echo "differential tests ($XC): $xr" >> "$G/report.txt"
+    [ $xrc = 0 ] || { git checkout -q --detach "$bs"; fail "differential tests for code no fixture executes not green ($xr)"; }; XCOK=1; fi
+  suite pr
+  git checkout -q --detach "$bs"
+  reg=0; : > "$G/cmp.txt"
+  for f in $FIX; do n0=$(awk -v f="$f" '$1==f{print $2}' "$G/base.tsv"); n1=$(awk -v f="$f" '$1==f{print $2}' "$G/pr.tsv")
+    [[ "$n0" =~ ^[0-9]+$ ]] && [ "$n0" -gt 0 ] || blocked "no baseline result for $f on ${bs:0:8} (never compared against 0)"
+    if [ -z "$n1" ]; then printf '%-22s base %-12s pr %-12s %s\n' "$f" "$(show $n0)" "-" "not run (fail-fast)" >> "$G/cmp.txt"; continue; fi
+    if [ "$n1" -lt "$n0" ]; then st=REGRESSION; reg=1; elif [ "$n1" -gt "$n0" ]; then st=better; else st=same; fi
+    printf '%-22s base %-12s pr %-12s %s\n' "$f" "$(show $n0)" "$(show $n1)" "$st" >> "$G/cmp.txt"
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$f" "$st" "$n0" "$n1" "$bs" "$CT" "$hs" >> "$G/receipt.tsv"
+  done
+  cat "$G/cmp.txt" >> "$G/report.txt"
+  [ -e "$G/pr.STOP" ] && reg=1
+  # Opus decision 2026-10-18: no regression exception (the 2026-10-17 "Port:" rule is revoked) -> any earlier first divergence fails.
+  [ $reg = 0 ] || fail "first divergence earlier on at least one fixture (no-regression rule, no Port: exception)"
+  moved=$(grep -cE ' better$' "$G/cmp.txt")
+  if [ -n "$soft" ]; then
+    if [ "$moved" -gt 0 ]; then echo "former claimed area: frontier moved on $moved fixture(s), allowed" >> "$G/report.txt"
+    elif [ "$XCOK" = 1 ] && [ "$XCALL" = 1 ]; then
+      echo "former claimed area: no frontier move, but every newly cited logic function is unexecuted and its differential tests pass (subsystem rule), no fixture earlier" >> "$G/report.txt"
+    else fail "touches a former claimed area ($soft) but moves no frontier"; fi
+  fi; }
+# Exact merged tree (Codex strategy 2026-10-20 §9.1): the verdict is only valid for the tree that is merged. If clean/integration
+# moved with code changes during the gate, the live matrix is RE-MEASURED on the new merge (new baseline + new candidate), never
+# reused; docs/*.md-only base moves keep the measurement (they are no build/test input: bkey excludes them the same way).
+# After S5_GATE_BASE_TRIES (default 3) measurements against a still-moving base: DEFERRED (no verdict), refill re-gates.
+: > "$G/receipt.tsv"; ATT=0
+# S5_GATE_BUDGET_MIN (callers that wrap the gate in `timeout`): a re-measurement that would not finish inside the budget is
+# DEFERRED instead of being killed by the timeout without a verdict.
+while :; do
+  ATT=$((ATT+1)); AT0=$(date +%s)
+  measure_base
+  if [ "${S5_GATE_BASELINE_ONLY:-0}" = 1 ]; then git checkout -q --detach "$bs"; cat "$G/report.txt"; cp "$G/base.tsv" "$S5/baseline-${bs:0:12}.tsv"; exit 0; fi
+  : > "$G/receipt.tsv"
+  evaluate
+  nb=$(git ls-remote origin refs/heads/$BASE | cut -f1)
+  [ -n "$nb" ] || blocked "cannot read $BASE head after the measurement"
+  [ "$nb" = "$bs" ] && break
+  git fetch -q origin "+refs/heads/$BASE:refs/remotes/origin/$BASE" || blocked "fetch moved base"
+  nd=$(git diff --name-only "$bs" "$nb" | grep -vcE '^docs/.*\.md$')
+  if [ "$nd" = 0 ]; then echo "base moved to ${nb:0:8} (docs/*.md only, no build/test input changed): measurement of ${CT:0:12} stands" >> "$G/report.txt"; break; fi
+  echo "base moved ${bs:0:8} -> ${nb:0:8} with $nd code/data file(s): re-measuring the exact new merged tree (attempt $((ATT+1)))" >> "$G/report.txt"
+  if [ "${S5_GATE_BUDGET_MIN:-0}" -gt 0 ] && [ $(( ( $(date +%s)-GT0 + $(date +%s)-AT0 ) / 60 + 2 )) -gt "${S5_GATE_BUDGET_MIN}" ]; then
+    blocked "clean/integration moved with code changes; re-measuring the new merged tree does not fit the gate budget (${S5_GATE_BUDGET_MIN} min); a result for an older merged tree is not reused"; fi
+  [ "$ATT" -ge "${S5_GATE_BASE_TRIES:-3}" ] && blocked "clean/integration kept moving with code changes during $ATT full measurements; a result for an older merged tree is not reused"
+  bs=$nb
+  git merge-tree --write-tree "$bs" refs/gate/pr >/dev/null 2>&1 || fail "merge conflict with moved $BASE@${bs:0:8}"
+done
+cp "$G/receipt.tsv" "$S5/gate-receipt-$PR.tsv" 2>/dev/null
 # re-check lane claims on the newest board (a claim may have been posted during the ~75 min live suite)
 git fetch -q origin "+refs/heads/$BASE:refs/remotes/origin/$BASE" 2>/dev/null && git show "origin/$BASE:docs/AGENT_BOARD.md" > "$G/board.md" 2>/dev/null
 LCARGS=("${LCARGS[@]:0:${#LCARGS[@]}-${#HB[@]}}"); read -r -a HB <<<"$("$D/heartbeat.sh" fetch "$G/heartbeat.json")"; LCARGS+=("${HB[@]}")
@@ -311,7 +341,7 @@ git fetch -q origin "+refs/heads/$BASE:refs/remotes/origin/$BASE" && git checkou
   grep -qF "#$PR \`$h\` " docs/AGENT_BOARD.md && { echo "board: already announced" >> "$G/report.txt"; break; }
   printf '\n## %s Muse self-merge\n\n#%s `%s` (%s) squash-merged by s5-gate: build+s5clean tests green, no first divergence earlier.\n%s\n' \
     "$(TZ=Europe/Berlin date '+%Y-%m-%d %H:%M') Berlin —" "$PR" "$h" "$t" \
-    "$(grep -E ' (better|same)$' "$G/report.txt" | awk '$NF=="better"{printf "%s %s->%s; ",$1,$3,$5}')" >> docs/AGENT_BOARD.md
+    "$(grep -E ' (better|same)$' "$G/cmp.txt" | awk '$NF=="better"{printf "%s %s->%s; ",$1,$3,$5}')" >> docs/AGENT_BOARD.md
   git -c user.name=siedler-agent -c user.email=Kofi55533@users.noreply.github.com commit -qam "board: Muse self-merge #$PR" &&
     git push -q origin HEAD:refs/heads/$BASE && { echo "board: announced" >> "$G/report.txt"; break; }
   git reset -q --hard origin/$BASE; done

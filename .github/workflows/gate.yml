@@ -31,6 +31,6 @@ jobs:
           PRS: ${{ inputs.prs }}
         run: |
           for n in $PRS; do
-            S5_LIVE_TIMEOUT=900 timeout 75m $S5_SCRIPTS/s5-gate.sh "$n" > gate-$n.txt 2>&1 || true
+            S5_GATE_BUDGET_MIN=72 S5_LIVE_TIMEOUT=900 timeout 75m $S5_SCRIPTS/s5-gate.sh "$n" > gate-$n.txt 2>&1 || true
             echo "gate #$n: $(grep -E 'GATE FAIL|merged into|former claimed area' gate-$n.txt | tr '\n' ' ')"
           done

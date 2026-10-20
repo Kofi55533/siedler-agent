@@ -141,7 +141,7 @@ jobs:
       - name: Self-merge gate
         if: steps.pre.outputs.go == 'true'
         env: { GH_TOKEN: '${{ secrets.PRIVATE_REPO_TOKEN }}' }
-        run: S5_LIVE_TIMEOUT=900 timeout 100m scripts/s5-gate.sh "${{ inputs.pr }}" || true
+        run: S5_GATE_BUDGET_MIN=96 S5_LIVE_TIMEOUT=900 timeout 100m scripts/s5-gate.sh "${{ inputs.pr }}" || true
   remeasure:
     if: inputs.mode == 'remeasure'
     runs-on: ubuntu-latest
