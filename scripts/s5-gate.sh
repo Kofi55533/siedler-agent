@@ -61,7 +61,7 @@ PAR=${S5_GATE_PARALLEL:-}; if [ -z "$PAR" ]; then
 BREL=gate-baseline; BREPO=Kofi55533/siedler-agent
 DV2=$(gh release view data-v2 -R Kofi55533/siedler-data --json assets -q '.assets[]|select(.name|test("tzst"))|"\(.name) \(.size) \(.updatedAt)"' 2>/dev/null | sort) && [ -n "$DV2" ] || DV2=""
 bkey(){ # $1 = commit -> cache key of its live matrix (fixture list is part of the file, missing fixtures are measured)
-  { git ls-tree -r "$1" | grep -vP '\tdocs/(.*\.md|subsystems/DS[0-9]{2}-[^/]+/[^/]+)$'
+  { git ls-tree -r "$1" | grep -vP '\tdocs/(.*\.md|subsystems/(DS[0-9]{2}-[^/]+/[^/]+|domains\.json))$'
     echo "$DV2"
     cat "$D/s5-live.sh" "$D/s5-env.sh" "$D/s5-build.sh"; echo "timeout=${S5_LIVE_TIMEOUT:-1800}"; } | sha256sum | cut -c1-16; }
 if [ "${S5_GATE_BASELINE_ONLY:-0}" = 1 ]; then
@@ -312,7 +312,7 @@ while :; do
   [ -n "$nb" ] || blocked "cannot read $BASE head after the measurement"
   [ "$nb" = "$bs" ] && break
   git fetch -q origin "+refs/heads/$BASE:refs/remotes/origin/$BASE" || blocked "fetch moved base"
-  nd=$(git diff --name-only "$bs" "$nb" | grep -vcE '^docs/(.*\.md|subsystems/DS[0-9]{2}-[^/]+/[^/]+)$')
+  nd=$(git diff --name-only "$bs" "$nb" | grep -vcE '^docs/(.*\.md|subsystems/(DS[0-9]{2}-[^/]+/[^/]+|domains\.json))$')
   if [ "$nd" = 0 ]; then echo "base moved to ${nb:0:8} (docs/*.md or docs/subsystems/DSnn-*/ ledgers only, no build/test input changed): measurement of ${CT:0:12} stands" >> "$G/report.txt"; break; fi
   echo "base moved ${bs:0:8} -> ${nb:0:8} with $nd code/data file(s): re-measuring the exact new merged tree (attempt $((ATT+1)))" >> "$G/report.txt"
   if [ "${S5_GATE_BUDGET_MIN:-0}" -gt 0 ] && [ $(( ( $(date +%s)-GT0 + $(date +%s)-AT0 ) / 60 + 2 )) -gt "${S5_GATE_BUDGET_MIN}" ]; then
