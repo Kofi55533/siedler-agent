@@ -41,7 +41,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
           R: ${{ github.repository }}
-          TARGET: ${{ github.event.inputs.target || '20' }}
+          TARGET: ${{ github.event.inputs.target || '18' }}
           GH_TIMEOUT: '60'
           BACKLOG_TARGET: '14'
           LOW_WATER: '8'
