@@ -73,7 +73,7 @@ def main():
     files = [f for f in files if Path(f).stem in selected]
     texts = [git(repo, "show", f"{head}:{f}") for f in files]
     texts = [t_.lower() for t_ in texts if REFCALL.search(t_)]
-    miss = [a for a in un if not any(re.search(rf"0x{a:06x}\b", t_) for t_ in texts)]
+    miss = [a for a in un if not any(re.search(rf"0x(?:00)?{a:06x}\b", t_) for t_ in texts)]
     if miss:
         print("missing differential test (address in a crates/s5xcheck/tests file with a reference call) for " +
               " ".join(f"{a:#x}" for a in miss[:12]) + (" ..." if len(miss) > 12 else ""))

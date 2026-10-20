@@ -43,3 +43,9 @@ For `ready`, also write pr-body.md next to result.json: problem/result, native p
 `Frontier-fixture: <name>` per extra fixture. Write every relevant `live <fixture>: before turn X -> after turn Y`
 on its own line; name IDENTICAL ticks explicitly. No raw live logs, game data, secrets or source dumps in the body.
 Do not claim success merely because the first divergence stayed unchanged.
+
+This is one package within a 300-minute domain run. Return its result as soon as the coherent change is ready;
+the wrapper immediately gives this package its own immutable gate ticket and private PR, refreshes claims,
+and takes the next package in the SAME domain on this runner. Do not wait for a gate verdict, combine all run
+output into one final PR, or declare the whole run finished after a small package. The wrapper owns the job
+clock and final checkpoint margin. Record useful residuals in the overview so the next package reuses them.

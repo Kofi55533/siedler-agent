@@ -14,9 +14,11 @@ jobs:
   worker:
     if: vars.FLEET_V2_ENABLED == 'true' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    timeout-minutes: 260
+    timeout-minutes: 300
     steps:
       - uses: actions/checkout@v4
+      - name: Record the whole job budget before setup
+        run: echo "FLEET_JOB_STARTED=$(date +%s)" >> "$GITHUB_ENV"
       - uses: actions/setup-python@v5
         with: {python-version: '3.11'}
       - name: Private game and native reference setup
@@ -26,7 +28,7 @@ jobs:
           scripts/s5-setup.sh clean/integration 1
           echo "S5_SCRIPTS=$GITHUB_WORKSPACE/scripts" >> "$GITHUB_ENV"
       - name: Install the existing OpenCode CLI
-        run: npm i -g opencode-ai >/dev/null 2>&1
+        run: npm i -g opencode-ai@1.19.3 >/dev/null 2>&1
       - name: Native source and continuing domain package
         env:
           GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}

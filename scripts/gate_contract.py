@@ -24,7 +24,7 @@ def fixtures(body):
     return sorted(names)
 
 
-def receipt(tsv, base, tree, head, commit, expected, tests=""):
+def receipt(tsv, base, tree, head, commit, expected, tests="", data_release=""):
     for sha in (base, tree, head, commit):
         if not re.fullmatch(r"[0-9a-f]{40}", sha):
             raise ValueError("Receipt must name immutable Git objects")
@@ -38,13 +38,14 @@ def receipt(tsv, base, tree, head, commit, expected, tests=""):
             raise ValueError("Mixed or duplicated receipt")
         if status not in {"same", "better"} or not before.isdigit() or not after.isdigit():
             raise ValueError("No successful typed comparison")
-        if not 0 < int(before) <= int(after):
+        if not 0 < int(before) <= int(after) or (status == "same") != (int(before) == int(after)):
             raise ValueError("Regression or invalid baseline")
         rows[name] = {"before": int(before), "after": int(after), "status": status}
     if not rows or set(rows) != set(expected):
         raise ValueError("Required fixture set is incomplete")
     return {"schema": 1, "base": base, "tree": tree, "head": head, "commit": commit,
-            "fixtures": rows, "differential_tests": tests}
+            "fixtures": rows, "differential_tests": tests,
+            "data_release": hashlib.sha256(data_release.encode()).hexdigest() if data_release else None}
 
 
 def input_tree(repo, ref):
@@ -65,6 +66,7 @@ def input_tree(repo, ref):
 
 def script_digest(directory):
     names = ("s5-gate.sh", "s5-live.sh", "s5-env.sh", "s5-build.sh", "s5-fixture-install.sh",
+             "scoreboard/function_inventory.json",
              "subsys-xcheck.py", "gate_contract.py", "lane-claims.py", "muse-claims.txt")
     return hashlib.sha256(b"".join((Path(directory) / n).read_bytes() for n in names)).hexdigest()
 
@@ -74,8 +76,8 @@ def main():
     if sys.argv[1] == "fixtures":
         print("\n".join(fixtures(Path(sys.argv[2]).read_text())))
     elif sys.argv[1] == "receipt":
-        _, _, path, base, tree, head, commit, expected, tests = sys.argv
-        print(json.dumps(receipt(Path(path).read_text(), base, tree, head, commit, expected.split(), tests)))
+        _, _, path, base, tree, head, commit, expected, tests, data_release = sys.argv
+        print(json.dumps(receipt(Path(path).read_text(), base, tree, head, commit, expected.split(), tests, data_release)))
     elif sys.argv[1] == "input-tree":
         print(input_tree(sys.argv[2], sys.argv[3]))
     elif sys.argv[1] == "script-digest":

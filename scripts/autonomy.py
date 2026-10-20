@@ -78,8 +78,9 @@ def snapshot():
     return {"runs": active, "prs": prs, "at": time.time()}
 
 
-def bootstrap():
-    enabled()
+def bootstrap(apply=True):
+    if apply:
+        enabled()
     inventory = json.loads((HERE / "scoreboard/function_inventory.json").read_text())
     index = json.loads(fs.file_text("docs/subsystems/domains.json"))
     mapped = json.loads(fs.file_text("docs/subsystems/subsystems.json"))
@@ -108,12 +109,26 @@ def bootstrap():
     def install(root):
         if KEY not in root:
             root[KEY] = state
-    STORE.update(install, "autonomy v2: bootstrap complete whole-game partition")
-    print(json.dumps(core.dashboard(read())))
+    if apply:
+        STORE.update(install, "autonomy v2: bootstrap complete whole-game partition")
+    return state
 
 
 def dispatch(workflow, inputs):
     fs.api(f"repos/{POOL}/actions/workflows/{workflow}/dispatches", "POST", {"ref": "main", "inputs": inputs})
+
+
+def wake_control(soon=False):
+    # Completion events are insufficient while workers run for five hours.
+    # Heartbeats coalesce one dispatch per five minutes without a sleeping job.
+    def reserve(s):
+        at = time.time()
+        if at - s.get("control_requested_at", 0) < (60 if soon else 300):
+            return False
+        s["control_requested_at"] = at
+        return True
+    if update(reserve, "reserve controller wakeup"):
+        dispatch("fleet-control.yml", {"mode": "control"})
 
 
 def control(shadow=False):
@@ -121,10 +136,10 @@ def control(shadow=False):
     state = read()
     if state is None:
         if shadow:
-            print("Shadow only: v2 not initialized; no state, issue, dispatch or repository mutation.")
-            return
-        bootstrap()
-        state = read()
+            state = bootstrap(apply=False)
+        else:
+            bootstrap()
+            state = read()
     # Reclaim only after an explicit completed response, never on a timer.
     statuses = {rid: r["status"] for rid, r in snap["runs"].items()}
     tracked = {l["run"] for l in state["leases"].values() if l.get("run")}
@@ -134,6 +149,38 @@ def control(shadow=False):
     for rid in tracked - set(statuses):
         statuses[rid] = fs.api(f"repos/{POOL}/actions/runs/{rid}")["status"]
     at = snap["at"]
+    latest_base = fs.api(f"repos/{fs.PROJECT}/git/ref/heads/{fs.BASE}")["object"]["sha"]
+    stale_bases = set()
+    for base in {t["receipt"]["base"] for t in state["tickets"].values() if t["status"] == "verified"}:
+        if base == latest_base:
+            continue
+        comparison = fs.api(f"repos/{fs.PROJECT}/compare/{base}...{latest_base}")
+        files = comparison.get("files", [])
+        # GitHub caps compare files at 300. An incomplete/rewritten comparison
+        # cannot establish that only coordination prose changed.
+        if (comparison["status"] not in {"ahead", "identical"} or len(files) >= 300 or not files
+                or any(not f["filename"].startswith("docs/") or not f["filename"].endswith(".md") for f in files)):
+            stale_bases.add(base)
+    legacy_units = set()
+    for run in snap["runs"].values():
+        if run.get("path", "").endswith("/opencode.yml"):
+            match = re.match(r"Subsystem:\s*([a-z0-9-]+)", run["display_title"])
+            if match:
+                legacy_units.add(match[1])
+
+    # Recover a push that succeeded immediately before the runner or state
+    # write failed. Only an already tested, recorded integration intent counts.
+    integration = state.get("integration")
+    if not shadow and integration and integration.get("candidate"):
+        candidate = integration["candidate"]
+        latest = fs.api(f"repos/{fs.PROJECT}/git/ref/heads/{fs.BASE}")["object"]["sha"]
+        landed = candidate == latest
+        if not landed:
+            comparison = fs.api(f"repos/{fs.PROJECT}/compare/{candidate}...{latest}")
+            landed = comparison["status"] in {"ahead", "identical"}
+        if landed:
+            update(lambda s: core.accept(s, integration["tickets"], candidate, at), "recover confirmed integration push")
+            state = read()
 
     def reconcile(s):
         core.reconcile_runs(s, statuses, at)
@@ -144,6 +191,8 @@ def control(shadow=False):
                 if not any(pending["nonce"] in r["display_title"] for r in snap["runs"].values()):
                     u.pop("dispatch", None)
         for t in s["tickets"].values():
+            if t["status"] == "verified" and t["receipt"]["base"] in stale_bases:
+                t.update(status="queued", run=None, retry_after=0)
             if t["status"] == "verifying" and statuses.get(t.get("run")) == "completed":
                 t.update(status="queued", run=None)
             p = t.get("dispatch")
@@ -157,14 +206,16 @@ def control(shadow=False):
                 s["integration"] = None
     if shadow:
         reconcile(state)
-        print(json.dumps({"mode": "shadow", "live_jobs": len(snap["runs"]), **core.dashboard(state)}))
+        print(json.dumps({"mode": "shadow", "live_jobs": len(snap["runs"]),
+                          "would_start": core.select(state, len(snap["runs"]), at=at,
+                                                     unavailable_units=legacy_units), **core.dashboard(state)}))
         return
     update(reconcile, "reconcile confirmed runs")
     state = read()
     room = max(0, 20 - len(snap["runs"]))
     # Batches have a short final writer and a full combined test; independent
     # preflights run on up to four runners. Do not occupy model slots waiting.
-    batch = core.disjoint_batch(state)
+    batch = core.integration_ready(state, at)
     if batch and not state["integration"] and room:
         nonce = uuid.uuid4().hex[:12]
         def admit_batch(s):
@@ -178,6 +229,10 @@ def control(shadow=False):
     state = read()
     verifying = sum(t["status"] == "verifying" or bool(t.get("dispatch")) for t in state["tickets"].values())
     for tid, t in state["tickets"].items():
+        # Do not prepare receipts against an epoch whose integration writer is
+        # already testing a union. Queue work for the next epoch instead.
+        if state.get("integration"):
+            break
         if room <= 0 or verifying >= 4:
             break
         if t["status"] != "queued" or t.get("dispatch") or t.get("retry_after", 0) > at:
@@ -194,7 +249,7 @@ def control(shadow=False):
             room -= 1
             verifying += 1
     state = read()
-    for uid in core.select(state, 20 - room, at=at):
+    for uid in core.select(state, 20 - room, at=at, unavailable_units=legacy_units):
         if room <= 0:
             break
         nonce = uuid.uuid4().hex[:12]
@@ -233,7 +288,7 @@ class Pulse:
         self.thread = threading.Thread(target=self.loop, daemon=True)
 
     def loop(self):
-        while not self.stop.wait(180):
+        while not self.stop.wait(300):
             try:
                 def renew(s):
                     lease = s["leases"].get(self.uid)
@@ -244,6 +299,11 @@ class Pulse:
             except Exception:
                 self.lost.set()
                 return
+            try:
+                wake_control()
+            except Exception:
+                # A scheduler API outage does not invalidate a renewed lease.
+                pass
 
     def __enter__(self):
         self.thread.start()
@@ -295,13 +355,16 @@ def run_model(prompt, directory, pulse, minutes, checkpoint=None):
                 process.wait()
 
 
-def external_resources():
+def external_resources(uid):
     # Legacy PRs are finite packages to adopt/repair; heavy-owner claims alone
     # do not reserve a domain. Participants can use the same lease registry.
     state = read()
-    our_prs = {t["pr"] for t in state["tickets"].values()}
-    our_prs |= {u["wip"]["pr"] for u in state["units"].values() if u.get("wip") and u["wip"].get("pr")}
-    result = []
+    our_prs = {t["pr"] for t in state["tickets"].values() if t["unit"] == uid}
+    u = state["units"][uid]
+    if u.get("wip") and u["wip"].get("pr"):
+        our_prs.add(u["wip"]["pr"])
+    from fleet import board_claims
+    result = board_claims(fs.file_text("docs/AGENT_BOARD.md"))
     for p in fs.paged(f"repos/{fs.PROJECT}/pulls?state=open&base=clean/integration"):
         if p["number"] not in our_prs:
             result.extend(f["filename"] for f in fs.paged(f"repos/{fs.PROJECT}/pulls/{p['number']}/files"))
@@ -388,6 +451,9 @@ def checkpoint(u, base, resources, body, ready=False):
 
 def worker(uid, nonce):
     enabled()
+    # Include setup time, retain fifteen minutes for checkpoint/push/handover.
+    job_started = float(os.environ.get("FLEET_JOB_STARTED", time.time()))
+    deadline = time.monotonic() + max(0, 285 * 60 - (time.time() - job_started))
     def acquire(s):
         u = s["units"][uid]
         if u.get("dispatch", {}).get("nonce") != nonce:
@@ -397,8 +463,36 @@ def worker(uid, nonce):
         u.pop("dispatch", None)
         return copy.deepcopy(u)
     u = update(acquire, "claim domain " + uid)
-    if not u:
-        return
+    while u:
+        if time.monotonic() >= deadline:
+            result = {"outcome": "checkpoint", "summary": "Job budget reached; saved work remains recoverable"}
+        else:
+            result = worker_package(u, deadline)
+        current = u["id"]
+        def complete(s):
+            core.finish(s, current, OWNER, result, time.time())
+            if result["outcome"] in {"access_refusal", "provider_error", "setup_error"}:
+                return None
+            if deadline - time.monotonic() < 25 * 60:
+                return None
+            return core.continue_domain(s, current, OWNER, RUN, time.time())
+        u = update(complete, "save package and take next in domain")
+        if result["outcome"] == "ready":
+            try:
+                wake_control(soon=True)
+            except Exception:
+                # The package is durable; heartbeat/completion will retry.
+                pass
+    print("Domain packages saved privately; runner handover complete.")
+
+
+def worker_package(u, deadline):
+    uid = u["id"]
+    def allowance(requested):
+        minutes = min(requested, (deadline - time.monotonic()) / 60)
+        if minutes <= 0:
+            raise TimeoutError("Job checkpoint boundary")
+        return minutes
     result = {"outcome": "setup_error", "summary": "Worker did not complete setup"}
     try:
         git("config", "user.name", "siedler-fleet")
@@ -412,30 +506,43 @@ def worker(uid, nonce):
             raise ValueError("Cannot inspect existing package merge")
         conflicts = [p for p in premerge.stdout.splitlines()[1:] if p.strip()] if premerge.returncode == 1 else []
         inherited = sorted(set(inherited + conflicts))
-        scratch = Path(os.environ["RUNNER_TEMP"]) / "domain"
+        scratch = Path(os.environ["RUNNER_TEMP"]) / ("domain-" + uid)
         scratch.mkdir(exist_ok=True)
+        if u.get("prior_package") and u.get("parent_overview"):
+            # The predecessor PR may still be gating, so its written overview
+            # is not necessarily on clean/integration. Carry it as read input.
+            previous = u["prior_package"]["head"]
+            command(["git", "fetch", "-q", "origin", previous], env=author_environment())
+            overview = git("show", previous + ":" + u["parent_overview"], check=False)
+            context = scratch / "previous-overview.md"
+            context.write_text(overview)
+            u["previous_overview_input"] = str(context)
         (scratch / "assignment.json").write_text(json.dumps(u, indent=2))
         plan_file, result_file = scratch / "plan.json", scratch / "result.json"
-        resources = external_resources()
+        for path in (plan_file, result_file, scratch / "pr-body.md"):
+            path.unlink(missing_ok=True)
+        resources = external_resources(uid)
         with Pulse(uid, OWNER) as pulse:
             plan = None
             for attempt in range(3):
                 prompt = (HERE.parent / "prompts/domain-plan.md").read_text()
                 prompt += f"\nAssignment: {scratch / 'assignment.json'}\nWrite plan: {plan_file}\nReserved resources: {json.dumps(resources)}"
                 prompt += f"\nExisting WIP files (must be retained and repaired): {json.dumps(inherited)}"
-                run_model(prompt, REPO, pulse, 15)
+                prompt += f"\nRemaining runner minutes: {int((deadline - time.monotonic()) / 60)}. The wrapper takes another package after this one."
+                run_model(prompt, REPO, pulse, allowance(15))
                 if git("status", "--porcelain"):
                     raise ValueError("Planning phase wrote source before a reservation")
                 plan = json.loads(plan_file.read_text())
                 plan["resources"] = sorted(set(plan.get("resources", []) + inherited))
                 plan = core.validate_plan(plan, u)
+                resources = sorted(set(resources + external_resources(uid)))
                 conflicts = update(lambda s: core.reserve(s, uid, OWNER, plan, time.time(), resources), "reserve package scope")
                 if not conflicts:
                     break
                 resources = sorted(set(resources + conflicts))
             else:
                 result = {"outcome": "stuck", "summary": "Three plans collided; next attempt selects a different native family"}
-                return
+                return result
             u["plan"] = plan
             (scratch / "plan.json").write_text(json.dumps(plan, indent=2))
             # Rebase repair is owned by the same DeepSeek run. The model gets
@@ -447,7 +554,7 @@ def worker(uid, nonce):
                           "Do not commit, push, change remotes, use -X ours/theirs or edit outside the reserved files. "
                           "Retain both existing integration behavior and the WIP package; run its focused tests. "
                           f"Plan: {plan_file}. Original source: {os.environ['S5_NATIVE_SOURCE']}.")
-                run_model(repair, REPO, pulse, 35)
+                run_model(repair, REPO, pulse, allowance(35))
                 files = scope_files(base, plan["resources"])
                 git("add", "--", *files)
                 if git("diff", "--name-only", "--diff-filter=U"):
@@ -455,12 +562,13 @@ def worker(uid, nonce):
                 git("commit", "--no-edit")
             prompt = (HERE.parent / "prompts/domain-worker.md").read_text()
             prompt += f"\nAssignment: {scratch / 'assignment.json'}\nPlan: {plan_file}\nResult: {result_file}\nOverview: {u['overview']}"
+            prompt += "\nFinish this coherent package promptly. The wrapper immediately submits its own PR, then replans the next package in this domain."
             body = "Recoverable domain checkpoint; not ready for integration.\n\n" + plan["goal"]
             def save():
                 checkpoint(u, base, plan["resources"], body)
             result = {"outcome": "checkpoint", "summary": "Timed attempt; continue the private overview and saved branch"}
             try:
-                run_model(prompt, REPO, pulse, min(170, plan["minutes"] + 20), checkpoint=save)
+                run_model(prompt, REPO, pulse, allowance(min(170, plan["minutes"] + 20)), checkpoint=save)
             finally:
                 # Preserve productive work on timeout/provider failure too.
                 save()
@@ -480,9 +588,7 @@ def worker(uid, nonce):
     except Exception as error:
         private_record(f"autonomy/errors/{RUN}.txt", type(error).__name__ + ": " + str(error))
         result["summary"] += "; " + type(error).__name__
-    finally:
-        update(lambda s: core.finish(s, uid, OWNER, result, time.time()), "record domain outcome")
-    print("Domain outcome saved privately.")
+    return result
 
 
 def gate_environment(base, head):
@@ -540,6 +646,25 @@ def preflight(tid, nonce):
     print("Preflight saved privately: " + status)
 
 
+def verify_current_claims(base, candidate):
+    """Recheck the entire union against the newest board before the Git CAS.
+
+    The first ticket's shell preflight cannot cover a newly posted claim on a
+    different ticket. Omit the older-PR exception here (a conservative hold).
+    """
+    scratch = Path(os.environ["RUNNER_TEMP"])
+    board, files, diff = (scratch / name for name in ("union-board.md", "union-files.txt", "union.diff"))
+    board.write_text(git("show", base + ":docs/AGENT_BOARD.md"))
+    files.write_text(git("diff", "--name-only", base, candidate) + "\n")
+    diff.write_text(git("diff", "--unified=0", base, candidate))
+    heartbeat = command(["bash", HERE / "heartbeat.sh", "fetch", scratch / "union-heartbeat.json"]).stdout.split()
+    result = command([sys.executable, HERE / "lane-claims.py", board, files,
+                      "--owners", "Opus,Codex", "--hours", "6", "--repo", REPO,
+                      "--diff", diff, "--old-rev", base, "--new-rev", candidate, *heartbeat])
+    if result.stdout.strip():
+        raise ValueError("Fresh lane claim on combined candidate; replan other domain work")
+
+
 def integrate(nonce):
     enabled()
     def acquire(s):
@@ -554,6 +679,7 @@ def integrate(nonce):
     tids = [t["id"] for t in tickets]
     union_failed = False
     single_failure = None
+    pushed = False
     try:
         git("remote", "set-url", "origin", f"https://github.com/{fs.PROJECT}.git")
         base = tickets[0]["receipt"]["base"]
@@ -578,6 +704,9 @@ def integrate(nonce):
             union_failed = status == "repair" and len(tickets) > 1
             single_failure = combined if status == "repair" and len(tickets) == 1 else None
             raise ValueError("Combined candidate did not pass every gate")
+        if not combined.get("data_release") or any(
+                t["receipt"].get("data_release") != combined["data_release"] for t in tickets):
+            raise ValueError("Private reference data changed since individual preflights")
         # All selected native differential suites are repeated on the union.
         git("checkout", "--detach", combined["commit"])
         for t in tickets:
@@ -613,11 +742,24 @@ def integrate(nonce):
             if contract.input_tree(REPO, "HEAD") != contract.input_tree(REPO, candidate):
                 raise ValueError("Rebuilt documentation merge changed verification input")
             candidate = git("rev-parse", "HEAD")
+        verify_current_claims(latest, candidate)
+        def intent(s):
+            lease = s["integration"]
+            if not lease or lease["nonce"] != nonce or lease["run"] != RUN:
+                raise ValueError("Integration reservation lost")
+            lease.update(candidate=candidate, combined=combined)
+        update(intent, "record tested integration intent before Git CAS")
         command(["git", "push", "-q", "origin", candidate + ":refs/heads/" + fs.BASE], env=author_environment())
+        pushed = True
         update(lambda s: core.accept(s, tids, candidate, time.time()), "accept exact combined tree")
         private_record(f"autonomy/accepted/{candidate}.json", json.dumps({"tickets": tids, "combined": combined}))
         print(f"Accepted {len(tickets)} packages; combined full matrix green.")
     except Exception as error:
+        if pushed:
+            # Preserve the durable intent. A later controller confirms the
+            # commit's ancestry and records acceptance without reapplying it.
+            print("Integration push succeeded; private acceptance will be reconciled.")
+            return
         private_record(f"autonomy/integration/{RUN}.txt", type(error).__name__ + ": " + str(error))
         def retry(s):
             if union_failed:

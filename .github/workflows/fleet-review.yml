@@ -1,7 +1,7 @@
 name: fleet-review
 on:
   pull_request:
-    paths: ['scripts/**', 'prompts/**', '.github/workflows/**']
+    paths: ['scripts/**', 'prompts/**', '.github/workflows/**', 'tests/**']
   workflow_dispatch:
 permissions:
   contents: read

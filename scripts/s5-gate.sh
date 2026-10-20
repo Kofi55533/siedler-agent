@@ -141,12 +141,10 @@ git show "origin/$BASE:docs/AGENT_BOARD.md" > "$G/board.md" 2>/dev/null || : > "
 git fetch -q origin '+refs/heads/codex/*:refs/remotes/origin/codex/*' '+refs/heads/opus/*:refs/remotes/origin/opus/*' 2>/dev/null || true
 prc=$(python -c "import json,sys;print(json.loads(sys.argv[1]).get('createdAt',''))" "$j")
 LCARGS=(--owners Opus,Codex --hours 6 --repo "$S5_REPO" --diff "$G/pr.diff" --old-rev "$(git merge-base "$bs" refs/gate/pr)" --new-rev refs/gate/pr --pr-created "$prc")
-# The independent fleet enforces live, run-backed resource leases before a
-# writer starts and again before integration. Historic heavy-owner board
-# claims cannot make that fleet wait for Codex/Opus availability (Dominic).
+# Autonomous admission uses the same claim rules as the existing merge gate.
+# Its scheduler chooses other work instead of waiting on an occupied file.
 if [ "${S5_AUTONOMOUS:-0}" = 1 ]; then
   [ "$DRY" = 1 ] || fail "autonomous verification requires --dry-run"
-  LCARGS=(--owners DeepSeekLease --hours 0 --repo "$S5_REPO" --diff "$G/pr.diff" --old-rev "$(git merge-base "$bs" refs/gate/pr)" --new-rev refs/gate/pr --pr-created "$prc")
 fi
 # a Codex claim holds only while the Codex box loop is active (heartbeat, Dominic 2026-10-20 11:14; scripts/heartbeat.sh)
 # (heartbeat.sh reads the asset download URL, no API call; "--heartbeat-unknown" = github.com unreachable)
@@ -210,7 +208,7 @@ fi  # end of PR-only checks (baseline-only mode skips them)
 # differential tests on the current checkout (merged candidate): exit 0, >= 1 passed, 0 failed
 xcheck(){ local lk=0 rc p f; [ -f crates/s5xcheck/Cargo.toml ] || { echo "no crates/s5xcheck"; return 1; }
   [ -f crates/s5xcheck/Cargo.lock ] || { cp recomp/Cargo.lock crates/s5xcheck/Cargo.lock 2>/dev/null; lk=1; }
-  set -f; CARGO_TARGET_DIR=$S5_REPO/recomp/target timeout -k 30 "${S5_XCHECK_TIMEOUT:-3600}" cargo test --release -q -j "$(nproc)" \
+  set -f; CARGO_TARGET_DIR=$S5_REPO/recomp/target timeout -k 30 "${S5_XCHECK_TIMEOUT:-3600}" cargo test --release -q -j "${CARGO_BUILD_JOBS:-2}" \
     --manifest-path crates/s5xcheck/Cargo.toml $XC > "$S5/gate-xcheck$1.log" 2>&1; rc=$?; set +f
   [ $lk = 1 ] && rm -f crates/s5xcheck/Cargo.lock
   read -r p f < <(grep -E '^test result' "$S5/gate-xcheck$1.log" | awk '{p+=$4;f+=$6} END{print p+0, f+0}')
@@ -241,7 +239,7 @@ blocked(){ { echo "### Muse self-merge gate: DEFERRED (no verdict)"; echo '```';
 suite(){ # $1=label [fixtures] -> $G/$1.tsv (fixture turn [secs]) in FIX order; longest first (secs of the cached baseline)
   local l=$1 fx=${2:-$FIX} f e
   rm -rf "$G/$l.d" "$G/$l.STOP"; mkdir -p "$G/$l.d"
-  ( while sleep 10; do free -m | awk 'NR==2{print $3}'; done ) > "$G/mem-$l.txt" & local mp=$!
+  ( while sleep 10; do free -m | awk 'NR==2{print $3}'; done ) > "$G/mem-$l.txt" 2>/dev/null & local mp=$!
   local t0=$(date +%s)
   for f in $fx; do echo "$(awk -v f="$f" '$1==f{print $3+0}' "$G/base.cached" 2>/dev/null || echo 0) $f"; done | sort -rn | awk '{print $NF}' |
     xargs -P "$PAR" -I{} bash -c 'live_one "$1" "$2"' _ {} "$l"
@@ -291,7 +289,7 @@ evaluate(){ # candidate = PR merged onto $bs: build, s5clean tests, differential
   CANDIDATE_COMMIT=$(git rev-parse HEAD)
   echo "candidate: PR head ${hs:0:8} merged onto $BASE@${bs:0:8}, tree ${CT:0:12}" >> "$G/report.txt"
   "$D/s5-build.sh" >/dev/null || { git checkout -q --detach "$bs"; fail "build (s5verify) failed on the merged tree ${CT:0:12}"; }
-  (cd crates/s5clean && cargo test -q -j "$(nproc)" > $S5/gate-test.log 2>&1); trc=$?
+  (cd crates/s5clean && cargo test -q -j "${CARGO_BUILD_JOBS:-2}" > $S5/gate-test.log 2>&1); trc=$?
   tl=$(grep -E '^test result' $S5/gate-test.log | awk '{p+=$4;f+=$6} END{print p" passed, "f" failed"}')
   echo "s5clean tests: exit=$trc ($tl)" >> "$G/report.txt"
   [ $trc = 0 ] || { git checkout -q --detach "$bs"; fail "s5clean tests"; }
@@ -348,7 +346,7 @@ while :; do
   git merge-tree --write-tree "$bs" refs/gate/pr >/dev/null 2>&1 || fail "merge conflict with moved $BASE@${bs:0:8}"
 done
 cp "$G/receipt.tsv" "$S5/gate-receipt-$PR.tsv" 2>/dev/null
-python3 "$D/gate_contract.py" receipt "$G/receipt.tsv" "$bs" "$CT" "$hs" "$CANDIDATE_COMMIT" "$FIX" "$XC" > "$G/receipt.json" || fail "incomplete typed receipt"
+python3 "$D/gate_contract.py" receipt "$G/receipt.tsv" "$bs" "$CT" "$hs" "$CANDIDATE_COMMIT" "$FIX" "$XC" "$DV2" > "$G/receipt.json" || fail "incomplete typed receipt"
 # re-check lane claims on the newest board (a claim may have been posted during the ~75 min live suite)
 git fetch -q origin "+refs/heads/$BASE:refs/remotes/origin/$BASE" 2>/dev/null && git show "origin/$BASE:docs/AGENT_BOARD.md" > "$G/board.md" 2>/dev/null
 LCARGS=("${LCARGS[@]:0:${#LCARGS[@]}-${#HB[@]}}"); read -r -a HB <<<"$("$D/heartbeat.sh" fetch "$G/heartbeat.json")"; LCARGS+=("${HB[@]}")

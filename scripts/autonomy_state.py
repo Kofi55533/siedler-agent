@@ -152,7 +152,7 @@ def reserve(state, uid, owner, plan, at, external=()):
     return []
 
 
-def select(state, active_jobs, legacy_jobs=0, limit=CAPACITY, at=None):
+def select(state, active_jobs, legacy_jobs=0, limit=CAPACITY, at=None, unavailable_units=()):
     """No LLM planner, fixed domain quotas or dependency on a heavy owner.
 
     Existing jobs count even when their heartbeat expires. Repairs and never
@@ -164,12 +164,56 @@ def select(state, active_jobs, legacy_jobs=0, limit=CAPACITY, at=None):
     room = max(0, min(CAPACITY, limit) - active_jobs - legacy_jobs)
     candidates = [u for u in state["units"].values()
                   if u["status"] in {"ready", "repair"} and not u.get("dispatch")
+                  and u["id"] not in unavailable_units
                   and u["id"] not in state["leases"] and outstanding(u)
                   and (at is None or u.get("retry_after", 0) <= at)]
     candidates.sort(key=lambda u: (u["status"] != "repair", u["last_served"], u["no_gain"], u["id"]))
-    # Reserve verification capacity only when receipts are actually pending.
-    pending = sum(t["status"] in {"queued", "verifying"} for t in state["tickets"].values())
-    return [u["id"] for u in candidates[:max(0, room - min(VERIFY_SLOTS, pending))]]
+    # Keep four runner slots for gates even before the first package arrives.
+    # Otherwise long workers can occupy every slot and starve their own PRs.
+    gates = sum(t["status"] == "verifying" or bool(t.get("dispatch")) for t in state["tickets"].values())
+    gates += bool(state.get("integration"))
+    reserve = max(0, VERIFY_SLOTS - gates)
+    return [u["id"] for u in candidates[:max(0, room - reserve)]]
+
+
+def continue_domain(state, uid, owner, run, at):
+    """Start another independent package without releasing this runner slot.
+
+    A submitted/checkpointed cut retains its own branch, gate lease and native
+    obligations. Move its unattempted remainder to a successor in the same
+    domain, so neither a slow nor failing gate strands a five-hour worker.
+    """
+    u = state["units"][uid]
+    if state["provider_hold"] or state.get("provider_retry_after", 0) > at:
+        return None
+    selected = set(u.get("plan", {}).get("addresses", []))
+    remaining = [a for a in outstanding(u) if a not in selected]
+    if selected and remaining and (u.get("wip") or u["status"] == "gating"):
+        root = u.get("continuation_root", uid)
+        n = 1
+        while f"{root}-next{n}" in state["units"]:
+            n += 1
+        child = f"{root}-next{n}"
+        successor = unit(child, u["domain"], remaining, at, u)
+        successor.update(parent=uid, parent_overview=u["overview"], continuation_root=root,
+                         prior_package=copy.deepcopy(u.get("wip")), findings=copy.deepcopy(u["findings"]))
+        state["units"][child] = successor
+        u["addresses"] = [a for a in u["addresses"] if a not in set(remaining)]
+    candidates = [v for v in state["units"].values()
+                  if v["domain"] == u["domain"] and v["id"] != uid
+                  and v["status"] in {"ready", "repair"} and not v.get("dispatch")
+                  and v["id"] not in state["leases"] and outstanding(v)
+                  and v.get("retry_after", 0) <= at]
+    candidates.sort(key=lambda v: (v["status"] != "repair", v["last_served"], v["id"]))
+    for v in candidates:
+        if claim_unit(state, v["id"], owner, run, at):
+            event(state, "continue_domain", at, previous=uid, unit=v["id"], run=str(run))
+            return copy.deepcopy(v)
+    # An evidence-only attempt can re-plan its unchanged domain immediately;
+    # no-gain accounting in finish() splits a repeatedly stuck assignment.
+    if u["status"] in {"ready", "repair"} and claim_unit(state, uid, owner, run, at):
+        return copy.deepcopy(u)
+    return None
 
 
 def finish(state, uid, owner, result, at):
@@ -260,6 +304,19 @@ def disjoint_batch(state, maximum=4):
         base = t["receipt"]["base"]
         if len(batch) == maximum:
             break
+    return batch
+
+
+def integration_ready(state, at, coalesce_seconds=180):
+    batch = disjoint_batch(state)
+    if not batch:
+        return []
+    oldest = min(state["tickets"][t]["receipt"].get("measured_at", 0) for t in batch)
+    # Give parallel preflights of the current epoch a bounded chance to join.
+    # Workers continue running while this short admission delay elapses.
+    if len(batch) < 4 and at - oldest < coalesce_seconds and any(
+            t["status"] == "verifying" for t in state["tickets"].values()):
+        return []
     return batch
 
 

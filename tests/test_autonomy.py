@@ -111,11 +111,32 @@ class StateTests(unittest.TestCase):
     def test_capacity_counts_infrastructure_and_legacy(self):
         s = fixture()
         self.assertEqual(state.select(s, 18, legacy_jobs=2), [])
-        self.assertEqual(len(state.select(s, 18)), 2)
+        self.assertEqual(state.select(s, 18), [])
+        self.assertEqual(len(state.select(s, 14)), 2)
 
     def test_pending_dispatch_is_not_dispatched_twice(self):
         s = fixture(); s["units"]["battle"]["dispatch"] = {"nonce": "already"}
         self.assertNotIn("battle", state.select(s, 0))
+
+    def test_a_live_legacy_writer_is_not_duplicated_during_migration(self):
+        self.assertNotIn("battle", state.select(fixture(), 1, unavailable_units={"battle"}))
+
+    def test_verification_capacity_is_not_counted_twice(self):
+        s = fixture()
+        for n in range(4):
+            s["tickets"][str(n)] = {"status": "verifying"}
+        self.assertEqual(len(state.select(s, 18)), 2)
+
+    def test_long_workers_cannot_starve_the_first_gate_jobs(self):
+        s = fixture()
+        self.assertEqual(state.select(s, 16), [])
+        self.assertEqual(len(state.select(s, 15)), 1)
+
+    def test_provider_error_backoff_is_not_a_new_runner_loop(self):
+        s = fixture(); state.claim_unit(s, "battle", "one", 1, 1)
+        state.finish(s, "battle", "one", {"outcome": "provider_error"}, 2)
+        self.assertEqual(state.select(s, 0, at=100), [])
+        self.assertTrue(state.select(s, 0, at=1000))
 
     def test_no_heavy_owner_or_dependency_blocks_selection(self):
         s = fixture()
@@ -188,6 +209,14 @@ class StateTests(unittest.TestCase):
             s["tickets"][str(n)] = {"id": str(n), "status": "verified", "created": n,
                                      "resources": [str(n)], "receipt": {"base": "same"}}
         self.assertEqual(state.disjoint_batch(s), ["1"])
+
+    def test_parallel_receipts_get_a_bounded_coalescing_window(self):
+        s = fixture(); s["tickets"] = {
+            "1": {"id": "1", "status": "verified", "created": 1, "resources": ["one.rs"],
+                  "receipt": {"base": "same", "measured_at": 100}},
+            "2": {"id": "2", "status": "verifying"}}
+        self.assertEqual(state.integration_ready(s, 200), [])
+        self.assertEqual(state.integration_ready(s, 300), ["1"])
 
 
 class ReceiptTests(unittest.TestCase):

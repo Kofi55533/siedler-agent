@@ -53,16 +53,19 @@ class AtomicIntegrationTests(unittest.TestCase):
             self.state["tickets"][tid] = {"id": tid, "unit": uid, "pr": i, "head": self.heads[i - 1],
                 "resources": [f"crates/s5clean/src/part{i}.rs"], "status": "verified", "proofs": [],
                 "created": i, "receipt": {"base": self.base, "tree": self.tree,
-                "fixtures": {"combat": {"before": 315, "after": 315}}, "scripts": contract.script_digest(runtime.HERE)}}
+                "fixtures": {"combat": {"before": 315, "after": 315}}, "scripts": contract.script_digest(runtime.HERE),
+                "data_release": "synthetic"}}
             self.state["leases"][uid] = {"owner": "gate:" + tid, "run": None, "resources": []}
         self.state["integration"] = {"nonce": "batch", "run": None, "tickets": ["1", "2"], "at": 1}
-        self.combined = {"base": self.base, "commit": self.candidate, "tree": self.tree, "fixtures": {"combat": {}}}
+        self.combined = {"base": self.base, "commit": self.candidate, "tree": self.tree,
+                         "fixtures": {"combat": {}}, "data_release": "synthetic"}
         self.patches = []
         self.patches.append(patch.object(runtime, "REPO", self.repo))
         self.patches.append(patch.object(runtime, "REF", "main"))
         self.patches.append(patch.dict(os.environ, {"FLEET_V2_ENABLED": "true", "GH_TOKEN": "offline-test-only",
                                                   "RUNNER_TEMP": str(self.root)}))
         self.patches.append(patch.object(runtime, "private_record"))
+        self.patches.append(patch.object(runtime, "verify_current_claims"))
         self.patches.append(patch.object(runtime, "update", side_effect=lambda op, *a, **kw: op(self.state)))
         self.patches.append(patch.object(runtime.fs, "api", side_effect=self.api))
         self.real_command = runtime.command
@@ -87,6 +90,10 @@ class AtomicIntegrationTests(unittest.TestCase):
                               capture_output=True, text=True, check=True).stdout.strip()
 
     def api(self, path, *args):
+        if "/compare/" in path:
+            return {"status": "ahead", "files": [{"filename": "crates/s5clean/src/part1.rs"}]}
+        if "/actions/runs/" in path:
+            return {"status": "completed"}
         if "/pulls/" in path:
             n = int(path.rsplit("/", 1)[1])
             return {"state": "open", "body": "", "head": {"sha": self.heads[n - 1]},
@@ -168,6 +175,33 @@ class AtomicIntegrationTests(unittest.TestCase):
             runtime.integrate("batch")
         gate.assert_not_called()
         self.assertEqual(self.tip(), self.base)
+
+    def test_changed_private_data_invalidates_the_batch(self):
+        self.combined["data_release"] = "different"
+        with patch.object(runtime, "run_gate", return_value=("verified", self.combined)):
+            runtime.integrate("batch")
+        self.assertEqual(self.tip(), self.base)
+        self.assertTrue(all(t["status"] == "queued" for t in self.state["tickets"].values()))
+
+    def test_new_claim_on_any_ticket_holds_the_combined_push(self):
+        with patch.object(runtime, "run_gate", return_value=("verified", self.combined)), \
+                patch.object(runtime, "verify_current_claims", side_effect=ValueError("fresh claim on second ticket")):
+            runtime.integrate("batch")
+        self.assertEqual(self.tip(), self.base)
+        self.assertFalse(any(t["status"] == "accepted" for t in self.state["tickets"].values()))
+
+    def test_accepted_git_push_recovers_after_private_state_write_fails(self):
+        original_accept = core.accept
+        with patch.object(runtime, "run_gate", return_value=("verified", self.combined)), \
+                patch.object(core, "accept", side_effect=RuntimeError("transient state write failure")):
+            runtime.integrate("batch")
+        self.assertEqual(self.tip(), self.candidate)
+        self.assertEqual(self.state["integration"]["candidate"], self.candidate)
+        with patch.object(runtime, "snapshot", return_value={"runs": {}, "prs": [], "at": 4000}), \
+                patch.object(runtime, "read", side_effect=lambda: self.state), \
+                patch.object(core, "select", return_value=[]):
+            runtime.control()
+        self.assertTrue(all(t["status"] == "accepted" for t in self.state["tickets"].values()))
 
     def test_json_ledger_changes_verification_input(self):
         before = contract.input_tree(self.repo, "HEAD")
