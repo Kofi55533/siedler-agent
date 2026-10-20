@@ -22,16 +22,12 @@ draft PRs to the private repos; this repo contains only the workflow, and commen
   conflicted or were gate-measured without moving a boundary (comment with reason; branches kept; opus/codex/haiku heads and
   non-clean/integration bases never touched).
 
-## Work split (Opus decision 2026-10-18 20:40, `prompts/planner.md`)
-No extra DeepSeek runs for now. The existing ~20 runs: 50% frontier diagnosis, 20% frontier-reached ports, 10% scenarios
-(new code path or new unmodelled marker only), 20% hygiene (open siedler-sim-rs PRs below 60: close stale/superseded drafts and
-duplicates, rebase/merge green ones). WIP limit: at most 1 open PR per run; the planner creates no task for a lane that already has an
-open agent PR. Revisit when open PRs < 40 and DeepSeek has moved a main frontier itself.
+## Independent domain fleet
 
-## Priority rule (Dominic 2026-10-17 00:11)
-Progress is measured ONLY by first-divergence turns moving forward on the live scenarios.
-Every OpenCode run must target the current first divergence of one scenario, find the root cause at that turn,
-and land a **wired** fix (hooked into World tick/dispatch) that moves that boundary.
-No doc-only analysis PRs and no unwired helpers. If wiring is in a Codex/Opus-claimed area, post an explicit
-wiring request on `docs/AGENT_BOARD.md` instead. Self-merge gate criterion remains no-regression.
+The approved v2 rollout replaces the fixed frontier/planner quota with continuing domain ownership across all
+29,723 logic obligations. Workers use the 300-minute job budget, submit each package independently, then take
+another package in the same domain. Codex and Opus are optional contributors. The existing strict merge gate
+remains mandatory. See [operation, verification and rollback](docs/FLEET_V2.md).
 
+The repository variable `FLEET_V2_ENABLED` switches between v2 and the preserved legacy refill path. Existing
+jobs are never canceled. No model or provider-refusal workaround is part of the switch.

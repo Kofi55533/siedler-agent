@@ -1,0 +1,46 @@
+name: fleet-worker-v2
+run-name: domain ${{ inputs.unit }} ${{ inputs.nonce }}
+on:
+  workflow_dispatch:
+    inputs:
+      unit: {required: true, type: string}
+      nonce: {required: true, type: string}
+permissions:
+  contents: read
+concurrency:
+  group: fleet-domain-${{ inputs.unit }}
+  cancel-in-progress: false
+jobs:
+  worker:
+    if: vars.FLEET_V2_ENABLED == 'true' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+      - name: Record the whole job budget before setup
+        run: echo "FLEET_JOB_STARTED=$(date +%s)" >> "$GITHUB_ENV"
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - name: Private game and native reference setup
+        env:
+          T: ${{ secrets.PRIVATE_REPO_TOKEN }}
+        run: |
+          scripts/s5-setup.sh clean/integration 1
+          echo "S5_SCRIPTS=$GITHUB_WORKSPACE/scripts" >> "$GITHUB_ENV"
+      - name: Install the existing OpenCode CLI
+        run: npm i -g opencode-ai@1.19.3 >/dev/null 2>&1
+      - name: Native source and continuing domain package
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+          FLEET_V2_ENABLED: ${{ vars.FLEET_V2_ENABLED }}
+          UNIT: ${{ inputs.unit }}
+          NONCE: ${{ inputs.nonce }}
+          CARGO_BUILD_JOBS: '2'
+        run: |
+          source scripts/s5-env.sh
+          umask 077
+          mkdir -p ~/.local/share/opencode
+          printf '{"opencode":{"type":"api","key":"%s"}}' "$OPENCODE_API_KEY" > ~/.local/share/opencode/auth.json
+          trap 'rm -f ~/.local/share/opencode/auth.json' EXIT
+          python3 scripts/autonomy.py worker --unit "$UNIT" --nonce "$NONCE"
