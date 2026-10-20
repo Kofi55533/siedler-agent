@@ -100,7 +100,11 @@ jobs:
           # 3) launch into free slots (even while a planner runs)
           launched=""
           for n in $ORDER; do
-            [ "$act" -ge "$TARGET" ] && break
+            # keep one slot for the planner once this launch would take the backlog below low-water: otherwise the queue
+            # drains while all TARGET slots are busy, step 4 finds "no free slot", and the planner starts only after the
+            # queue is empty (11:35 -> 11:49 on 2026-10-20, active fell 18 -> 10)
+            lim=$TARGET; [ "$plan" -eq 0 ] && [ "$backlog" -le "$LOW_WATER" ] && lim=$((TARGET-1))
+            [ "$act" -ge "$lim" ] && break
             c=$(gh_ issue view "$n" -R "$R" --json comments -q '[.comments[]|select(.body|startswith("/opencode"))]|length') || continue
             if [ "$c" != 0 ]; then
               gh_ issue edit "$n" -R "$R" --remove-label queued --add-label launched >/dev/null; log "#$n already started -> label fixed"; backlog=$((backlog-1)); continue
