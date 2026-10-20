@@ -62,7 +62,7 @@ jobs:
             [ "$busy" = 0 ] && gh_ workflow run coverage.yml -R "$R" --ref main && log "coverage map from ${cu:-never} -> dispatched coverage.yml"
           fi
           # 0b) keep the s5-gate baseline cache warm for the current clean/integration code tree (pre-check exits in ~20 s on a hit)
-          wb=$(gh_ run list -R "$R" -w gate-baseline.yml --limit 5 --json status -q '[.[]|select(.status!="completed")]|length' || echo 1)
+          wb=$(gh_ run list -R "$R" -w gate-baseline.yml --limit 10 --json status,displayTitle -q '[.[]|select(.status!="completed" and (.displayTitle|test("warm")))]|length' || echo 1)
           [ "$wb" = 0 ] && gh_ workflow run gate-baseline.yml -R "$R" --ref main -f mode=warm >/dev/null && log "gate-baseline warm-up dispatched"
           # 1) active slots = distinct issue titles of non-completed opencode runs
           J=$(gh_ run list -R "$R" -w opencode.yml --limit 100 --json status,displayTitle) || { log "gh run list failed -> skip"; exit 1; }

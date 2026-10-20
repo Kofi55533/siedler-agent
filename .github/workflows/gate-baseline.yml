@@ -1,4 +1,5 @@
 name: gate-baseline
+run-name: gate-baseline ${{ inputs.mode }} ${{ inputs.pr }}
 # Warms the s5-gate baseline cache (release gate-baseline, base-<key>.tsv) for the current clean/integration code tree,
 # so worker gates only measure the PR side. Dispatched by refill.yml when no warm-up runs; exits after a ~20 s
 # pre-check when the key is cached. mode=check-old|check-new runs a DRY-RUN gate on input pr (no merge, no comment)
