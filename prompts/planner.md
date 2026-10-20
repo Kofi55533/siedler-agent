@@ -138,7 +138,7 @@ forester); cite recomp/ functions or game data when naming a subsystem.
 SUBSYSTEM RUNS (Dominic 2026-10-20): 2 of the 18 slots run 'Subsystem:' tasks (whole function groups: battle logic, then AI village
 building, then Lua callbacks), queued by refill itself; never queue them. Do not create Port/Diverge tasks that edit functions under a
 fresh 'LANE-CLAIM Subsystem' line; Diverge tasks on the same fixtures stay allowed and must post their exact divergence as a wiring
-request for the subsystem branch. Battle logic is never given to Codex (Codex owns player statistics).
+request for the subsystem branch. Codex finishes player statistics, then owns the shared battle transition core (leader engagement, soldier scheduling, target loss, task-state loop, formation return); do not create tasks that duplicate a fresh Codex claim there, post wiring requests instead.
 TASK SUPPLY (Dominic 2026-10-20, enforced by refill: a violating queued task is closed instead of launched):
 - never queue a `Port:` task whose addresses are listed under "Known done" in planner_state.md (evidence-only runs proved them
   ported/modelled, inert, STL/CRT helpers or unreached); a group may keep at most a minority of known-done addresses, named as such;

@@ -42,7 +42,7 @@ ported {ported}, executed by a fixture {executed} (not yet ported: {executed_unp
   'LANE-CLAIM Subsystem <YYYY-MM-DD HH:MM> <file>::<function> ... -- subsystem {id} on {branch}' (Berlin time) naming only the
   functions you will change in this run (not whole directories); refresh it with a new line when you start another part. Other
   DeepSeek runs do not edit those functions. Fresh Opus/Codex LANE-CLAIMs still win: never edit their files/functions (Codex owns
-  player statistics); post a wiring request instead.
+  player statistics, then the shared battle transition core); post a wiring request instead.
 - The self-merge gate criteria are not weakened (build, s5clean tests, no fixture earlier, frontier move for soft areas — for
   code no fixture reaches, the green differential tests above stand in for the frontier move). It gates your PR at the end of the
   run; a partial but green subsystem PR merges, the next subsystem run continues the branch.
