@@ -151,7 +151,9 @@ jobs:
           append a one-line claim to docs/AGENT_BOARD.md ('<date> Muse claim: <task/fixture/subsystem> on agent/<branch>, issue #<n>'), commit and push
           to clean/integration (fetch+rebase and retry on conflict). If an equal or overlapping claim by Opus, Codex or another Muse instance exists
           and is not marked done, do NOT duplicate: pick nothing and say so in summary. Lanes/claims by Opus or Codex on the board always win.
-          At the end append real findings/handoffs (not routine status) to the board the same way. The gate announces self-merges on the board (exactly one entry per PR); never write your own self-merge entries.
+          At the end append real findings/handoffs (not routine status) to the board the same way. NEVER commit docs/AGENT_BOARD.md on your
+          agent/* PR branch (board edits in PRs conflict with every other PR; the push hook rejects them and the gate drops them): board lines
+          go only directly to clean/integration as above. The gate announces self-merges on the board (exactly one entry per PR); never write your own self-merge entries.
           Run s5-live for the relevant fixture(s) BEFORE your change (baseline) and AFTER. Never paste live log contents or game data into PRs/comments.
           When finished, you MUST write (with a shell command) a SHORT plain-text summary (max 5 lines, no code, no file contents, no secrets)
           to $W/summary.txt including 'live <fixture>: before turn X -> after turn Y' (frontier fixes must move it; frontier-reached ports must not regress any fixture). If no changes are requested, make none.
@@ -216,7 +218,8 @@ jobs:
           N: ${{ github.event.issue.number }}
           RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          if [ -s "$W/summary.txt" ]; then S="$(head -c 800 "$W/summary.txt")"
+          # gate verdict lines first (they were appended last and cut off by the 800-char limit)
+          if [ -s "$W/summary.txt" ]; then S="$( { grep -E '^gate #' "$W/summary.txt"; grep -vE '^gate #' "$W/summary.txt"; } | head -c 800)"
           elif [ -s "$RUNNER_TEMP/opencode.log" ]; then S="$(sed 's/\x1b\[[0-9;]*m//g' "$RUNNER_TEMP/opencode.log" | grep -v '^\s*$' | tail -n 3 | head -c 500)"
           else S='No summary produced.'; fi
           gh issue comment "$N" -R "$GITHUB_REPOSITORY" --body "$(printf '%s\n\n[run](%s)' "$S" "$RUN")"

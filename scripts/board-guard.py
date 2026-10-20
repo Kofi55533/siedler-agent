@@ -6,7 +6,10 @@ scratch (6192 -> 11 lines), wiping the history. Modes:
   check <old-sha> <new-sha> [repo]   exit 1 if the board at <new-sha> drops more than MAX_DROP non-blank lines of <old-sha>
                                      (multiset compare; a DS-REQ marker change '- [ ]' -> '- [~]'/'- [x]' counts as kept).
   prepush [repo]                     git pre-push hook body (stdin = '<lref> <lsha> <rref> <rsha>' lines): runs check for
-                                     pushes to refs/heads/clean/integration.
+                                     pushes to refs/heads/clean/integration; rejects pushes to refs/heads/agent/* whose
+                                     tip changes docs/AGENT_BOARD.md against merge-base(origin/clean/integration) (Dominic
+                                     2026-10-20: board edits on PR branches caused 22 of 76 gate conflicts; board lines go
+                                     directly to clean/integration). BOARD_GUARD_AGENT=0 disables that part.
   repair <start-sha> [repo]          after a run: if origin/clean/integration lost board lines that existed at <start-sha>,
                                      prepend the lost lines back (in their original order, deduplicated against the current
                                      board) and push one restore commit. Never force-pushes.
@@ -63,10 +66,30 @@ def check(repo, old_sha, new_sha):
     return 0
 
 
+def agent_board_change(repo, sha, ref):
+    """1 if the agent/* branch tip <sha> changes the board against its merge base with origin/clean/integration."""
+    if os.environ.get("BOARD_GUARD_AGENT", "1") == "0":
+        return 0
+    subprocess.run(["git", "-C", repo, "fetch", "-q", "origin", "+refs/heads/clean/integration:refs/remotes/origin/clean/integration"], capture_output=True)
+    mb = subprocess.run(["git", "-C", repo, "merge-base", "origin/clean/integration", sha], capture_output=True, text=True).stdout.strip()
+    if not mb:
+        return 0
+    if subprocess.run(["git", "-C", repo, "diff", "--quiet", mb, sha, "--", PATH]).returncode == 0:
+        return 0
+    sys.stderr.write(
+        f"board-guard: REJECTED push to {ref}: this PR branch changes {PATH}. Board lines never go through a PR (they conflict\n"
+        f"with every other PR); append them directly on clean/integration (fetch, append, commit, push to clean/integration).\n"
+        f"Fix: git checkout $(git merge-base origin/clean/integration HEAD) -- {PATH} && git commit -m 'drop board edits' {PATH} && push again.\n")
+    return 1
+
+
 def prepush(repo):
     rc = 0
     for line in sys.stdin:
         p = line.split()
+        if len(p) == 4 and p[2].startswith("refs/heads/agent/") and set(p[1]) != {"0"}:
+            rc |= agent_board_change(repo, p[1], p[2])
+            continue
         if len(p) != 4 or p[2] != "refs/heads/clean/integration" or set(p[1]) == {"0"} or set(p[3]) == {"0"}:
             continue
         if subprocess.run(["git", "-C", repo, "cat-file", "-e", p[3]], capture_output=True).returncode:
