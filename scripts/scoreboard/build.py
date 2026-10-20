@@ -142,7 +142,7 @@ def cache_save():
 def api(path, raw=False, auth=True):
     url = path if path.startswith("http") else "https://api.github.com/" + path.lstrip("/")
     is_api = url.startswith("https://api.github.com/")
-    priv = f"/repos/{PRIV}/" in url
+    priv = PRIV in url  # API path or raw download_url (raw.githubusercontent.com/<PRIV>/...): needs the PAT
     tok = TOKEN if priv else TOKEN_PUB
     if is_api and RATE["limited"]:
         raise RateLimited(RATE["what"])  # stop spending calls after the first rate-limit answer
