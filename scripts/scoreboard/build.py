@@ -241,7 +241,25 @@ PR_STATE, PR_BY_BRANCH = {}, {}
 PRREF = re.compile(r"(?:\bPR\s*#|\(#|\bdraft\s+#|\bDRAFT\s+(?:PR\s+)?#)(\d{2,5})\b")
 BRANCHREF = re.compile(r"\b(agent/[A-Za-z0-9._/-]+)")
 BASEWORD = re.compile(r"(?i)\bbase\s+(?:origin/)?clean/integration|\bon\s+(?:current\s+)?(?:origin/)?clean/integration|"
-                      r"(?:origin/)?clean/integration\s*@|\blive\s+base\b|\bbaseline\b|\(base\b|\bbase\s*@")
+                      r"(?:origin/)?clean/integration\s*@|\blive\s+base\b|\bbaseline\b|\(base\b|\bbase\s*@|"
+                      r"\b(?:equals?|unchanged\s+from|same\s+as|identical\s+to)\s+(?:the\s+)?base\b|\bbase\s+values?\b")
+# an entry that measured a PR head / branch (2026-10-20 12:22: "full live matrix re-measured on the rebased #542 head" gave
+# bc-full 9525 from a pre-#594 head after #542 had merged, so the PR-state check no longer caught it). Such entries count only
+# with their before-values or in a sentence that says the value is the base / clean/integration value (BASEWORD).
+HEADMEAS = re.compile(r"(?i)\b(?:on|at|of|for)\s+(?:the\s+)?(?:rebased\s+|current\s+|new\s+|updated\s+)?(?:PR\s+|DRAFT\s+)?#\d{2,5}(?:'s)?\s+"
+                      r"(?:PR\s+|branch\s+)?head\b|\bPR\s+head\b|\brebased\s+(?:PR\s+)?#\d{2,5}\b|"
+                      r"\b(?:matrix|measured|re-?measured|live|verified|verification)\s+on\s+(?:the\s+)?(?:PR\s+|feature\s+|rebased\s+)?branch\b|"
+                      r"\bon\s+(?:the\s+)?(?:branch\s+)?agent/[\w./-]+")
+HEADDRAFT = re.compile(r"(?i)\bdraft\s+(?:PR\s+)?#(\d{2,5})\b")
+
+
+def measures_head(e):
+    """True if the entry measured a PR head or branch (by its wording), independent of the PR's current state."""
+    if is_claim(e):
+        return False
+    t = clean_md(e["text"])
+    head = clean_md(e.get("head") or t.split("\n", 1)[0])
+    return bool(HEADMEAS.search(t) or HEADDRAFT.search(head))
 
 
 def is_claim(e):
@@ -271,6 +289,16 @@ def entry_unmerged_pr(e):
 
 
 PR_SRC = {}
+GATE = {}
+
+
+def head_prs_docs_only(e):
+    """The PRs an entry names (head line / agent/* branch, any state) are all fixture/docs-only -> its head = clean code."""
+    t = clean_md(e["text"])
+    head = clean_md(e.get("head") or t.split("\n", 1)[0])
+    cands = {int(n) for n in PRREF.findall(head) if int(n) in PR_STATE}  # issue refs (#765 ...) are not PRs
+    cands |= {PR_BY_BRANCH[b.rstrip(".,;:)")] for b in BRANCHREF.findall(t) if b.rstrip(".,;:)") in PR_BY_BRANCH}
+    return bool(cands) and not any(pr_changes_source(n) for n in cands)
 
 
 def pr_changes_source(n):
@@ -308,8 +336,11 @@ def board_value(entries, name, floor=0, total=None, start=0):
         t = clean_md(e["text"])
         claim = is_claim(e)
         unmerged = entry_unmerged_pr(e) if PR_STATE else None
-        if unmerged and not pr_changes_source(unmerged):
+        docs_only = bool(unmerged and not pr_changes_source(unmerged))
+        if docs_only:
             unmerged = None  # fixture/docs-only PR: its live values are measured with clean/integration code
+        if not unmerged and not docs_only and measures_head(e) and not head_prs_docs_only(e):
+            unmerged = "head"  # measured on a PR head/branch (PR may have merged since): same rule as an unmerged PR
         for pi, p in enumerate(pats):
             for mm in p.finditer(t):
                 explicit = pi < nexp
@@ -321,9 +352,11 @@ def board_value(entries, name, floor=0, total=None, start=0):
                 ident = bool(ident)
                 n = (int(n_id) if ident and n_id else (int(n_dv) if n_dv else None))
                 if not explicit and not ident:
-                    # "economy 360, build 650 ... are all IDENTICAL" -> same sentence says IDENTICAL, none says diverg
-                    a = max(t.rfind(".", 0, mm.start()), t.rfind("\n", 0, mm.start())) + 1
-                    b = min([x for x in (t.find(".", mm.end()), t.find("\n", mm.end())) if x >= 0] or [len(t)])
+                    # "economy 360, build 650 ... are all IDENTICAL" -> same clause says IDENTICAL, none says diverg
+                    # (clause ends at ';' too: "bc-full 12440, ..., late-economy 11138; IDENTICAL: wintersturm 1021" -> only
+                    # the values after "IDENTICAL:" are identical)
+                    a = max(t.rfind(".", 0, mm.start()), t.rfind("\n", 0, mm.start()), t.rfind(";", 0, mm.start())) + 1
+                    b = min([x for x in (t.find(".", mm.end()), t.find("\n", mm.end()), t.find(";", mm.end())) if x >= 0] or [len(t)])
                     seg = t[a:b]
                     if "IDENTICAL" in seg and not re.search(r"(?i)diverg|DIVERGENT", seg):
                         ident = True
@@ -357,6 +390,60 @@ def board_value(entries, name, floor=0, total=None, start=0):
                 return {"turn": n, "identical": ident, "time": e["time"], "line": e["line"], "agent": e["agent"],
                         "explicit": explicit, "unmerged_pr": unmerged}
     return None
+
+
+GATE_ROW = re.compile(r"^(\S+)\s+base\s+(\S+)\s+pr\s+(\S+)\s+(same|better|REGRESSION)\s*$")
+
+
+def gate_values(limit=80):
+    """Authoritative clean/integration values from the self-merge gate (Dominic 2026-10-20): for every PR the gate merged into
+    clean/integration, its PASS comment holds the live matrix 'base' vs 'pr' (= the PR on its base = the post-merge value).
+    Merges are replayed oldest -> newest. A gate whose measured base is not the parent of its merge commit (base moved
+    while it ran, e.g. #611 measured before #542 merged) counts its unchanged rows only as of its base commit's time, so a
+    merge after that base (#542: late-economy IDENT 36000) keeps its value; rows the PR changed count as of the merge. -> {fixture: {turn, identical, time (Berlin, merge time), pr}}"""
+    out = {}
+    pl = []
+    for page in (1, 2, 3):
+        r = safe(lambda: api(f"repos/{PRIV}/pulls?state=closed&base={urllib.parse.quote(BRANCH, safe='')}&sort=updated&direction=desc&per_page=100&page={page}"), [], "merged pulls")
+        pl += r
+        if len(r) < 100:
+            break
+    merged = sorted((p for p in pl if p.get("merged_at")), key=lambda p: p["merged_at"], reverse=True)[:limit]
+    for p in reversed(merged):  # oldest first
+        cs = safe(lambda: api(f"repos/{PRIV}/issues/{p['number']}/comments?per_page=100"), [], f"gate #{p['number']}")
+        body = next((c["body"] for c in reversed(cs or []) if "self-merge gate: PASS" in (c.get("body") or "").split("\n", 1)[0]
+                     and "merged into" in (c.get("body") or "") and "dry-run" not in (c.get("body") or "")), None)
+        if not body:
+            continue
+        stale_since = None  # outdated base: merges after this time are not in the gate's measurement
+        mb = re.search(r"\bbase=\S+@([0-9a-f]{7,40})", body)
+        if mb and p.get("merge_commit_sha"):
+            mc = safe(lambda: api(f"repos/{PRIV}/commits/{p['merge_commit_sha']}"), {}, f"merge #{p['number']}")
+            parents = [x["sha"] for x in (mc.get("parents") or [])]
+            if parents and not parents[0].startswith(mb.group(1)):
+                bc = safe(lambda: api(f"repos/{PRIV}/commits/{mb.group(1)}"), {}, f"gate base #{p['number']}")
+                stale_since = (bc.get("commit") or {}).get("committer", {}).get("date") or "0000"
+        when = iso(parse_ts(p["merged_at"]))
+        for line in body.splitlines():
+            m = GATE_ROW.match(line.strip())
+            if not m:
+                continue
+            prev = out.get(m.group(1))
+            # as-of time of the measurement: the merge for a fresh gate or a row the PR changed; the measured base's commit
+            # time for an unchanged row on an outdated base (it says nothing about merges after that base)
+            asof = stale_since if stale_since and m.group(2) == m.group(3) else p["merged_at"]
+            if prev and prev["asof"] > asof:
+                continue  # an earlier merge's value is newer knowledge than this outdated base
+            v = m.group(3)
+            mi = re.match(r"IDENT\((\d+)\)$", v)
+            if mi:
+                out[m.group(1)] = {"turn": int(mi.group(1)), "identical": True}
+            elif v.isdigit() and int(v) > 0:  # 0 = no live result (fixture missing / s5-live gave nothing)
+                out[m.group(1)] = {"turn": int(v), "identical": False}
+            else:
+                continue
+            out[m.group(1)].update(time=when, pr=p["number"], asof=asof)
+    return out
 
 
 def count_commands(text):
@@ -692,6 +779,8 @@ def main():
         BRANCHES += [b["name"] for b in br]
         if len(br) < 100:
             break
+    global GATE
+    GATE = gate_values()
     data = {"generated_utc": NOW.strftime("%Y-%m-%dT%H:%M:%SZ"), "generated_berlin": iso(NOW),
             "branch": BRANCH}
 
@@ -722,6 +811,9 @@ def main():
                          start=121 if name == "bc-full" else (tk["start"] if tk else 0))
         if bv and (not live or int(bv["line"]) > int(live[0]["line"])):
             v, vsrc, vwhen = bv, f"Board ({bv['agent']}, Zeile {bv['line']})", bv["time"]
+        gv = GATE.get(name)
+        if gv and (not v or not vwhen or gv["time"] >= vwhen):  # gate merge matrix = authoritative post-merge value
+            v, vsrc, vwhen = gv, f"Gate #{gv['pr']} (Merge {gv['time'][11:]})", gv["time"]
         ncmd = summ = None
         cp = f"fixtures/{fdir}/commands.jsonl" if fdir else None
         if cp and cp in ci_files:
@@ -763,6 +855,9 @@ def main():
             val, src, when = iv, "index.json (Erzeugung)", iv.get("time")
         else:
             val, src, when = None, None, None
+        gv = GATE.get(name)
+        if gv and (not val or not when or gv["time"] >= when):
+            val, src, when = gv, f"Gate #{gv['pr']} (Merge {gv['time'][11:]})", gv["time"]
         start, turns = f.get("start"), f.get("turns")
         if turns is None and val and val["identical"] and val["turn"]:
             turns = val["turn"]
