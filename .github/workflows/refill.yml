@@ -32,6 +32,10 @@ on:
         description: 'Target number of active opencode runs'
         required: false
         default: '18'
+      subsystem_slots:
+        description: 'Subsystem runs kept active/queued (of the target slots; scripts/subsystems.json order)'
+        required: false
+        default: '8'
 permissions:
   contents: read
   issues: write
@@ -53,6 +57,7 @@ jobs:
           RL_MIN: '100'
           R: ${{ github.repository }}
           TARGET: ${{ github.event.inputs.target || '18' }}
+          SUBSYSTEM_SLOTS: ${{ github.event.inputs.subsystem_slots || vars.SUBSYSTEM_SLOTS || '8' }}
           GH_TIMEOUT: '60'
           BACKLOG_TARGET: '14'
           LOW_WATER: '8'
@@ -116,8 +121,10 @@ jobs:
           # account's job limit does not leave launched opencode runs queued (DeepSeek starved, 2026-10-20 11:24)
           GBA=$(gbq '[.[]|select(.status=="in_progress")]|length'); isnum "$GBA" || GBA=0
           [ "$GBA" -gt 0 ] && { log "gate-baseline jobs running: $GBA (counted as slots)"; act=$((act+GBA)); }
-          # 1b) subsystem runs (Dominic 2026-10-20): keep 2 'Subsystem:' tasks active or queued (scripts/subsystems.json); they
-          #     are launched first, so 2 of the TARGET slots always port whole function groups
+          # 1b) subsystem runs (Dominic 2026-10-20, whole game bit-exact): keep SUBSYSTEM_SLOTS (default 8 of the TARGET 18)
+          #     'Subsystem:' tasks active or queued, in the order of scripts/subsystems.json (frontier blockers first, then the
+          #     dependency order of the whole-game map), one run per subsystem continuing its branch until it is complete;
+          #     they are launched first
           SUBSYS_TOKEN="$PAT" timeout -k 10 180 python3 scripts/subsystem_task.py ensure 2>&1 | while read -r l; do log "$l"; done
           # 2) queued backlog; close stale ones
           Q=$(gh_ issue list -R "$R" --label queued --state open --limit 100 --json number,title,createdAt) || { rl_low && { log "queued list failed under API rate limit ($RLMSG) -> cycle skipped"; exit 0; }; log "queued list failed -> skip"; exit 1; }

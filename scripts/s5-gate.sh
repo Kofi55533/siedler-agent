@@ -15,6 +15,13 @@
 # to clean/integration), conflicts name the files, Codex lane claims hold only while the Codex loop heartbeat is active, and a
 # "Frontier-fixture:" is installed from git/private releases (scripts/s5-fixture-install.sh) and measured on base and PR.
 # Never merges into main. Prints only fixture names and turn numbers (no log contents). Needs GH_TOKEN.
+# Code no fixture executes (Dominic 2026-10-20, whole game bit-exact): a "Subsystem <id>:" PR whose newly cited native
+# addresses in crates/s5clean/src include logic functions that no fixture executes (docs/subsystems/subsystems.json flags +
+# the current coverage map, scripts/subsys-xcheck.py) additionally needs green differential tests against the reference
+# (crates/s5xcheck, body line "Differential-tests: <cargo test args>", >= 1 passed / 0 failed on the merged candidate; each
+# such address in a crates/s5xcheck/tests file with a reference call; harness src/Cargo.toml unchanged) and a "Fixture:" or
+# "Fixture-request:" line. All other criteria are unchanged (no fixture earlier, Frontier-fixture included); only a soft-area
+# PR whose newly cited logic functions are ALL unexecuted may replace the frontier move by those green differential tests.
 # Speed (2026-10-20, same merge criteria): live fixtures run in parallel (S5_GATE_PARALLEL, default min(nproc, MemAvailable/3 GB));
 # the baseline (clean/integration) matrix is cached as asset base-<key>.tsv on release gate-baseline of siedler-agent,
 # key = code tree of the base without docs/*.md (the same "code unchanged" rule the moved-base check uses) + data-v2 assets
@@ -65,6 +72,7 @@ if [ "${S5_GATE_BASELINE_ONLY:-0}" = 1 ]; then
     k=$(bkey "$bs"); names=$(gh release view $BREL -R $BREPO --json assets -q '.assets[].name' 2>/dev/null) || { echo "$k $bs skip"; exit 0; }
     grep -qx "base-$k.tsv" <<<"$names" && echo "$k $bs hit" || echo "$k $bs miss"; exit 0; fi
 fi
+XC=""; XCALL=0; XCOK=0   # subsystem rule state (set by the PR-only checks below)
 if [ "${S5_GATE_BASELINE_ONLY:-0}" != 1 ]; then
 j=$(gh pr view "$PR" -R $R --json baseRefName,headRefName,headRefOid,state,isCrossRepository,files,createdAt) || apifail "pr lookup"
 read -r b h hs st x < <(python -c "import json,sys;d=json.loads(sys.argv[1]);print(d['baseRefName'],d['headRefName'],d['headRefOid'],d['state'],d['isCrossRepository'])" "$j")
@@ -158,7 +166,33 @@ for x in $(cat "$G/body.txt" | grep -oiE '^[[:space:]]*frontier-fixture:[[:space
   elif rl_hit; then defer "Frontier-fixture $x install (release lookup)"
   else echo "extra frontier fixture ${inst:-$x: not installable} (skipped)" >> "$G/report.txt"; fi
 done
+# subsystem rule (see header): plan from the diff/body/map before the expensive suite, run the tests after the build
+if grep -qiE '^[[:space:]]*subsystem\b' "$G/title.txt"; then
+  # coverage map: public release asset (download URL, no API call); unreadable -> only the map's flags (stricter, never weaker)
+  curl -fsSL --max-time 60 -o "$G/coverage.md" https://github.com/Kofi55533/siedler-agent/releases/download/coverage-cache/COVERAGE-full.md 2>/dev/null || : > "$G/coverage.md"
+  python3 "$D/subsys-xcheck.py" plan "$S5_REPO" "$bs" refs/gate/pr "$G/pr.diff" "$G/body.txt" "$G/coverage.md" > "$G/xcheck.txt" 2>/dev/null || fail "subsystem rule: subsys-xcheck.py failed"
+  if ! grep -qx none "$G/xcheck.txt"; then
+    xn=$(sed -n 's/^unexecuted //p' "$G/xcheck.txt" | wc -w)
+    xm=$(sed -n 's/^missing //p' "$G/xcheck.txt" | head -3 | tr '\n' ';')
+    [ -n "$xm" ] && fail "subsystem PR cites $xn function(s) no fixture executes, but: $xm"
+    xh=$(grep -E '^crates/s5xcheck/(src/|Cargo\.toml$|build\.rs$)' "$G/files.txt" | head -3 | tr '\n' ' ')
+    [ -n "$xh" ] && fail "subsystem PR relies on differential tests but changes the harness ($xh): harness changes go in a separate PR"
+    XC=$(sed -n 's/^tests //p' "$G/xcheck.txt"); XCALL=$(sed -n 's/^all-unexecuted //p' "$G/xcheck.txt")
+    # only cargo-test selection arguments (the body is untrusted input): --test <name>, --lib, --exact, filters
+    for w in $XC; do case "$w" in --test|--lib|--exact|--|--nocapture|--include-ignored) ;; -*) fail "Differential-tests: argument '$w' not allowed (use --test <name>, --lib, --exact, test name filters)" ;;
+      *) [[ "$w" =~ ^[A-Za-z0-9_:-]+$ ]] || fail "Differential-tests: argument '$w' not allowed" ;; esac; done
+    echo "subsystem rule: $xn newly cited function(s) no fixture executes -> differential tests '$XC' required" >> "$G/report.txt"
+  fi
+fi
 fi  # end of PR-only checks (baseline-only mode skips them)
+# differential tests on the current checkout (merged candidate): exit 0, >= 1 passed, 0 failed
+xcheck(){ local lk=0 rc p f; [ -f crates/s5xcheck/Cargo.toml ] || { echo "no crates/s5xcheck"; return 1; }
+  [ -f crates/s5xcheck/Cargo.lock ] || { cp recomp/Cargo.lock crates/s5xcheck/Cargo.lock 2>/dev/null; lk=1; }
+  set -f; CARGO_TARGET_DIR=$S5_REPO/recomp/target timeout -k 30 "${S5_XCHECK_TIMEOUT:-3600}" cargo test --release -q -j "$(nproc)" \
+    --manifest-path crates/s5xcheck/Cargo.toml $XC > "$S5/gate-xcheck$1.log" 2>&1; rc=$?; set +f
+  [ $lk = 1 ] && rm -f crates/s5xcheck/Cargo.lock
+  read -r p f < <(grep -E '^test result' "$S5/gate-xcheck$1.log" | awk '{p+=$4;f+=$6} END{print p+0, f+0}')
+  echo "exit=$rc, $p passed, $f failed"; [ $rc = 0 ] && [ "$p" -ge 1 ] && [ "$f" = 0 ]; }
 live_one(){ # $1=fixture $2=label: one s5-live run -> $G/$2.d/<fixture> "fixture turn secs"; fail-fast vs $G/base.tsv for label pr
   local f=$1 l=$2 t0 out n k b
   [ -e "$G/$l.STOP" ] && return 0
@@ -218,6 +252,8 @@ git -c user.name=gate -c user.email=gate@local merge -q --no-edit --no-ff refs/g
 tl=$(grep -E '^test result' $S5/gate-test.log | awk '{p+=$4;f+=$6} END{print p" passed, "f" failed"}')
 echo "s5clean tests: exit=$trc ($tl)" >> "$G/report.txt"
 [ $trc = 0 ] || { git checkout -q --detach "$bs"; fail "s5clean tests"; }
+if [ -n "$XC" ]; then xr=$(xcheck ""); xrc=$?; echo "differential tests ($XC): $xr" >> "$G/report.txt"
+  [ $xrc = 0 ] || { git checkout -q --detach "$bs"; fail "differential tests for code no fixture executes not green ($xr)"; }; XCOK=1; fi
 suite pr
 git checkout -q --detach "$bs"
 reg=0
@@ -232,8 +268,10 @@ done
 [ $reg = 0 ] || fail "first divergence earlier on at least one fixture (no-regression rule, no Port: exception)"
 moved=$(grep -cE ' better$' "$G/report.txt")
 if [ -n "$soft" ]; then
-  [ "$moved" -gt 0 ] || fail "touches a former claimed area ($soft) but moves no frontier"
-  echo "former claimed area: frontier moved on $moved fixture(s), allowed" >> "$G/report.txt"
+  if [ "$moved" -gt 0 ]; then echo "former claimed area: frontier moved on $moved fixture(s), allowed" >> "$G/report.txt"
+  elif [ "$XCOK" = 1 ] && [ "$XCALL" = 1 ]; then
+    echo "former claimed area: no frontier move, but every newly cited logic function is unexecuted and its differential tests pass (subsystem rule), no fixture earlier" >> "$G/report.txt"
+  else fail "touches a former claimed area ($soft) but moves no frontier"; fi
 fi
 # base moved meanwhile: still valid if every new base commit only touched docs/*.md (board, notes) -> measured code unchanged
 nb=$(git ls-remote origin refs/heads/$BASE | cut -f1)
@@ -249,6 +287,7 @@ if [ "$nb" != "$bs" ]; then
     git -c user.name=gate -c user.email=gate@local merge -q --no-edit --no-ff refs/gate/pr >/dev/null 2>&1 || { git merge --abort; git checkout -q --detach "$bs"; fail "merge conflict with moved $BASE"; }
     "$D/s5-build.sh" >/dev/null || { git checkout -q --detach "$bs"; fail "build on moved base failed"; }
     (cd crates/s5clean && cargo test -q -j "$(nproc)" > $S5/gate-test2.log 2>&1) || { git checkout -q --detach "$bs"; fail "s5clean tests on moved base"; }
+    if [ -n "$XC" ]; then xr=$(xcheck 2) || { git checkout -q --detach "$bs"; fail "differential tests on moved base ($xr)"; }; fi
     git checkout -q --detach "$bs"
     echo "base moved to ${nb:0:8} (code changed): merge+build+s5clean tests green on the new base" >> "$G/report.txt"
   fi

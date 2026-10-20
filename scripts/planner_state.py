@@ -178,7 +178,7 @@ try:
 except Exception as e:
     errors.append(f"claim list: {str(e)[:120]}")
 P("(The gate holds a PR only if it changes a claimed function, or touches a whole-file claim; see scripts/lane-claims.py.)\n")
-P("## Subsystem runs (2 slots, queued by refill from scripts/subsystems.json; never queue 'Subsystem:' tasks yourself)")
+P("## Subsystem runs (SUBSYSTEM_SLOTS, default 8, queued by refill from scripts/subsystems.json; never queue 'Subsystem:' tasks yourself)")
 try:
     for owner, t, items in lcm.parse_items(board):
         if owner == "Subsystem" and dt.timedelta(0) <= nowb - t < dt.timedelta(hours=6):
