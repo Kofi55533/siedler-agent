@@ -50,13 +50,21 @@ board_note(){ # $1 state $2 until: one append-only note on clean/integration (di
     sleep $((15*i))
   done; rm -rf "$tmp"; log "board note FAILED ($1)"; return 1; }
 prev=""; lastpub=0; noted=$(cat $D/codex-heartbeat.noted 2>/dev/null)
+# API budget (2026-10-20 13:00-13:26 the account hit 5000/5000 REST calls/h): the state is derived locally every 60 s (no API);
+# a publish (~3 REST calls) happens on a state change and otherwise every 5 min. After a failed publish the next try waits
+# 5 min, or until the rate-limit reset if the core limit is exhausted (was: retry every 60 s, 13:05-13:26 ~60 tries/h).
+nexttry=0
 log "started pid=$$"
 while true; do
   read -r s u < <(state)
   now=$(date +%s)
-  if [ "$s $u" != "$prev" ] || [ $((now-lastpub)) -ge 300 ]; then
-    if "$HB" put Codex "$s" "$u"; then lastpub=$now; [ "$s $u" != "$prev" ] && log "published $s ${u}"; prev="$s $u"
-    else log "publish failed ($s)"; fi
+  if { [ "$s $u" != "$prev" ] || [ $((now-lastpub)) -ge 300 ]; } && [ "$now" -ge "$nexttry" ]; then
+    if "$HB" put Codex "$s" "$u"; then lastpub=$now; nexttry=0; [ "$s $u" != "$prev" ] && log "published $s ${u}"; prev="$s $u"
+    else
+      rl=$(gh api rate_limit -q '"\(.resources.core.remaining) \(.resources.core.reset)"' 2>/dev/null)  # rate_limit itself is free
+      if [ "${rl%% *}" = 0 ]; then nexttry=$(( ${rl##* } + 5 )); log "publish failed ($s): API rate limit, next try $(date -d @$nexttry '+%H:%M')"
+      else nexttry=$((now+300)); log "publish failed ($s), next try in 5 min"; fi
+    fi
   fi
   # one board note per non-active episode (blocked/stopped); re-armed when the loop is active again
   if [ "$s" = active ]; then [ -n "$noted" ] && { noted=""; rm -f $D/codex-heartbeat.noted; }

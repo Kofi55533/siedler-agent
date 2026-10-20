@@ -29,7 +29,8 @@ jobs:
           git clone -q --depth 1 -b clean/integration "https://x-access-token:${T}@github.com/Kofi55533/siedler-sim-rs.git" /opt/s5/siedler-sim-rs
           r=$(S5_GATE_BASELINE_ONLY=1 S5_GATE_KEY_ONLY=1 S5_GATE_COMMENT=0 S5_LIVE_TIMEOUT=900 scripts/s5-gate.sh baseline | tail -n1)
           echo "baseline key: $r"
-          case "$r" in *" hit") echo need=false >> "$GITHUB_OUTPUT" ;; *) echo need=true >> "$GITHUB_OUTPUT" ;; esac
+          # "skip": data-v2/cache asset list unreadable (API rate limit) -> no warm-up this time (refill retries every 5 min)
+          case "$r" in *" hit"|*" skip") echo need=false >> "$GITHUB_OUTPUT" ;; *) echo need=true >> "$GITHUB_OUTPUT" ;; esac
   warm:
     needs: precheck
     if: needs.precheck.outputs.need == 'true'
@@ -114,15 +115,20 @@ jobs:
           git clone -q --filter=blob:none --no-checkout "https://x-access-token:${T}@github.com/Kofi55533/siedler-sim-rs.git" /tmp/sr
           cd /tmp/sr
           git fetch -q origin "+refs/pull/$PR/head:refs/gate/pr" '+refs/heads/codex/*:refs/remotes/origin/codex/*' '+refs/heads/opus/*:refs/remotes/origin/opus/*'
-          j=$(gh pr view "$PR" -R Kofi55533/siedler-sim-rs --json state,files,createdAt)
+          # API rate limit (2026-10-20 13:00-13:26 the account hit 5000/5000): a failed lookup decides nothing -> go=false with
+          # "deferred" (no gate comment; the PR's last verdict stays, refill re-dispatches after 90 min)
+          rl_hit(){ local r; r=$(gh api rate_limit -q '"\(.resources.core.remaining) \(.resources.graphql.remaining)"' 2>/dev/null) || return 1; [ "${r%% *}" = 0 ] || [ "${r##* }" = 0 ]; }
+          j=$(gh pr view "$PR" -R Kofi55533/siedler-sim-rs --json state,files,createdAt) || { echo "deferred: pr lookup failed$(rl_hit && echo ' (API rate limit)')"; echo go=false >> "$GITHUB_OUTPUT"; exit 0; }
           [ "$(jq -r .state <<<"$j")" = OPEN ] || { echo "PR not open"; echo go=false >> "$GITHUB_OUTPUT"; exit 0; }
-          jq -r '.files[].path' <<<"$j" > /tmp/files.txt; gh pr diff "$PR" -R Kofi55533/siedler-sim-rs > /tmp/pr.diff
+          jq -r '.files[].path' <<<"$j" > /tmp/files.txt
+          gh pr diff "$PR" -R Kofi55533/siedler-sim-rs > /tmp/pr.diff || { git diff "$(git merge-base origin/clean/integration refs/gate/pr)" refs/gate/pr > /tmp/pr.diff && echo "pr diff: local git"; } || { echo "deferred: no PR diff"; echo go=false >> "$GITHUB_OUTPUT"; exit 0; }
           git show origin/clean/integration:docs/AGENT_BOARD.md > /tmp/board.md
           # Codex claims hold only while the Codex box loop heartbeat is active (scripts/heartbeat.sh)
           read -r -a HB <<<"$("$GITHUB_WORKSPACE/scripts/heartbeat.sh" fetch /tmp/heartbeat.json)"; echo "heartbeat: ${HB[*]}"
           lc=$(python3 "$GITHUB_WORKSPACE/scripts/lane-claims.py" /tmp/board.md /tmp/files.txt --owners Opus,Codex --hours 6 --repo /tmp/sr --diff /tmp/pr.diff \
                  --old-rev "$(git merge-base origin/clean/integration refs/gate/pr)" --new-rev refs/gate/pr --pr-created "$(jq -r .createdAt <<<"$j")" "${HB[@]}")
-          if [ -n "$lc" ]; then echo "still held: $lc"; echo go=false >> "$GITHUB_OUTPUT"; else echo "no claim holds PR #$PR -> full gate"; echo go=true >> "$GITHUB_OUTPUT"; fi
+          if [ -n "$lc" ] && [ "${HB[0]:-}" = --heartbeat-unknown ] && rl_hit; then echo "deferred: heartbeat unknown under API rate limit, claim undecided: $lc"; echo go=false >> "$GITHUB_OUTPUT"
+          elif [ -n "$lc" ]; then echo "still held: $lc"; echo go=false >> "$GITHUB_OUTPUT"; else echo "no claim holds PR #$PR -> full gate"; echo go=true >> "$GITHUB_OUTPUT"; fi
       - uses: actions/setup-python@v5
         if: steps.pre.outputs.go == 'true'
         with: { python-version: '3.11' }

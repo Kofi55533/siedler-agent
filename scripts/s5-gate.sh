@@ -32,13 +32,26 @@ finish(){
   { echo "### Muse self-merge gate: $v"; echo '```'; cat "$G/report.txt"; echo '```'; } > "$G/comment.md"
   [ "${S5_GATE_COMMENT:-1}" = 1 ] && gh pr comment "$PR" -R $R --body-file "$G/comment.md" >/dev/null 2>&1
   cat "$G/comment.md"; exit $rc; }
+# GitHub API rate limit (2026-10-20 13:00-13:26 the shared account hit 5000/5000 REST calls/h): a GitHub call that fails while
+# the core (REST) or GraphQL limit is exhausted gives NO verdict: neither PASS nor FAIL, no merge, no claim decision. The gate
+# posts "### Muse self-merge gate: DEFERRED" (GraphQL comment, if that still works) and exits 3; refill.yml re-gates PRs
+# whose last gate comment is DEFERRED (like lane-held PRs). Merge criteria are unchanged. (rate_limit itself costs nothing.)
+rl_hit(){ local r; r=$(gh api rate_limit -q '"\(.resources.core.remaining) \(.resources.graphql.remaining)"' 2>/dev/null) || return 1
+  [ "${r%% *}" = 0 ] || [ "${r##* }" = 0 ]; }
+defer(){ local rs; rs=$(gh api rate_limit -q '[.resources.core, .resources.graphql]|map(select(.remaining==0).reset)|max // empty' 2>/dev/null)
+  { echo "### Muse self-merge gate: DEFERRED (no verdict)"; echo '```'; cat "$G/report.txt"
+    echo "deferred: $* failed during a GitHub API rate limit${rs:+ (resets $(TZ=Europe/Berlin date -d "@$rs" '+%H:%M') Berlin)}; merge criteria not evaluated, refill re-gates this PR"; echo '```'; } > "$G/comment.md"
+  [ "${S5_GATE_COMMENT:-1}" = 1 ] && gh pr comment "$PR" -R $R --body-file "$G/comment.md" >/dev/null 2>&1
+  cat "$G/comment.md"; exit 3; }
+apifail(){ rl_hit && defer "$1"; fail "$1"; }   # GitHub call failed: rate limit -> DEFERRED, otherwise FAIL as before
 : > "$G/report.txt"
 PAR=${S5_GATE_PARALLEL:-}; if [ -z "$PAR" ]; then
   m=$(awk '/MemAvailable/{print int($2/1048576)}' /proc/meminfo); PAR=$(( m / ${S5_GATE_GB_PER_FIXTURE:-3} )); [ $PAR -gt $(nproc) ] && PAR=$(nproc); [ $PAR -lt 1 ] && PAR=1; fi
 BREL=gate-baseline; BREPO=Kofi55533/siedler-agent
+DV2=$(gh release view data-v2 -R Kofi55533/siedler-data --json assets -q '.assets[]|select(.name|test("tzst"))|"\(.name) \(.size) \(.updatedAt)"' 2>/dev/null | sort) && [ -n "$DV2" ] || DV2=""
 bkey(){ # $1 = commit -> cache key of its live matrix (fixture list is part of the file, missing fixtures are measured)
   { git ls-tree -r "$1" | grep -vP '\tdocs/.*\.md$'
-    gh release view data-v2 -R Kofi55533/siedler-data --json assets -q '.assets[]|select(.name|test("tzst"))|"\(.name) \(.size) \(.updatedAt)"' | sort
+    echo "$DV2"
     cat "$D/s5-live.sh" "$D/s5-env.sh" "$D/s5-build.sh"; echo "timeout=${S5_LIVE_TIMEOUT:-1800}"; } | sha256sum | cut -c1-16; }
 if [ "${S5_GATE_BASELINE_ONLY:-0}" = 1 ]; then
   cd $S5_REPO; git fetch -q origin "+refs/heads/$BASE:refs/remotes/origin/$BASE" || fail "fetch"
@@ -46,11 +59,14 @@ if [ "${S5_GATE_BASELINE_ONLY:-0}" = 1 ]; then
   # S5_GATE_BASE_REF=<sha>: measure/cache that commit instead of the branch tip (post-hoc verification of a merge)
   if [ -n "${S5_GATE_BASE_REF:-}" ]; then git fetch -q --depth 2 origin "${S5_GATE_BASE_REF}" 2>/dev/null; bs=$(git rev-parse "${S5_GATE_BASE_REF}") || fail "unknown ref"; fi
   # S5_GATE_KEY_ONLY=1: print "<key> <base sha>" and whether the cache has it (warm-up pre-check, no build needed)
-  if [ "${S5_GATE_KEY_ONLY:-0}" = 1 ]; then k=$(bkey "$bs")
-    gh release view $BREL -R $BREPO --json assets -q '.assets[].name' 2>/dev/null | grep -qx "base-$k.tsv" && echo "$k $bs hit" || echo "$k $bs miss"; exit 0; fi
+  if [ "${S5_GATE_KEY_ONLY:-0}" = 1 ]; then
+    # data-v2 or cache listing unreadable (rate limit): "skip" = do not start a warm-up that could neither key nor upload
+    [ -z "$DV2" ] && { echo "nokey $bs skip"; exit 0; }
+    k=$(bkey "$bs"); names=$(gh release view $BREL -R $BREPO --json assets -q '.assets[].name' 2>/dev/null) || { echo "$k $bs skip"; exit 0; }
+    grep -qx "base-$k.tsv" <<<"$names" && echo "$k $bs hit" || echo "$k $bs miss"; exit 0; fi
 fi
 if [ "${S5_GATE_BASELINE_ONLY:-0}" != 1 ]; then
-j=$(gh pr view "$PR" -R $R --json baseRefName,headRefName,headRefOid,state,isCrossRepository,files,createdAt) || fail "pr lookup"
+j=$(gh pr view "$PR" -R $R --json baseRefName,headRefName,headRefOid,state,isCrossRepository,files,createdAt) || apifail "pr lookup"
 read -r b h hs st x < <(python -c "import json,sys;d=json.loads(sys.argv[1]);print(d['baseRefName'],d['headRefName'],d['headRefOid'],d['state'],d['isCrossRepository'])" "$j")
 [ "$b" = $BASE ] || fail "base is $b, not $BASE"
 [ "$st" = OPEN ] && [ "$x" = False ] || fail "state=$st cross=$x"
@@ -88,7 +104,9 @@ elif [ $? = 1 ]; then
 # authoritative file list/diff from GitHub (independent of local history depth)
 python -c "import json,sys;[print(f['path']) for f in json.loads(sys.argv[1])['files']]" "$j" > "$G/files.txt"
 [ -s "$G/files.txt" ] || fail "empty file list"
-gh pr diff "$PR" -R $R > "$G/pr.diff" || fail "pr diff"
+if ! gh pr diff "$PR" -R $R > "$G/pr.diff"; then
+  # REST call; under a rate limit take the same diff (merge base -> PR head) from the unshallowed local clone
+  rl_hit || fail "pr diff"; git diff "$mb0" refs/gate/pr > "$G/pr.diff" || fail "pr diff (local)"; echo "pr diff: local git (GitHub API rate limit)" >> "$G/report.txt"; fi
 # after a board drop the measured/merged change is the local drop head: take files and diff from git (board no longer in it)
 if [ $BOARDDROP = 1 ]; then git diff --name-only "$mb0" refs/gate/pr > "$G/files.txt"; git diff "$mb0" refs/gate/pr > "$G/pr.diff"
   [ -s "$G/files.txt" ] || fail "PR only changed docs/AGENT_BOARD.md (board lines go directly to $BASE; nothing to merge)"; fi
@@ -104,17 +122,21 @@ git fetch -q origin '+refs/heads/codex/*:refs/remotes/origin/codex/*' '+refs/hea
 prc=$(python -c "import json,sys;print(json.loads(sys.argv[1]).get('createdAt',''))" "$j")
 LCARGS=(--owners Opus,Codex --hours 6 --repo "$S5_REPO" --diff "$G/pr.diff" --old-rev "$(git merge-base "$bs" refs/gate/pr)" --new-rev refs/gate/pr --pr-created "$prc")
 # a Codex claim holds only while the Codex box loop is active (heartbeat, Dominic 2026-10-20 11:14; scripts/heartbeat.sh)
+# (heartbeat.sh reads the asset download URL, no API call; "--heartbeat-unknown" = github.com unreachable)
 read -r -a HB <<<"$("$D/heartbeat.sh" fetch "$G/heartbeat.json")"; LCARGS+=("${HB[@]}")
 lc=$(python3 "$D/lane-claims.py" "$G/board.md" "$G/files.txt" "${LCARGS[@]}" 2>"$G/lc.err" | head -5 | tr '\n' ';')
 grep -m3 '^stale claim ignored' "$G/lc.err" >> "$G/report.txt"
+# heartbeat unknown + a claim that would hold: undecided -> DEFERRED under a rate limit (no FAIL verdict, no merge)
+[ -n "$lc" ] && [ "${HB[0]:-}" = --heartbeat-unknown ] && rl_hit && defer "heartbeat fetch (claim hold undecided: $lc)"
 [ -n "$lc" ] && fail "fresh lane claim on a touched file (kept draft; wait for expiry or ask the owner on the board): $lc"
 soft=$(grep -Ef "$G/soft.re" "$G/files.txt" | head -5 | tr '\n' ' ')
 t=$(grep '^+' "$G/pr.diff" | grep -cEf "$G/topics.re"); [ "$t" != 0 ] && soft="$soft topic-markers($t lines)"
 echo "claims: ok ($(wc -l < "$G/files.txt") files)${soft:+; former claimed area touched, frontier move required: $soft}" >> "$G/report.txt"
 # Opus decision 2026-10-18 20:40: scenario PRs merge only with a new code path / new unmodelled marker; frontier PRs must
 # state live before -> after turn numbers. Checked from title/body/files before the (expensive) live suite.
-gh pr view "$PR" -R $R --json title -q .title > "$G/title.txt" 2>/dev/null || : > "$G/title.txt"
-gh pr view "$PR" -R $R --json body -q .body > "$G/body.txt" 2>/dev/null || : > "$G/body.txt"
+# (an unreadable title/body used to become empty and could FAIL the before/after or new-code-path rule: now FAIL/DEFERRED explicitly)
+gh pr view "$PR" -R $R --json title -q .title > "$G/title.txt" 2>/dev/null || apifail "pr title lookup"
+gh pr view "$PR" -R $R --json body -q .body > "$G/body.txt" 2>/dev/null || apifail "pr body lookup"
 if ! grep -qE '^crates/' "$G/files.txt" && { grep -qE '(^|/)(new-fixtures|fixtures-gen)/' "$G/files.txt" || grep -qiE '^[[:space:]]*(coverage|fixtures?|scenarios?)\b' "$G/title.txt"; }; then
   grep -qiE '^[[:space:]]*(new-code-path|new-unmodelled(-marker)?):[[:space:]]*[^[:space:]]' "$G/body.txt" ||
     fail "scenario/coverage/fixture PR without a new code path or new unmodelled marker (a pure stay-IDENTICAL extension no longer merges; add a body line 'New-code-path: <native address/subsystem first reached>' or 'New-unmodelled: <World::unmodelled marker>')"
@@ -133,6 +155,7 @@ for x in $(cat "$G/body.txt" | grep -oiE '^[[:space:]]*frontier-fixture:[[:space
   # base and PR are both measured on it (base.cached never has it), so the no-regression rule covers it too
   inst=$("$D/s5-fixture-install.sh" "$x" "$G/body.txt" refs/gate/pr 2>/dev/null | tail -n1)
   if [ -f "$S5_NF/fixtures/$x/scenario.json" ]; then FIX="$FIX $x"; echo "extra frontier fixture: ${inst:-$x}" >> "$G/report.txt"
+  elif rl_hit; then defer "Frontier-fixture $x install (release lookup)"
   else echo "extra frontier fixture ${inst:-$x: not installable} (skipped)" >> "$G/report.txt"; fi
 done
 fi  # end of PR-only checks (baseline-only mode skips them)
@@ -165,6 +188,7 @@ suite(){ # $1=label [fixtures] -> $G/$1.tsv (fixture turn [secs]) in FIX order; 
 show(){ [ "$1" -ge 1000000 ] && echo "IDENT($(( $1-1000000 )))" || echo "$1"; }
 # baseline = current clean/integration: cached per code tree, else measured (and cached)
 : > "$G/base.cached"; BK=""
+[ -z "$DV2" ] && [ "${S5_GATE_CACHE:-1}" = 1 ] && { S5_GATE_CACHE=0; echo "baseline cache off (data-v2 asset list unreadable; baseline measured here)" >> "$G/report.txt"; }
 if [ "${S5_GATE_CACHE:-1}" = 1 ]; then
   BK=$(bkey "$bs")
   gh release download $BREL -R $BREPO -p "base-$BK.tsv" -O "$G/base.cached" --clobber >/dev/null 2>&1 || : > "$G/base.cached"
@@ -233,10 +257,11 @@ fi
 git fetch -q origin "+refs/heads/$BASE:refs/remotes/origin/$BASE" 2>/dev/null && git show "origin/$BASE:docs/AGENT_BOARD.md" > "$G/board.md" 2>/dev/null
 LCARGS=("${LCARGS[@]:0:${#LCARGS[@]}-${#HB[@]}}"); read -r -a HB <<<"$("$D/heartbeat.sh" fetch "$G/heartbeat.json")"; LCARGS+=("${HB[@]}")
 lc=$(python3 "$D/lane-claims.py" "$G/board.md" "$G/files.txt" "${LCARGS[@]}" 2>/dev/null | head -5 | tr '\n' ';')
+[ -n "$lc" ] && [ "${HB[0]:-}" = --heartbeat-unknown ] && rl_hit && defer "heartbeat fetch before merge (claim hold undecided: $lc)"
 [ -n "$lc" ] && fail "fresh lane claim on a touched file appeared during the gate (kept draft): $lc"
 if [ $DRY = 1 ]; then echo "all gates green" >> "$G/report.txt"; finish 0; fi
 gh pr ready "$PR" -R $R >/dev/null 2>&1
-gh pr merge "$PR" -R $R --squash --match-head-commit "$hs" >/dev/null 2>&1 || fail "gh pr merge refused"
+gh pr merge "$PR" -R $R --squash --match-head-commit "$hs" >/dev/null 2>&1 || apifail "gh pr merge refused"
 echo "merged into $BASE" >> "$G/report.txt"
 # announce on the shared board (Opus > Codex > Muse); retry on concurrent pushes
 t=$(gh pr view "$PR" -R $R --json title -q .title)
