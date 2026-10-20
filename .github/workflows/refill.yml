@@ -35,7 +35,7 @@ on:
       subsystem_slots:
         description: 'Subsystem runs kept active/queued (of the target slots; scripts/subsystems.json order)'
         required: false
-        default: '8'
+        default: '2'
 permissions:
   contents: read
   issues: write
@@ -57,7 +57,7 @@ jobs:
           RL_MIN: '100'
           R: ${{ github.repository }}
           TARGET: ${{ github.event.inputs.target || '18' }}
-          SUBSYSTEM_SLOTS: ${{ github.event.inputs.subsystem_slots || vars.SUBSYSTEM_SLOTS || '8' }}
+          SUBSYSTEM_SLOTS: ${{ github.event.inputs.subsystem_slots || vars.SUBSYSTEM_SLOTS || '2' }}
           GH_TIMEOUT: '60'
           BACKLOG_TARGET: '14'
           LOW_WATER: '8'
@@ -121,7 +121,7 @@ jobs:
           # account's job limit does not leave launched opencode runs queued (DeepSeek starved, 2026-10-20 11:24)
           GBA=$(gbq '[.[]|select(.status=="in_progress")]|length'); isnum "$GBA" || GBA=0
           [ "$GBA" -gt 0 ] && { log "gate-baseline jobs running: $GBA (counted as slots)"; act=$((act+GBA)); }
-          # 1b) subsystem runs (Dominic 2026-10-20, whole game bit-exact): keep SUBSYSTEM_SLOTS (default 8 of the TARGET 18)
+          # 1b) subsystem runs (Dominic 2026-10-20, whole game bit-exact): keep SUBSYSTEM_SLOTS (default 2 of the TARGET 18; scaling paused for the Codex strategy 2026-10-20 decision controller)
           #     'Subsystem:' tasks active or queued, in the order of scripts/subsystems.json (frontier blockers first, then the
           #     dependency order of the whole-game map), one run per subsystem continuing its branch until it is complete;
           #     they are launched first

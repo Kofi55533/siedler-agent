@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """subsystem_task.py: 'Subsystem:' task type (Dominic 2026-10-20).
 
-  ensure            (refill) keep SUBSYSTEM_SLOTS (env, default scripts/subsystems.json "slots" = 8) Subsystem tasks active
+  ensure            (refill) keep SUBSYSTEM_SLOTS (env, default scripts/subsystems.json "slots" = 2) Subsystem tasks active
                     or queued: for each missing one, queue an issue for the first subsystem in "order" (frontier blockers
                     battle, ai-village, lua-callbacks first, then dependency order of the whole-game map) that is not done
                     and has no active/queued task (one run per subsystem/branch at a time; the next run continues the same
