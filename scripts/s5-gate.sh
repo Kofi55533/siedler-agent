@@ -40,6 +40,8 @@ bkey(){ # $1 = commit -> cache key of its live matrix (fixture list is part of t
 if [ "${S5_GATE_BASELINE_ONLY:-0}" = 1 ]; then
   cd $S5_REPO; git fetch -q origin "+refs/heads/$BASE:refs/remotes/origin/$BASE" || fail "fetch"
   bs=$(git rev-parse origin/$BASE); FIX="$S5_GATE_FIXTURES"
+  # S5_GATE_BASE_REF=<sha>: measure/cache that commit instead of the branch tip (post-hoc verification of a merge)
+  if [ -n "${S5_GATE_BASE_REF:-}" ]; then git fetch -q --depth 2 origin "${S5_GATE_BASE_REF}" 2>/dev/null; bs=$(git rev-parse "${S5_GATE_BASE_REF}") || fail "unknown ref"; fi
   # S5_GATE_KEY_ONLY=1: print "<key> <base sha>" and whether the cache has it (warm-up pre-check, no build needed)
   if [ "${S5_GATE_KEY_ONLY:-0}" = 1 ]; then k=$(bkey "$bs")
     gh release view $BREL -R $BREPO --json assets -q '.assets[].name' 2>/dev/null | grep -qx "base-$k.tsv" && echo "$k $bs hit" || echo "$k $bs miss"; exit 0; fi
@@ -146,7 +148,7 @@ if [ -n "${miss// /}" ]; then
 else
   cp "$G/base.cached" "$G/base.tsv"; echo "baseline: cache hit base-$BK (code tree of ${bs:0:8})" >> "$G/report.txt"
 fi
-if [ "${S5_GATE_BASELINE_ONLY:-0}" = 1 ]; then git checkout -q --detach "$bs"; cat "$G/report.txt"; exit 0; fi
+if [ "${S5_GATE_BASELINE_ONLY:-0}" = 1 ]; then git checkout -q --detach "$bs"; cat "$G/report.txt"; cp "$G/base.tsv" "$S5/baseline-${bs:0:12}.tsv"; exit 0; fi
 git checkout -q --detach "$bs" || fail "checkout base"
 # candidate = PR merged onto current base
 git -c user.name=gate -c user.email=gate@local merge -q --no-edit --no-ff refs/gate/pr >/dev/null 2>&1 || { git merge --abort; fail "merge conflict with $BASE"; }

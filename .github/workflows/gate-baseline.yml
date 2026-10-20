@@ -6,8 +6,8 @@ name: gate-baseline
 on:
   workflow_dispatch:
     inputs:
-      mode: { description: 'warm | check-old | check-new', default: 'warm' }
-      pr: { description: 'PR number (check modes)', default: '' }
+      mode: { description: 'warm | check-old | check-new | verify-merge', default: 'warm' }
+      pr: { description: 'PR number (check modes) or merge commit sha (verify-merge)', default: '' }
 permissions:
   contents: read
 jobs:
@@ -67,3 +67,28 @@ jobs:
           t0=$(date +%s)
           S5_GATE_COMMENT=0 S5_LIVE_TIMEOUT=900 timeout 170m $G "${{ inputs.pr }}" --dry-run || true
           echo "gate secs=$(( $(date +%s)-t0 ))"
+  verify-merge:
+    # post-hoc: live matrix of a merge commit vs its first parent (both cached as baselines), no-regression verdict
+    if: inputs.mode == 'verify-merge'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - name: Setup (quiet)
+        env: { T: '${{ secrets.PRIVATE_REPO_TOKEN }}' }
+        run: scripts/s5-setup.sh codex/clean-commands 1
+      - name: Parent vs merge commit
+        env: { GH_TOKEN: '${{ secrets.PRIVATE_REPO_TOKEN }}', M: '${{ inputs.pr }}' }
+        run: |
+          source scripts/s5-env.sh
+          git -C $S5_REPO fetch -q --depth 3 origin "$M"
+          P=$(git -C $S5_REPO rev-parse "$M^1"); M=$(git -C $S5_REPO rev-parse "$M")
+          for c in $P $M; do S5_GATE_BASE_REF=$c S5_GATE_BASELINE_ONLY=1 S5_GATE_COMMENT=0 S5_LIVE_TIMEOUT=900 scripts/s5-gate.sh verify-${c:0:8} | grep -E '^(live|baseline)'; done
+          reg=0
+          while read -r f n0 _; do n1=$(awk -v f=$f '$1==f{print $2}' $S5/baseline-${M:0:12}.tsv)
+            if [ -z "$n1" ] || [ "$n1" -lt "$n0" ]; then s=REGRESSION; reg=1; elif [ "$n1" -gt "$n0" ]; then s=better; else s=same; fi
+            printf '%-22s parent %-9s merge %-9s %s\n' $f $n0 ${n1:--} $s
+          done < $S5/baseline-${P:0:12}.tsv
+          echo "verdict: $([ $reg = 0 ] && echo 'no fixture earlier (merge OK)' || echo 'REGRESSION')"
