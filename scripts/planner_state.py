@@ -61,7 +61,13 @@ P("Read this first; make individual gh/git calls only for details missing here (
 
 # 1. frontiers (scoreboard)
 P("## Frontiers (scoreboard data.json on gh-pages; source/time of each number)")
-sb = gh("api", "-H", "Accept: application/vnd.github.raw", f"repos/{A}/contents/data.json?ref=gh-pages")
+# raw gh-pages URL first: no REST API call (the account hit 5000/h on 2026-10-20 13:00-13:26); API as fallback
+_r = subprocess.run(["curl", "-fsSL", "-m", "60", f"https://raw.githubusercontent.com/{A}/gh-pages/data.json"], capture_output=True, text=True)
+try:
+    sb = json.loads(_r.stdout) if _r.returncode == 0 else None
+except ValueError:
+    sb = None
+sb = sb or gh("api", "-H", "Accept: application/vnd.github.raw", f"repos/{A}/contents/data.json?ref=gh-pages")
 if sb:
     for sc in sb.get("scenarios", []):
         v = f"IDENTICAL {sc.get('total')}" if sc.get("identical") else f"turn {sc.get('turn')}"

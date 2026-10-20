@@ -54,16 +54,27 @@ def gh(*a, parse=True):
     return json.loads(r.stdout) if parse else r.stdout
 
 
+def fetch_url(url):
+    """Public file without a REST API call (release asset download URL / raw gh-pages): the account's 5000/h API limit was
+    exhausted 2026-10-20 13:00-13:26 and the guard then read nothing and let every task through ("ok")."""
+    r = subprocess.run(["curl", "-fsSL", "-m", "60", url], capture_output=True)
+    return r.stdout if r.returncode == 0 else None
+
+
 def load():
-    d = tempfile.mkdtemp()
-    if subprocess.run(["gh", "release", "download", REL, "-R", A, "-p", ASSET, "-D", d, "--clobber"], capture_output=True).returncode == 0:
+    m, ok = {}, False
+    raw = fetch_url(f"https://github.com/{A}/releases/download/{REL}/{ASSET}")
+    if raw is None:
+        d = tempfile.mkdtemp()
+        if subprocess.run(["gh", "release", "download", REL, "-R", A, "-p", ASSET, "-D", d, "--clobber"], capture_output=True).returncode == 0:
+            raw = open(os.path.join(d, ASSET), "rb").read()
+    if raw is not None:
         try:
-            m = json.load(open(os.path.join(d, ASSET)))
+            m, ok = json.loads(raw), True
         except Exception:
             m = {}
-    else:
-        m = {}
     m.setdefault("ports", {}); m.setdefault("results", [])
+    m["_loaded"] = ok  # False: memory unreadable (not "empty"); save() refuses to overwrite it, guard() defers
     cut = (NOW - dt.timedelta(days=EXPIRE_D)).isoformat()
     m["ports"] = {a: e for a, e in m["ports"].items() if e.get("date", "") >= cut}
     m["results"] = [r for r in m["results"] if r.get("date", "") >= cut]
@@ -71,6 +82,8 @@ def load():
 
 
 def save(m):
+    if not m.pop("_loaded", True):
+        return False  # never replace an unreadable memory with a partial one
     p = os.path.join(tempfile.mkdtemp(), ASSET)
     json.dump(m, open(p, "w"), indent=0, sort_keys=True)
     if subprocess.run(["gh", "release", "view", REL, "-R", A], capture_output=True).returncode:
@@ -110,7 +123,7 @@ def frontier_key(title):
 
 def update(hours=72):
     m = load()
-    NAMES[:] = sorted(scoreboard(), key=len, reverse=True)
+    NAMES[:] = sorted(scoreboard() or {}, key=len, reverse=True)
     iss = gh("issue", "list", "-R", A, "--state", "all", "--limit", "400", "--search",
              f"created:>={(NOW - dt.timedelta(hours=hours)).strftime('%Y-%m-%dT%H:%M:%SZ')} -label:planner-run",
              "--json", "number,title,createdAt,comments") or []
@@ -145,12 +158,18 @@ def update(hours=72):
 
 
 def scoreboard():
-    d = gh("api", "-H", "Accept: application/vnd.github.raw", f"repos/{A}/contents/data.json?ref=gh-pages")
-    return {s["name"]: s for s in (d or {}).get("scenarios", [])}
+    raw = fetch_url(f"https://raw.githubusercontent.com/{A}/gh-pages/data.json")  # no API call (CDN, <= 5 min old)
+    try:
+        d = json.loads(raw) if raw else gh("api", "-H", "Accept: application/vnd.github.raw", f"repos/{A}/contents/data.json?ref=gh-pages")
+    except Exception:
+        d = None
+    return {s["name"]: s for s in (d or {}).get("scenarios", [])} if d else None
 
 
 def guard(n):
-    i = gh("issue", "view", str(n), "-R", A, "--json", "title,body") or {}
+    i = gh("issue", "view", str(n), "-R", A, "--json", "title,body")
+    if i is None:
+        return "defer: issue unreadable"
     t, body = i.get("title") or "", i.get("body") or ""
     if re.search(r"^\s*known-done-override:\s*\S", body, re.I | re.M):
         return "ok (override)"
@@ -160,6 +179,8 @@ def guard(n):
             not re.search(r"root-?cause|\bfix|\bwire|\bport\b|advance|diagnos|name its|next (first )?divergence", tl):
         return "skip: genb/genc re-measure (done by the remeasure CI job, gate-baseline mode=remeasure, no LLM)"
     sb = scoreboard()
+    if sb is None:
+        return "defer: scoreboard data.json unreadable"
     NAMES[:] = sorted(sb, key=len, reverse=True)
     if tl.startswith("diverge"):
         for name in sorted(sb, key=len, reverse=True):
@@ -169,6 +190,8 @@ def guard(n):
                     return f"skip: {name} already IDENTICAL over its full length ({s['total']}) on the scoreboard; no diverge task"
                 break
     m = load()
+    if not m["_loaded"]:
+        return "defer: planner-memory known-done.json unreadable"
     if tl.startswith("port"):
         a = addrs(t)
         kd = [x for x in a if x in m["ports"]]

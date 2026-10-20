@@ -11,7 +11,7 @@ W=$S5/remeasure; rm -rf "$W"; mkdir -p "$W/r"
 cd "$S5_REPO" && git fetch -q origin "+refs/heads/clean/integration:refs/remotes/origin/clean/integration" && git checkout -q --detach origin/clean/integration || { echo "checkout failed"; exit 1; }
 bs=$(git rev-parse origin/clean/integration)
 FX="$*"
-[ -n "$FX" ] || FX=$(gh api -H "Accept: application/vnd.github.raw" "repos/Kofi55533/siedler-agent/contents/data.json?ref=gh-pages" 2>/dev/null |
+[ -n "$FX" ] || FX=$( { curl -fsSL -m 60 https://raw.githubusercontent.com/Kofi55533/siedler-agent/gh-pages/data.json 2>/dev/null || gh api -H "Accept: application/vnd.github.raw" "repos/Kofi55533/siedler-agent/contents/data.json?ref=gh-pages" 2>/dev/null; } |
                       python3 -c "import json,sys;print(' '.join(s['name'] for s in json.load(sys.stdin).get('scenarios',[]) if s['name'].startswith(('genb-','genc-'))))")
 "$D/s5-build.sh" >/dev/null || { echo "build failed on ${bs:0:8}"; exit 1; }
 ok=""; for x in $FX; do "$D/s5-fixture-install.sh" "$x" >> "$W/install.txt" 2>/dev/null && ok="$ok $x"; done

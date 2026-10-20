@@ -18,6 +18,11 @@ name: refill
 # Also re-dispatches coverage.yml when the published coverage map is older than 55 min (schedules do not fire here)
 # and gate-baseline.yml (s5-gate baseline cache warm-up) whenever none is running.
 # Only opencode.yml runs are counted, so this workflow's own runs never count as active.
+# API budget (2026-10-20: the account's 5000 REST calls/h were exhausted 13:00-13:26): calls that only touch this public repo
+# use the built-in GITHUB_TOKEN (separate limit); PRIVATE_REPO_TOKEN (PAT) only where it is required: the private
+# siedler-sim-rs GraphQL query and issues/comments that must be authored by Kofi55533 to trigger opencode.yml (task launch
+# comment, planner issue + comment, subsystem issue create). When either token is (nearly) out of calls the cycle ends cleanly
+# (exit 0, nothing launched or decided) instead of failing or deciding on empty answers.
 on:
   schedule:
     - cron: '*/5 * * * *'
@@ -29,6 +34,8 @@ on:
         default: '18'
 permissions:
   contents: read
+  issues: write
+  actions: write
 concurrency:
   group: refill
   cancel-in-progress: false
@@ -41,7 +48,9 @@ jobs:
         with: { sparse-checkout: scripts, sparse-checkout-cone-mode: true }
       - name: Refill
         env:
-          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+          PAT: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          RL_MIN: '100'
           R: ${{ github.repository }}
           TARGET: ${{ github.event.inputs.target || '18' }}
           GH_TIMEOUT: '60'
@@ -57,29 +66,41 @@ jobs:
           gh_(){ local i; for i in 1 2 3; do timeout -k 10 "$GH_TIMEOUT" gh "$@" && return 0; sleep $((i*3)); done; return 1; }
           isnum(){ [[ "${1:-}" =~ ^[0-9]+$ ]]; }
           isnum "$TARGET" || { log "bad TARGET='$TARGET'"; exit 1; }
+          # API budget: rate_limit itself is free. rl_low = a token's REST (core) or GraphQL budget is below RL_MIN.
+          rl(){ GH_TOKEN="$1" gh api rate_limit -q '"\(.resources.core.remaining) \(.resources.graphql.remaining) \(.resources.core.reset)"' 2>/dev/null; }
+          RLMSG=""
+          rl_low(){ local a b c d e f x; read -r a b c <<<"$(rl "$PAT")"; read -r d e f <<<"$(rl "$GH_TOKEN")"
+            RLMSG="PAT core ${a:-?} graphql ${b:-?} (core reset $(date -d "@${c:-0}" +%H:%M)), GITHUB_TOKEN core ${d:-?} graphql ${e:-?}"
+            for x in "$a" "$b" "$d" "$e"; do isnum "$x" && [ "$x" -lt "$RL_MIN" ] && return 0; done; return 1; }
+          if rl_low; then log "API rate limit low ($RLMSG) -> cycle skipped cleanly (nothing launched, closed or decided)"; exit 0; fi
+          log "API budget: $RLMSG"
           # 0) coverage map freshness (coverage.yml cron does not fire reliably)
           cu=$(gh_ release view coverage-cache -R "$R" --json assets -q '.assets[]|select(.name=="coverage-meta.txt")|.updatedAt' || true)
           if [ -z "$cu" ] || [[ "$cu" < "$(date -u -d '-55 min' +%FT%TZ)" ]]; then
             busy=$(gh_ run list -R "$R" -w coverage.yml --limit 5 --json status -q '[.[]|select(.status!="completed")]|length' || echo 1)
             [ "$busy" = 0 ] && gh_ workflow run coverage.yml -R "$R" --ref main && log "coverage map from ${cu:-never} -> dispatched coverage.yml"
           fi
+          # gate-baseline runs: ONE run list (was 5 identical-list calls per cycle); on failure the old fail-safe defaults
+          GB=$(gh_ run list -R "$R" -w gate-baseline.yml --limit 100 --json status,displayTitle,createdAt) || GB=""
+          gbq(){ [ -n "$GB" ] && jq -r --arg t3 "$(date -u -d '-3 hours' +%FT%TZ)" --arg t90 "$(date -u -d '-90 min' +%FT%TZ)" "$1" <<<"$GB" 2>/dev/null; }
           # 0b) keep the s5-gate baseline cache warm for the current clean/integration code tree (pre-check exits in ~20 s on a hit)
-          wb=$(gh_ run list -R "$R" -w gate-baseline.yml --limit 10 --json status,displayTitle -q '[.[]|select(.status!="completed" and (.displayTitle|test("warm")))]|length' || echo 1)
+          wb=$(gbq '[.[]|select(.status!="completed" and (.displayTitle|test("warm")))]|length'); isnum "$wb" || wb=1
           [ "$wb" = 0 ] && gh_ workflow run gate-baseline.yml -R "$R" --ref main -f mode=warm >/dev/null && log "gate-baseline warm-up dispatched"
           # 0d) genb/genc re-measure without an LLM (fix 3, 2026-10-20): every 3 h (replaces DeepSeek "re-measure" tasks)
-          rm3=$(gh_ run list -R "$R" -w gate-baseline.yml --limit 100 --json displayTitle,createdAt -q "[.[]|select((.displayTitle|test(\"remeasure\")) and .createdAt > \"$(date -u -d '-3 hours' +%FT%TZ)\")]|length" || echo 1)
+          rm3=$(gbq '[.[]|select((.displayTitle|test("remeasure")) and .createdAt > $t3)]|length'); isnum "$rm3" || rm3=1
           [ "$rm3" = 0 ] && gh_ workflow run gate-baseline.yml -R "$R" --ref main -f mode=remeasure >/dev/null && log "genb/genc re-measure dispatched (CI, no LLM)"
           # 0c) re-gate PRs held by a lane claim (Dominic 2026-10-20: Codex and DeepSeek must not block each other). Nobody re-runs
           #     the gate of a held PR otherwise; gate-baseline mode=regate first checks the claim (cheap) and runs the normal gate
           #     (same criteria, merges on PASS) only if the claim no longer holds it. Max 2 per cycle, each PR at most every 90 min.
-          RG=$(gh_ run list -R "$R" -w gate-baseline.yml --limit 60 --json displayTitle,createdAt -q "[.[]|select(.createdAt > \"$(date -u -d '-90 min' +%FT%TZ)\")|.displayTitle]|join(\"|\")" || echo SKIP)
+          #     Also PRs whose last gate was DEFERRED (a GitHub API rate limit stopped it before a verdict; s5-gate.sh exit 3).
+          RG=$(gbq '[.[]|select(.createdAt > $t90)|.displayTitle]|join("|")'); [ -n "$GB" ] || RG=SKIP
           # at most 2 re-gate jobs run at once in total (11:24 2026-10-20: 6 concurrent re-gates + scoreboard pushed opencode to 13)
-          RGA=$(gh_ run list -R "$R" -w gate-baseline.yml --limit 60 --json status,displayTitle -q '[.[]|select(.status!="completed" and (.displayTitle|test("regate")))]|length' || echo 2)
+          RGA=$(gbq '[.[]|select(.status!="completed" and (.displayTitle|test("regate")))]|length')
           isnum "$RGA" || RGA=2
           if [ "$RG" != SKIP ]; then
             nrg=0
-            for pr in $(gh_ api graphql -f query='{repository(owner:"Kofi55533",name:"siedler-sim-rs"){pullRequests(states:OPEN,first:100){nodes{number headRefName comments(last:15){nodes{body createdAt}}}}}}' \
-                -q '.data.repository.pullRequests.nodes[]|select(.headRefName|startswith("agent/"))|select(([.comments.nodes[]|select(.body|test("self-merge gate"))]|last|.body // "")|test("fresh lane claim"))|.number' 2>/dev/null); do
+            for pr in $(GH_TOKEN="$PAT" gh_ api graphql -f query='{repository(owner:"Kofi55533",name:"siedler-sim-rs"){pullRequests(states:OPEN,first:100){nodes{number headRefName comments(last:15){nodes{body createdAt}}}}}}' \
+                -q '.data.repository.pullRequests.nodes[]|select(.headRefName|startswith("agent/"))|select(([.comments.nodes[]|select(.body|test("self-merge gate"))]|last|.body // "")|test("fresh lane claim|self-merge gate: DEFERRED"))|.number' 2>/dev/null); do
               [ "$nrg" -ge 2 ] && break
               [ "$RGA" -ge 2 ] && { log "re-gate cap: $RGA regate jobs running -> no more dispatched"; break; }
               grep -qE "(^|\|)gate-baseline regate $pr(\||$)" <<<"$RG" && continue
@@ -87,20 +108,19 @@ jobs:
             done
           fi
           # 1) active slots = distinct issue titles of non-completed opencode runs
-          J=$(gh_ run list -R "$R" -w opencode.yml --limit 100 --json status,displayTitle) || { log "gh run list failed -> skip"; exit 1; }
+          J=$(gh_ run list -R "$R" -w opencode.yml --limit 100 --json status,displayTitle) || { rl_low && { log "run list failed under API rate limit ($RLMSG) -> cycle skipped"; exit 0; }; log "gh run list failed -> skip"; exit 1; }
           act=$(jq '[.[]|select(.status!="completed")|.displayTitle]|unique|length' <<<"$J")
           plan=$(jq '[.[]|select(.status!="completed" and (.displayTitle|startswith("[planner]")))|.displayTitle]|unique|length' <<<"$J")
           isnum "$act" && isnum "$plan" || { log "bad run list json -> skip"; exit 1; }
           # running gate-baseline jobs (regate/remeasure/warm/check) occupy runners too: count them in the slot math so the
           # account's job limit does not leave launched opencode runs queued (DeepSeek starved, 2026-10-20 11:24)
-          GBA=$(gh_ run list -R "$R" -w gate-baseline.yml --limit 60 --json status -q '[.[]|select(.status=="in_progress")]|length' || echo 0)
-          isnum "$GBA" || GBA=0
+          GBA=$(gbq '[.[]|select(.status=="in_progress")]|length'); isnum "$GBA" || GBA=0
           [ "$GBA" -gt 0 ] && { log "gate-baseline jobs running: $GBA (counted as slots)"; act=$((act+GBA)); }
           # 1b) subsystem runs (Dominic 2026-10-20): keep 2 'Subsystem:' tasks active or queued (scripts/subsystems.json); they
           #     are launched first, so 2 of the TARGET slots always port whole function groups
-          timeout -k 10 180 python3 scripts/subsystem_task.py ensure 2>&1 | while read -r l; do log "$l"; done
+          SUBSYS_TOKEN="$PAT" timeout -k 10 180 python3 scripts/subsystem_task.py ensure 2>&1 | while read -r l; do log "$l"; done
           # 2) queued backlog; close stale ones
-          Q=$(gh_ issue list -R "$R" --label queued --state open --limit 100 --json number,title,createdAt) || { log "queued list failed -> skip"; exit 1; }
+          Q=$(gh_ issue list -R "$R" --label queued --state open --limit 100 --json number,title,createdAt) || { rl_low && { log "queued list failed under API rate limit ($RLMSG) -> cycle skipped"; exit 0; }; log "queued list failed -> skip"; exit 1; }
           stale=$(date -u -d "-${STALE_H} hours" +%FT%TZ)
           for n in $(jq -r --arg s "$stale" '.[]|select(.createdAt < $s)|.number' <<<"$Q"); do
             gh_ issue comment "$n" -R "$R" --body "Stale queued task (queued > ${STALE_H} h, never launched); closed by refill. The planner re-plans it if still relevant." >/dev/null
@@ -124,7 +144,13 @@ jobs:
             # task-supply guard (Dominic 2026-10-20, fix 3; scripts/known_done.py): no Port task whose addresses are all known
             # done, no Diverge task on a fixture IDENTICAL over its full length, no identical frontier target that already ended
             # evidence-only at the same turn, no genb/genc re-measure (gate-baseline mode=remeasure does that without an LLM)
-            g=$(timeout -k 10 120 python3 scripts/known_done.py guard "$n" 2>/dev/null || echo "ok (guard error)")
+            g=$(timeout -k 10 120 python3 scripts/known_done.py guard "$n" 2>/dev/null || echo "defer: guard error")
+            # guard inputs unreadable: under an API rate limit stop launching (never let a task through unchecked); otherwise
+            # the old rule (launch, "ok (guard error)")
+            if [[ "$g" == defer:* ]]; then
+              if rl_low; then log "#$n guard ${g} under API rate limit ($RLMSG) -> launches paused this cycle"; break; fi
+              g="ok (guard error: ${g#defer: })"
+            fi
             if [[ "$g" == skip:* ]]; then
               gh_ issue comment "$n" -R "$R" --body "Skipped by refill (task guard, not launched): ${g#skip: }. If the base changed relevantly, the planner re-queues it with a body line 'Known-done-override: <change>'." >/dev/null
               gh_ issue edit "$n" -R "$R" --remove-label queued >/dev/null; gh_ issue close "$n" -R "$R" --reason "not planned" >/dev/null
@@ -132,7 +158,8 @@ jobs:
             fi
             gh_ issue view "$n" -R "$R" --json body -q .body | sed -n '/---PLANNER-COMMENT---/,$p' | tail -n +2 > c.txt
             grep -q '^/opencode' c.txt || { log "#$n queued without /opencode text -> skipped"; continue; }
-            if timeout -k 10 "$GH_TIMEOUT" gh issue comment "$n" -R "$R" --body-file c.txt >/dev/null; then
+            # the launch comment must be authored by Kofi55533 (opencode.yml trigger condition) -> PAT
+            if GH_TOKEN="$PAT" timeout -k 10 "$GH_TIMEOUT" gh issue comment "$n" -R "$R" --body-file c.txt >/dev/null; then
               gh_ issue edit "$n" -R "$R" --remove-label queued --add-label launched >/dev/null
               act=$((act+1)); backlog=$((backlog-1)); launched="$launched #$n"
             else
@@ -152,11 +179,11 @@ jobs:
           # (the '<2 tasks -> 20 min backoff' was removed 2026-10-20 10:30, Dominic: planners always fill N from the fill sources)
           N=$((BACKLOG_TARGET-backlog)); [ "$N" -gt 15 ] && N=15
           [ "$N" -lt 1 ] && { log "N=$N -> nothing"; exit 0; }
-          url=$(gh_ issue create -R "$R" --title "[planner] refill $(date '+%F %H:%M') N=$N" \
+          url=$(GH_TOKEN="$PAT" gh_ issue create -R "$R" --title "[planner] refill $(date '+%F %H:%M') N=$N" \
                   --body "Planner run (GitHub Actions refill workflow, run $GITHUB_SERVER_URL/$R/actions/runs/$GITHUB_RUN_ID). Details in the /opencode comment.")
           n=$(grep -oE '[0-9]+$' <<<"$url")
           [ -z "$n" ] && { log "issue create failed"; exit 1; }
-          timeout -k 10 "$GH_TIMEOUT" gh issue comment "$n" -R "$R" --body "/opencode PLANNER RUN N=$N. Read /home/runner/work/siedler-agent/siedler-agent/prompts/planner.md and follow it exactly (it overrides the coding-run instructions: no code, no PR, only QUEUE N task issues with labels planner-task + queued and the /opencode text in the issue body; the refill workflow launches them). Start with \$W/planner_state.md." >/dev/null \
+          GH_TOKEN="$PAT" timeout -k 10 "$GH_TIMEOUT" gh issue comment "$n" -R "$R" --body "/opencode PLANNER RUN N=$N. Read /home/runner/work/siedler-agent/siedler-agent/prompts/planner.md and follow it exactly (it overrides the coding-run instructions: no code, no PR, only QUEUE N task issues with labels planner-task + queued and the /opencode text in the issue body; the refill workflow launches them). Start with \$W/planner_state.md." >/dev/null \
             && log "backlog=$backlog -> planner #$n started N=$N" || { log "comment on #$n failed"; exit 1; }
   rearm:
     # GitHub's cron schedule for this workflow did not fire at all (19:30-20:33 Berlin, 17.10.2026; still not on 19.10.),
@@ -169,7 +196,7 @@ jobs:
     steps:
       - name: Re-dispatch refill in ~5 min
         env:
-          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          GH_TOKEN: ${{ github.token }}  # workflow_dispatch by GITHUB_TOKEN does start a run (actions: write)
           R: ${{ github.repository }}
         run: |
           sleep 270

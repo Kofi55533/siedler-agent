@@ -14,8 +14,11 @@ D = os.path.dirname(os.path.abspath(__file__))
 CFG = json.load(open(os.path.join(D, "subsystems.json")))
 
 
-def gh(*a, parse=True):
-    r = subprocess.run(["gh", *a], capture_output=True, text=True, timeout=120)
+def gh(*a, parse=True, author=False):
+    # author=True: an issue opencode.yml must accept (issue author Kofi55533) -> SUBSYS_TOKEN (the PAT) if refill passes it;
+    # reads use the caller's GH_TOKEN (refill: the built-in GITHUB_TOKEN, separate rate limit)
+    env = dict(os.environ, GH_TOKEN=os.environ["SUBSYS_TOKEN"]) if author and os.environ.get("SUBSYS_TOKEN") else None
+    r = subprocess.run(["gh", *a], capture_output=True, text=True, timeout=120, env=env)
     if r.returncode:
         raise SystemExit(f"gh {' '.join(a[:3])} failed")
     return json.loads(r.stdout) if parse else r.stdout
@@ -33,8 +36,7 @@ def ensure():
     busy += [sid(i["title"]) for i in q if sid(i["title"])]
     busy = set(busy)
     need = CFG.get("slots", 2) - len(busy)
-    subprocess.run(["gh", "label", "create", "subsystem", "-R", A, "--color", "5319e7", "--description",
-                    "Subsystem run (whole function group, 200 min); kept at 2 by refill"], capture_output=True)
+    labeled = False
     for s in CFG["subsystems"]:
         if need <= 0:
             break
@@ -46,8 +48,12 @@ def ensure():
                 f"Branch: {s['branch']} (continue it if it exists; one PR).\n\n---PLANNER-COMMENT---\n"
                 f"/opencode SUBSYSTEM RUN {s['id']}: follow the SUBSYSTEM RUN section of the prompt exactly (it overrides the "
                 f"one-divergence/+-50-turn scope). Branch {s['branch']}, base clean/integration, fixtures {s['fixtures']}.\n")
+        if not labeled:  # once per creation round, not every refill cycle (1 API call each)
+            subprocess.run(["gh", "label", "create", "subsystem", "-R", A, "--color", "5319e7", "--description",
+                            "Subsystem run (whole function group, 200 min); kept at 2 by refill"], capture_output=True)
+            labeled = True
         url = gh("issue", "create", "-R", A, "--title", title, "--body", body, "--label", "planner-task",
-                 "--label", "queued", "--label", "subsystem", parse=False).strip()
+                 "--label", "queued", "--label", "subsystem", parse=False, author=True).strip()
         busy.add(s["id"]); need -= 1
         print(f"queued subsystem task {s['id']}: {url}")
 
