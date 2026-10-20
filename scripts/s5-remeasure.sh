@@ -20,7 +20,8 @@ PAR=${S5_GATE_PARALLEL:-}; if [ -z "$PAR" ]; then m=$(awk '/MemAvailable/{print 
 export D W
 one(){ local out n k; out=$("$D/s5-live.sh" "$1" 2>/dev/null); n=$(grep -oE 'DIVERGENT turn [0-9]+' <<<"$out" | grep -oE '[0-9]+$')
   k=$(grep -oE 'IDENTICAL [0-9]+ ticks' <<<"$out" | grep -oE '[0-9]+')
-  if [ -n "$n" ]; then echo "$1: DIVERGENT turn $n" > "$W/r/$1"; elif [ -n "$k" ]; then echo "$1: IDENTICAL $k" > "$W/r/$1"; fi; }
+  if [ -n "$n" ]; then echo "$1: DIVERGENT turn $n" > "$W/r/$1"; elif [ -n "$k" ]; then echo "$1: IDENTICAL $k" > "$W/r/$1"
+  else echo "no result: $(tail -n1 <<<"$out" | cut -c1-160)" >&2; fi; }   # s5-live verdict line only (exit code + message)
 export -f one
 t0=$(date +%s); printf '%s\n' $ok | xargs -P "$PAR" -I{} bash -c 'one "$1"' _ {}
 res=$(for x in $ok; do [ -s "$W/r/$x" ] && cat "$W/r/$x"; done); nores=$(for x in $FX; do [ -s "$W/r/$x" ] || printf '%s ' "$x"; done)
