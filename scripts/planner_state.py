@@ -129,7 +129,20 @@ try:
     spec = importlib.util.spec_from_file_location("lane_claims", os.path.join(os.path.dirname(os.path.abspath(__file__)), "lane-claims.py"))
     lcm = importlib.util.module_from_spec(spec); spec.loader.exec_module(lcm)
     nowb = NOW.astimezone(lcm.BER)
+    # Codex claims count only while the Codex box loop is active (heartbeat; same rule as the gate)
+    beats = None
+    try:
+        hbf = "/tmp/planner-heartbeat.json"
+        hbarg = subprocess.run([os.path.join(os.path.dirname(os.path.abspath(__file__)), "heartbeat.sh"), "fetch", hbf],
+                               capture_output=True, text=True, timeout=60).stdout.split()
+        if hbarg[:1] == ["--heartbeat"]:
+            beats = lcm.load_heartbeats(hbf, NOW)
+    except Exception as e:
+        errors.append(f"heartbeat: {str(e)[:120]}")
+    stale = {o: why for o, (live, why) in (beats or {}).items() if not live}
     for owner, t, files in lcm.parse(board):
+        if owner in stale:
+            continue
         if owner in ("Opus", "Codex") and dt.timedelta(0) <= nowb - t < dt.timedelta(hours=6):
             claims.append((owner, t, set(files)))
 except Exception as e:
@@ -149,7 +162,11 @@ for p in prs:
     p["lane"] = lane_block(p)
 P("## Fresh Opus/Codex lane claims (6 h): never create a task that edits these files/functions (no duplicated work)")
 try:
+    for o, why in stale.items():
+        P(f"- {o} claims are STALE ({why}): its loop is not active, they hold no PR and do not block tasks")
     for owner, t, items in lcm.parse_items(board):
+        if owner in stale:
+            continue
         if owner in ("Opus", "Codex") and dt.timedelta(0) <= nowb - t < dt.timedelta(hours=6):
             P(f"- {owner} {t:%H:%M} until {t + dt.timedelta(hours=6):%H:%M} Berlin: " + " ".join(f + (f"::{fn}" if fn else "") for f, fn in items))
 except Exception as e:
@@ -200,6 +217,14 @@ for i in sorted(rec, key=lambda i: i["number"]):
     i["_st"], i["_res"] = st, res
     P(f"- #{i['number']} {st} | {short(i['title'], 110)} | {res or '(no result yet)'}")
 P("")
+
+# planner memory (scripts/known_done.py): evidence-only results of the last 72 h, persisted across planner runs
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import known_done as kd
+try:
+    KD = kd.update(72) if os.environ.get("KNOWN_DONE_UPDATE", "1") == "1" else kd.load()
+except Exception as e:
+    KD = {"ports": {}, "results": []}; errors.append(f"known_done: {str(e)[:120]}")
 
 # 4b. frontier work map: per diverging fixture FAMILY (combat + combat-long, genc-x + genc-x-5000 share one boundary),
 #     what holds it and what the planner can do (deterministic, from the data above)
@@ -265,6 +290,9 @@ for f, scs in sorted(groups.items(), key=lambda kv: min(s["turn"] for s in kv[1]
         verdict = "nothing (open PR, WIP limit 1)"
     elif remeas and (stale or any(i in same for i in remeas)):
         verdict = f"nothing (scoreboard value is stale; re-measured by #{remeas[-1]['number']}: {short(remeas[-1]['_res'], 70)})"
+    elif any(r.get("kind") == "frontier" and r.get("turn") == turn and r.get("fixture") and fam(r["fixture"]) == f for r in KD["results"]):
+        r = next(r for r in KD["results"] if r.get("kind") == "frontier" and r.get("turn") == turn and r.get("fixture") and fam(r["fixture"]) == f)
+        verdict = f"nothing (evidence-only result #{r['issue']} on turn {turn}; re-queue only after the turn moves) -> board handoff to Opus if not yet done"
     elif len(same) >= 2:
         verdict = f"STUCK ({len(same)} finished runs on turn {turn}): board handoff to Opus (anti-stuck), no task"
     else:
@@ -294,7 +322,8 @@ allissues = gh("issue", "list", "-R", A, "--state", "all", "--limit", "400", "--
 prtext = " ".join((p.get("title") or "") + " " + (p.get("body") or "") for p in prs)
 tasked = " ".join(i["title"] for i in allissues if not i["title"].startswith("[planner]"))
 taken = {a.upper().replace("0X", "0x") for a in HEX.findall(prtext + " " + tasked)}
-cited = {a.upper().replace("0X", "0x") for a in HEX.findall(git("grep", "-hoiE", r"0x[0-9a-f]{6}\b", "origin/clean/integration", "--", "crates/s5clean/src"))}
+# cited in any spelling (0x58676B, 0x0058_676B, 0x0058676B; #879 found the 6-digit grep missed underscore forms)
+cited = set(kd.addrs(git("grep", "-hoiE", r"0x[0-9a-f_]{6,11}", "origin/clean/integration", "--", "crates/s5clean/src")))
 P("## Fill sources (use when FREE/REBASE rows < slots; a planner must always queue N tasks unless the rest are provable duplicates)")
 covf = (os.path.join(W, "COVERAGE-full.md") if os.path.isfile(os.path.join(W, "COVERAGE-full.md")) else cov0) if fresh_cov else None
 cand = {}
@@ -311,9 +340,10 @@ if covf:
             a = "0x" + m.group(1)[2:].upper()
             c = cand.setdefault(a, {"role": m.group(2).strip(), "fx": [], "blocks": 0, "first": int(m.group(4))})
             c["fx"].append(fx); c["blocks"] = max(c["blocks"], int(m.group(3)))
-free_ports = {a: c for a, c in cand.items() if a not in cited and a not in taken}
-P(f"### (a) Port candidates: executed in the reference, uncited in crates/s5clean/src, not named by any open PR or task issue: "
-  f"{len(free_ports)} of {len(cand)} listed in COVERAGE.md")
+free_ports = {a: c for a, c in cand.items() if a not in cited and a not in taken and a not in KD["ports"]}
+P(f"### (a) Port candidates: executed in the reference, uncited in crates/s5clean/src, not named by any open PR or task issue, "
+  f"not known done: {len(free_ports)} of {len(cand)} listed in COVERAGE.md "
+  f"({sum(1 for a in cand if a in KD['ports'])} known done by evidence-only runs, see 'Known done' below)")
 P("Group 5-15 related ones (same class prefix / call chain) per `Port:` task; bit-exact vs recomp/ with unit tests, cite each address,")
 P("wire it where state is compared; if a function turns out read-only/inert, the run records that in one line and moves to the next.")
 bycls = {}
@@ -348,6 +378,22 @@ for sc in unm:
 P("A measure task installs the fixture (private release / fixtures-gen), runs s5-live on origin/clean/integration and writes one")
 P("board line `live <fixture>: turn X` (or IDENTICAL n); if it diverges, it is a new frontier (bucket A next run).")
 P("")
+
+# 4d. planner memory (scripts/known_done.py, release planner-memory/known-done.json): never re-queue these
+P(f"## Known done (evidence-only Port results, {len(KD['ports'])} addresses, kept {kd.EXPIRE_D:g} days): NEVER queue a Port task for these")
+P("They are already ported/modelled, inert, STL/CRT helpers or unreached (the run proved it). refill closes a Port task whose")
+P("addresses are all listed here instead of launching it, unless its body has 'Known-done-override: <relevant base change>'.")
+byi = {}
+for a, e in KD["ports"].items():
+    byi.setdefault((e["issue"], e["reason"]), []).append(a)
+for (n, why), lst in sorted(byi.items(), key=lambda kv: -kv[0][0])[:40]:
+    P(f"- #{n} ({why}): {' '.join(sorted(lst))}")
+P("")
+P("## Do-not-repeat: evidence-only results of the last days (same target again only if the frontier/base changed relevantly)")
+for r in sorted(KD["results"], key=lambda r: r["issue"], reverse=True)[:40]:
+    tgt = f"{r['fixture']} {r['turn']}" if r.get("fixture") else " ".join(r.get("addrs") or [])[:80]
+    P(f"- #{r['issue']} {r['kind']}: {tgt or short(r.get('title'), 80)}")
+P("No Diverge task for a fixture that is IDENTICAL over its full length; no genb/genc re-measure tasks (CI job, no LLM).\n")
 
 # 5. coverage
 P("## Coverage map")

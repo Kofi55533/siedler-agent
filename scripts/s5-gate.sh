@@ -11,6 +11,9 @@
 # fixture's first divergence moved later. Opus 2026-10-18 20:40: a source-free scenario/coverage/fixture PR needs a body line
 # "New-code-path: ..." or "New-unmodelled: ..." (pure stay-IDENTICAL extensions no longer merge), and a frontier PR
 # (title "Diverge ..." or a "Frontier-fixture:" line) needs live before -> after turn numbers in its body. A moved base re-checks merge+build+tests on the new base instead of failing.
+# Merge mechanics (Dominic 2026-10-20): the PR's docs/AGENT_BOARD.md hunks are dropped by a gate commit (board lines go directly
+# to clean/integration), conflicts name the files, Codex lane claims hold only while the Codex loop heartbeat is active, and a
+# "Frontier-fixture:" is installed from git/private releases (scripts/s5-fixture-install.sh) and measured on base and PR.
 # Never merges into main. Prints only fixture names and turn numbers (no log contents). Needs GH_TOKEN.
 # Speed (2026-10-20, same merge criteria): live fixtures run in parallel (S5_GATE_PARALLEL, default min(nproc, MemAvailable/3 GB));
 # the baseline (clean/integration) matrix is cached as asset base-<key>.tsv on release gate-baseline of siedler-agent,
@@ -57,15 +60,38 @@ cd $S5_REPO
 git fetch -q origin "+refs/heads/$BASE:refs/remotes/origin/$BASE" "+refs/pull/$PR/head:refs/gate/pr" || fail "fetch"
 bs=$(git rev-parse origin/$BASE); [ "$(git rev-parse refs/gate/pr)" = "$hs" ] || fail "head moved"
 echo "pr=#$PR head=$h@${hs:0:8} base=$BASE@${bs:0:8}" >> "$G/report.txt"
+# board hunks never merge with a PR (Dominic 2026-10-20 11:14): docs/AGENT_BOARD.md is append-only on clean/integration and
+# board lines go there directly, so a PR's board edits only cause conflicts (22 of 76 gate FAILs 2026-10-19/20). The gate adds
+# one commit on top of the PR head that restores the board to the merge-base version (integration side wins, code hunks
+# untouched), pushes it to the agent/* branch (not in --dry-run) and measures/merges that head.
+BOARDDROP=0
+mb0=$(git merge-base "$bs" refs/gate/pr) || fail "no merge base with $BASE"
+if ! git diff --quiet "$mb0" refs/gate/pr -- docs/AGENT_BOARD.md; then
+  export GIT_INDEX_FILE="$G/drop.idx"; git read-tree refs/gate/pr
+  if git cat-file -e "$mb0:docs/AGENT_BOARD.md" 2>/dev/null; then git update-index --cacheinfo "100644,$(git rev-parse "$mb0:docs/AGENT_BOARD.md"),docs/AGENT_BOARD.md"
+  else git update-index --force-remove docs/AGENT_BOARD.md; fi
+  tr0=$(git write-tree); unset GIT_INDEX_FILE
+  dc=$(git -c user.name=siedler-agent -c user.email=Kofi55533@users.noreply.github.com commit-tree "$tr0" -p refs/gate/pr \
+       -m "gate: drop docs/AGENT_BOARD.md changes from this PR" -m "Board lines go directly to $BASE (append-only board); the PR keeps its code. Added by s5-gate.sh.") || fail "board drop commit"
+  if [ $DRY = 1 ]; then echo "board: PR edits docs/AGENT_BOARD.md; dropped locally for this dry-run (a real gate pushes the drop commit)" >> "$G/report.txt"
+  else git push -q origin "$dc:refs/heads/$h" 2>/dev/null || fail "board drop: push to $h refused (branch moved?)"
+    hs=$dc; echo "board: dropped the PR's docs/AGENT_BOARD.md hunks (commit ${dc:0:8} pushed to $h; integration board kept)" >> "$G/report.txt"; fi
+  git update-ref refs/gate/pr "$dc"; BOARDDROP=1
+fi
 # cheap conflict pre-check (same criterion as the merge below, but before the ~40 min baseline suite; 2026-10-18/19:
 # 108 of 355 gates failed on a conflict only after the full baseline). Needs git >= 2.38 (merge-tree --write-tree).
 if git merge-tree --write-tree "$bs" refs/gate/pr >/dev/null 2>&1; then :
-elif [ $? = 1 ]; then fail "merge conflict with $BASE"; fi
+elif [ $? = 1 ]; then
+  cf=$(git merge-tree --write-tree --name-only --no-messages "$bs" refs/gate/pr 2>/dev/null | sed 1d | awk 'NF' | sort -u | head -8 | tr '\n' ' ')
+  fail "merge conflict with $BASE in: ${cf:-?} (rebase the branch onto origin/$BASE and resolve these files)"; fi
 # claims
 # authoritative file list/diff from GitHub (independent of local history depth)
 python -c "import json,sys;[print(f['path']) for f in json.loads(sys.argv[1])['files']]" "$j" > "$G/files.txt"
 [ -s "$G/files.txt" ] || fail "empty file list"
 gh pr diff "$PR" -R $R > "$G/pr.diff" || fail "pr diff"
+# after a board drop the measured/merged change is the local drop head: take files and diff from git (board no longer in it)
+if [ $BOARDDROP = 1 ]; then git diff --name-only "$mb0" refs/gate/pr > "$G/files.txt"; git diff "$mb0" refs/gate/pr > "$G/pr.diff"
+  [ -s "$G/files.txt" ] || fail "PR only changed docs/AGENT_BOARD.md (board lines go directly to $BASE; nothing to merge)"; fi
 sed -n 's/^hard //p' "$D/muse-claims.txt" > "$G/hard.re"; sed -n 's/^soft //p' "$D/muse-claims.txt" > "$G/soft.re"
 grep '^@@ ' "$D/muse-claims.txt" | sed 's/^@@ //' > "$G/topics.re"
 c=$(grep -Ef "$G/hard.re" "$G/files.txt" | head -5 | tr '\n' ' ')
@@ -77,7 +103,10 @@ git show "origin/$BASE:docs/AGENT_BOARD.md" > "$G/board.md" 2>/dev/null || : > "
 git fetch -q origin '+refs/heads/codex/*:refs/remotes/origin/codex/*' '+refs/heads/opus/*:refs/remotes/origin/opus/*' 2>/dev/null || true
 prc=$(python -c "import json,sys;print(json.loads(sys.argv[1]).get('createdAt',''))" "$j")
 LCARGS=(--owners Opus,Codex --hours 6 --repo "$S5_REPO" --diff "$G/pr.diff" --old-rev "$(git merge-base "$bs" refs/gate/pr)" --new-rev refs/gate/pr --pr-created "$prc")
-lc=$(python3 "$D/lane-claims.py" "$G/board.md" "$G/files.txt" "${LCARGS[@]}" 2>/dev/null | head -5 | tr '\n' ';')
+# a Codex claim holds only while the Codex box loop is active (heartbeat, Dominic 2026-10-20 11:14; scripts/heartbeat.sh)
+read -r -a HB <<<"$("$D/heartbeat.sh" fetch "$G/heartbeat.json")"; LCARGS+=("${HB[@]}")
+lc=$(python3 "$D/lane-claims.py" "$G/board.md" "$G/files.txt" "${LCARGS[@]}" 2>"$G/lc.err" | head -5 | tr '\n' ';')
+grep -m3 '^stale claim ignored' "$G/lc.err" >> "$G/report.txt"
 [ -n "$lc" ] && fail "fresh lane claim on a touched file (kept draft; wait for expiry or ask the owner on the board): $lc"
 soft=$(grep -Ef "$G/soft.re" "$G/files.txt" | head -5 | tr '\n' ' ')
 t=$(grep '^+' "$G/pr.diff" | grep -cEf "$G/topics.re"); [ "$t" != 0 ] && soft="$soft topic-markers($t lines)"
@@ -100,8 +129,11 @@ fi
 FIX="$S5_GATE_FIXTURES"
 for x in $(cat "$G/body.txt" | grep -oiE '^[[:space:]]*frontier-fixture:[[:space:]]*[a-z0-9-]+' | sed -E 's/.*:[[:space:]]*//' | sort -u); do
   case " $FIX " in *" $x "*) continue ;; esac
-  if [ -f "$S5_NF/fixtures/$x/scenario.json" ]; then FIX="$FIX $x"; echo "extra frontier fixture: $x" >> "$G/report.txt"
-  else echo "extra frontier fixture $x not installed on this runner (skipped)" >> "$G/report.txt"; fi
+  # install it (git fixtures-gen/<x> on the PR/base/fixture branches, or the private fixtures-gen-* release named in the body);
+  # base and PR are both measured on it (base.cached never has it), so the no-regression rule covers it too
+  inst=$("$D/s5-fixture-install.sh" "$x" "$G/body.txt" refs/gate/pr 2>/dev/null | tail -n1)
+  if [ -f "$S5_NF/fixtures/$x/scenario.json" ]; then FIX="$FIX $x"; echo "extra frontier fixture: ${inst:-$x}" >> "$G/report.txt"
+  else echo "extra frontier fixture ${inst:-$x: not installable} (skipped)" >> "$G/report.txt"; fi
 done
 fi  # end of PR-only checks (baseline-only mode skips them)
 live_one(){ # $1=fixture $2=label: one s5-live run -> $G/$2.d/<fixture> "fixture turn secs"; fail-fast vs $G/base.tsv for label pr
@@ -199,6 +231,7 @@ if [ "$nb" != "$bs" ]; then
 fi
 # re-check lane claims on the newest board (a claim may have been posted during the ~75 min live suite)
 git fetch -q origin "+refs/heads/$BASE:refs/remotes/origin/$BASE" 2>/dev/null && git show "origin/$BASE:docs/AGENT_BOARD.md" > "$G/board.md" 2>/dev/null
+LCARGS=("${LCARGS[@]:0:${#LCARGS[@]}-${#HB[@]}}"); read -r -a HB <<<"$("$D/heartbeat.sh" fetch "$G/heartbeat.json")"; LCARGS+=("${HB[@]}")
 lc=$(python3 "$D/lane-claims.py" "$G/board.md" "$G/files.txt" "${LCARGS[@]}" 2>/dev/null | head -5 | tr '\n' ';')
 [ -n "$lc" ] && fail "fresh lane claim on a touched file appeared during the gate (kept draft): $lc"
 if [ $DRY = 1 ]; then echo "all gates green" >> "$G/report.txt"; finish 0; fi

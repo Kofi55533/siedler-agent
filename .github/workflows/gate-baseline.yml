@@ -4,10 +4,12 @@ run-name: gate-baseline ${{ inputs.mode }} ${{ inputs.pr }}
 # so worker gates only measure the PR side. Dispatched by refill.yml when no warm-up runs; exits after a ~20 s
 # pre-check when the key is cached. mode=check-old|check-new runs a DRY-RUN gate on input pr (no merge, no comment)
 # with the pre-2026-10-20 script (commit 06c8174) or the current one, for verdict-equivalence checks.
+# mode=remeasure (pr = optional space-separated fixture list): genb/genc re-measure on clean/integration without an LLM
+# (scripts/s5-remeasure.sh; one board entry in scoreboard format). Dispatched by refill every 3 h.
 on:
   workflow_dispatch:
     inputs:
-      mode: { description: 'warm | check-old | check-new | verify-merge | regate', default: 'warm' }
+      mode: { description: 'warm | check-old | check-new | verify-merge | regate | remeasure', default: 'warm' }
       pr: { description: 'PR number (check modes) or merge commit sha (verify-merge)', default: '' }
 permissions:
   contents: read
@@ -116,8 +118,10 @@ jobs:
           [ "$(jq -r .state <<<"$j")" = OPEN ] || { echo "PR not open"; echo go=false >> "$GITHUB_OUTPUT"; exit 0; }
           jq -r '.files[].path' <<<"$j" > /tmp/files.txt; gh pr diff "$PR" -R Kofi55533/siedler-sim-rs > /tmp/pr.diff
           git show origin/clean/integration:docs/AGENT_BOARD.md > /tmp/board.md
+          # Codex claims hold only while the Codex box loop heartbeat is active (scripts/heartbeat.sh)
+          read -r -a HB <<<"$("$GITHUB_WORKSPACE/scripts/heartbeat.sh" fetch /tmp/heartbeat.json)"; echo "heartbeat: ${HB[*]}"
           lc=$(python3 "$GITHUB_WORKSPACE/scripts/lane-claims.py" /tmp/board.md /tmp/files.txt --owners Opus,Codex --hours 6 --repo /tmp/sr --diff /tmp/pr.diff \
-                 --old-rev "$(git merge-base origin/clean/integration refs/gate/pr)" --new-rev refs/gate/pr --pr-created "$(jq -r .createdAt <<<"$j")")
+                 --old-rev "$(git merge-base origin/clean/integration refs/gate/pr)" --new-rev refs/gate/pr --pr-created "$(jq -r .createdAt <<<"$j")" "${HB[@]}")
           if [ -n "$lc" ]; then echo "still held: $lc"; echo go=false >> "$GITHUB_OUTPUT"; else echo "no claim holds PR #$PR -> full gate"; echo go=true >> "$GITHUB_OUTPUT"; fi
       - uses: actions/setup-python@v5
         if: steps.pre.outputs.go == 'true'
@@ -132,3 +136,18 @@ jobs:
         if: steps.pre.outputs.go == 'true'
         env: { GH_TOKEN: '${{ secrets.PRIVATE_REPO_TOKEN }}' }
         run: S5_LIVE_TIMEOUT=900 timeout 100m scripts/s5-gate.sh "${{ inputs.pr }}" || true
+  remeasure:
+    if: inputs.mode == 'remeasure'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    concurrency: { group: gate-remeasure, cancel-in-progress: false }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - name: Setup (quiet)
+        env: { T: '${{ secrets.PRIVATE_REPO_TOKEN }}' }
+        run: scripts/s5-setup.sh codex/clean-commands 1
+      - name: Re-measure genb/genc on clean/integration (no LLM)
+        env: { GH_TOKEN: '${{ secrets.PRIVATE_REPO_TOKEN }}', FX: '${{ inputs.pr }}' }
+        run: S5_LIVE_TIMEOUT=900 timeout 100m scripts/s5-remeasure.sh $FX
