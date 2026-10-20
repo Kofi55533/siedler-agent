@@ -1,0 +1,186 @@
+{
+ "_doc": "Initial control settings for scripts/decision.py (STRATEGY_20261020 s5). Auditable priors, not measurements: relevance 1 = observed causal path, 0.5 = recorded candidate; confidence 1 = native reproducer, 0.5 = trace attribution, 0.25 = static hypothesis. Families group clone fixtures so one cause is counted once.",
+ "weights": {
+  "F": 0.25,
+  "G": 0.2,
+  "D": 0.15,
+  "R": 0.15,
+  "Y": 0.15,
+  "A": 0.05,
+  "N": 0.05,
+  "C": -0.15,
+  "Z": -0.15,
+  "Q": -0.1
+ },
+ "defaults": {
+  "Y": 0.5,
+  "C": 0.25,
+  "G_unknown": 0.5,
+  "unknown_prefix": 0.5,
+  "D": 0.25
+ },
+ "families": {
+  "combat": {
+   "fixtures": [
+    "combat",
+    "combat-long",
+    "combat-waves",
+    "combat-big"
+   ],
+   "turns": null,
+   "causes": {
+    "DS01": [
+     1,
+     0.5
+    ],
+    "DS10": [
+     0.5,
+     0.25
+    ],
+    "DS11": [
+     0.5,
+     0.25
+    ],
+    "DS02": [
+     0.5,
+     0.25
+    ]
+   }
+  },
+  "ai-long": {
+   "fixtures": [
+    "ai-long"
+   ],
+   "turns": null,
+   "causes": {
+    "DS01": [
+     0.5,
+     0.5
+    ],
+    "DS05": [
+     0.5,
+     0.25
+    ],
+    "DS04": [
+     0.5,
+     0.25
+    ]
+   }
+  },
+  "bc-full": {
+   "fixtures": [
+    "bc-full"
+   ],
+   "turns": null,
+   "causes": {
+    "DS12": [
+     0.5,
+     0.25
+    ],
+    "DS09": [
+     0.5,
+     0.25
+    ],
+    "DS08": [
+     0.5,
+     0.25
+    ]
+   }
+  },
+  "ai-build": {
+   "fixtures": [
+    "map-winterisland",
+    "late-ai"
+   ],
+   "turns": null,
+   "causes": {
+    "DS04": [
+     1,
+     0.5
+    ]
+   }
+  }
+ },
+ "title_domains": [
+  [
+   "(?i)leader|soldier|combat|waves|battle|stance|patrol|ailong|guard|attack",
+   "DS01"
+  ],
+  [
+   "(?i)siege|cannon|tower|projectile|damage",
+   "DS02"
+  ],
+  [
+   "(?i)hero|thief|abilit|sabotage|bomb|scout",
+   "DS03"
+  ],
+  [
+   "(?i)ai-village|village|winterisland|late-ai|ai-build",
+   "DS04"
+  ],
+  [
+   "(?i)army|recruit|barracks",
+   "DS05"
+  ],
+  [
+   "(?i)worker|camp|mine|production|alarm",
+   "DS06"
+  ],
+  [
+   "(?i)serf|extraction|repair",
+   "DS07"
+  ],
+  [
+   "(?i)building|construct|upgrade|sell|enter-building",
+   "DS08"
+  ],
+  [
+   "(?i)bc-full|research|market|trade|tribute|diplom|payday|econom|statistic",
+   "DS09"
+  ],
+  [
+   "(?i)movement|evade|tiling|occ|path",
+   "DS10"
+  ],
+  [
+   "(?i)lua|script|callback|trigger",
+   "DS12"
+  ],
+  [
+   "(?i)weather|terrain|landscape|fog|animal",
+   "DS13"
+  ],
+  [
+   "(?i)net |checksum|save|load|replay|lockstep",
+   "DS14"
+  ]
+ ],
+ "evidence_domains": {
+  "military": "DS15",
+  "other": "DS16"
+ },
+ "enablers": {
+  "_doc": "D(u) prior: measured 'distinct ready packages unblocked' is not available yet; recorded enablers from STRATEGY s5.3a/s2.4 get more. Replace with measured unblock counts.",
+  "DS11": 0.6,
+  "DS12": 0.4,
+  "DS16": 0.8,
+  "DS15": 0.6,
+  "DS10": 0.4,
+  "DS18": 0.4,
+  "DS17": 0.4
+ },
+ "mandates": [
+  {
+   "unit": "script-evidence",
+   "why": "s5.3a step 4: Lua restore/callback contract/proof package for DS12/16 now"
+  },
+  {
+   "unit": "battle",
+   "why": "s5.3a step 3: battle continuation (#623) for DS01"
+  },
+  {
+   "unit": "ai-village",
+   "why": "s5.3a step 3: AI village tail (#621) for DS04, WinterIsland witness"
+  }
+ ]
+}

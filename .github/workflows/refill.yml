@@ -208,3 +208,17 @@ jobs:
         run: |
           sleep 270
           gh workflow run refill.yml -R "$R" --ref main
+      - name: Decision controller (shadow, logs only)
+        # STRATEGY_20261020 s5: scripts/decision.py scores units and logs what it WOULD launch next to the current planner.
+        # Shadow mode: launches, closes and changes nothing in the queue; stores its decision on agents/control at most every
+        # 15 min (fleet/decision/shadow-latest.*). Never fails the refill job.
+        if: always()
+        continue-on-error: true
+        env:
+          PAT: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          TZ: Europe/Berlin
+        run: |
+          core=$(GH_TOKEN="$PAT" gh api rate_limit -q .resources.core.remaining 2>/dev/null || echo 0)
+          if [ "${core:-0}" -lt 400 ] 2>/dev/null; then echo "PAT core budget ${core} < 400 -> shadow decision skipped"; exit 0; fi
+          GH_TOKEN="$PAT" timeout -k 10 150 python3 scripts/decision.py shadow --write --min-interval 15 \
+            | tee -a "$GITHUB_STEP_SUMMARY" || echo "decision shadow failed (ignored)"
