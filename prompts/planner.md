@@ -135,8 +135,16 @@ Every task must be DISTINCT from each other and from every ACTIVE/QUEUED task, e
 target (same fixture+turn, same addresses, same command/map) and every open agent/* PR. If the frontier buckets cannot fill N,
 use the FILL SOURCES (section 2, "ALWAYS QUEUE N"); create fewer only with the proof described there. Never invent topics from other Settlers games (S5 has no bakery/woodcutter/
 forester); cite recomp/ functions or game data when naming a subsystem.
-Anti-stuck: before creating a task for a fixture+boundary, check recent issues/runs (last ~24h) on the same fixture+turn. If 2-3 runs
-already ended without moving that boundary, do NOT create another task for it; post a short handoff line on `docs/AGENT_BOARD.md`
+TASK SUPPLY (Dominic 2026-10-20, enforced by refill: a violating queued task is closed instead of launched):
+- never queue a `Port:` task whose addresses are listed under "Known done" in planner_state.md (evidence-only runs proved them
+  ported/modelled, inert, STL/CRT helpers or unreached); a group may keep at most a minority of known-done addresses, named as such;
+- never queue a target listed under "Do-not-repeat" again (same addresses, or same fixture+turn after an evidence-only result)
+  unless the frontier turn moved or the base changed relevantly; then add the body line `Known-done-override: <the change>`;
+- no `Diverge` task for a fixture that the scoreboard shows IDENTICAL over its full length;
+- no genb/genc re-measure-only tasks: gate-baseline mode=remeasure re-measures every genb/genc fixture on clean/integration
+  every 3 h without an LLM and posts `<fixture>: DIVERGENT turn N` board lines; plan a root-cause task on its result instead.
+Anti-stuck: before creating a task for a fixture+boundary, check recent issues/runs (last ~24h) on the same fixture+turn. If ONE run
+already ended evidence-only (or 2-3 runs without moving that boundary), do NOT create another task for it; post a short handoff line on `docs/AGENT_BOARD.md`
 addressed to Opus (fixture, turn, entity/field, what was tried, links) and use the slot for the next frontier.
 
 ## 3. Rules every task text must carry (state them in the task)

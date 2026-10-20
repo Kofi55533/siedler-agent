@@ -37,6 +37,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      - uses: actions/checkout@v4
+        with: { sparse-checkout: scripts, sparse-checkout-cone-mode: true }
       - name: Refill
         env:
           GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
@@ -64,6 +66,9 @@ jobs:
           # 0b) keep the s5-gate baseline cache warm for the current clean/integration code tree (pre-check exits in ~20 s on a hit)
           wb=$(gh_ run list -R "$R" -w gate-baseline.yml --limit 10 --json status,displayTitle -q '[.[]|select(.status!="completed" and (.displayTitle|test("warm")))]|length' || echo 1)
           [ "$wb" = 0 ] && gh_ workflow run gate-baseline.yml -R "$R" --ref main -f mode=warm >/dev/null && log "gate-baseline warm-up dispatched"
+          # 0d) genb/genc re-measure without an LLM (fix 3, 2026-10-20): every 3 h (replaces DeepSeek "re-measure" tasks)
+          rm3=$(gh_ run list -R "$R" -w gate-baseline.yml --limit 100 --json displayTitle,createdAt -q "[.[]|select((.displayTitle|test(\"remeasure\")) and .createdAt > \"$(date -u -d '-3 hours' +%FT%TZ)\")]|length" || echo 1)
+          [ "$rm3" = 0 ] && gh_ workflow run gate-baseline.yml -R "$R" --ref main -f mode=remeasure >/dev/null && log "genb/genc re-measure dispatched (CI, no LLM)"
           # 0c) re-gate PRs held by a lane claim (Dominic 2026-10-20: Codex and DeepSeek must not block each other). Nobody re-runs
           #     the gate of a held PR otherwise; gate-baseline mode=regate first checks the claim (cheap) and runs the normal gate
           #     (same criteria, merges on PASS) only if the claim no longer holds it. Max 2 per cycle, each PR at most every 90 min.
@@ -99,6 +104,15 @@ jobs:
             c=$(gh_ issue view "$n" -R "$R" --json comments -q '[.comments[]|select(.body|startswith("/opencode"))]|length') || continue
             if [ "$c" != 0 ]; then
               gh_ issue edit "$n" -R "$R" --remove-label queued --add-label launched >/dev/null; log "#$n already started -> label fixed"; backlog=$((backlog-1)); continue
+            fi
+            # task-supply guard (Dominic 2026-10-20, fix 3; scripts/known_done.py): no Port task whose addresses are all known
+            # done, no Diverge task on a fixture IDENTICAL over its full length, no identical frontier target that already ended
+            # evidence-only at the same turn, no genb/genc re-measure (gate-baseline mode=remeasure does that without an LLM)
+            g=$(timeout -k 10 120 python3 scripts/known_done.py guard "$n" 2>/dev/null || echo "ok (guard error)")
+            if [[ "$g" == skip:* ]]; then
+              gh_ issue comment "$n" -R "$R" --body "Skipped by refill (task guard, not launched): ${g#skip: }. If the base changed relevantly, the planner re-queues it with a body line 'Known-done-override: <change>'." >/dev/null
+              gh_ issue edit "$n" -R "$R" --remove-label queued >/dev/null; gh_ issue close "$n" -R "$R" --reason "not planned" >/dev/null
+              log "#$n not launched: $g"; backlog=$((backlog-1)); continue
             fi
             gh_ issue view "$n" -R "$R" --json body -q .body | sed -n '/---PLANNER-COMMENT---/,$p' | tail -n +2 > c.txt
             grep -q '^/opencode' c.txt || { log "#$n queued without /opencode text -> skipped"; continue; }

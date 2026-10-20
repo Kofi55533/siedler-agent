@@ -9,7 +9,7 @@ aggregate : rebuild COVERAGE.md from all per-fixture aggregates with siedler-sim
             (its collect_fixtures is replaced by a reader of the aggregates; catalog, filters, cited check and report
             are the upstream code, so the output matches `coverage_map.sh` for the same sampled turns).
 """
-import argparse, array, bisect, collections, glob, gzip, importlib.util, json, os, sys, time
+import argparse, array, bisect, collections, glob, gzip, importlib.util, json, os, re, sys, time
 
 TRACE_REC = 4 + 32 + 4 * 5 + 8 * 16   # = tools/coverage_map.py TRACE_REC
 DWORDS = TRACE_REC // 4
@@ -107,6 +107,30 @@ def aggregate(a):
         return fixtures, set()
 
     cm.collect_fixtures = collect_fixtures
+    # cited check also accepts the other spellings used in crates/s5clean/src (2026-10-20: #879 found 0x586763/0x58676B
+    # listed as "uncited" although cited as 0x0058_6763/0x0058_676B; a grep artifact that queued repeated Port tasks):
+    # 0x0058_676B, 0x58_676B, 0x0058676B -> 0x58676B (leading zeros and '_' separators dropped, exe range only).
+    up_cited = cm.cited_addresses
+
+    def cited_addresses(cited_dir):
+        cited = set(up_cited(cited_dir))
+        alt = re.compile(r"0x([0-9A-Fa-f_]{6,11})(?![0-9A-Fa-f_])")
+        for root, _dirs, fns in os.walk(cited_dir):
+            for fn in fns:
+                if fn.endswith(".rs"):
+                    try:
+                        text = open(os.path.join(root, fn), encoding="utf-8", errors="replace").read()
+                    except OSError:
+                        continue
+                    for m in alt.finditer(text):
+                        h = m.group(1).replace("_", "")
+                        if h and len(h) <= 8:
+                            v = int(h, 16)
+                            if EXE_LO <= v < EXE_HI:
+                                cited.add(v)
+        return cited
+
+    cm.cited_addresses = cited_addresses
     sys.argv = ["coverage_map.py", "--depth", "0", "--top", str(a.top), "--out", a.out]
     cm.main()
     stale = sorted(f for f, d in files.items() if a.want and d.get("key") not in a.want)
