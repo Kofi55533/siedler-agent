@@ -57,6 +57,8 @@ jobs:
           mkdir -p "$W" && ln -s /opt/s5/siedler-sim-rs "$W/siedler-sim-rs"
           git config --global user.name "siedler-agent"
           git config --global user.email "Kofi55533@users.noreply.github.com"
+          git config --global core.hooksPath "$GITHUB_WORKSPACE/scripts/hooks"  # append-only board guard
+          git -C /opt/s5/siedler-sim-rs rev-parse origin/clean/integration > "$RUNNER_TEMP/board-start.sha"
           echo "planner setup secs=$(( $(date +%s)-t0 ))"
       - name: Planner state file
         if: env.PLANNER == 'true'
@@ -72,6 +74,9 @@ jobs:
           mkdir -p "$W" && cd "$W"
           git config --global user.name "siedler-agent"
           git config --global user.email "Kofi55533@users.noreply.github.com"
+          # append-only board guard (pre-push hook) + start sha for the post-run repair step
+          git config --global core.hooksPath "$GITHUB_WORKSPACE/scripts/hooks"
+          git -C /opt/s5/siedler-sim-rs fetch -q origin clean/integration && git -C /opt/s5/siedler-sim-rs rev-parse origin/clean/integration > "$RUNNER_TEMP/board-start.sha" || true
           ln -s /opt/s5/siedler-sim-rs siedler-sim-rs
           if [ ! -e "$RUNNER_TEMP/forschung.ok" ]; then
             rm -rf siedler-forschung
@@ -164,6 +169,12 @@ jobs:
           timeout 200m opencode run -m "$MODEL" "$(cat "$RUNNER_TEMP/prompt.txt")" > "$RUNNER_TEMP/opencode.log" 2>&1
           echo "exit=$? log_lines=$(wc -l < "$RUNNER_TEMP/opencode.log")"
           rm -f ~/.local/share/opencode/auth.json
+      - name: Board guard (restore lines of docs/AGENT_BOARD.md deleted during this run)
+        if: always()
+        run: |
+          [ -s "$RUNNER_TEMP/board-start.sha" ] || exit 0
+          python3 scripts/board-guard.py repair "$(cat "$RUNNER_TEMP/board-start.sha")" /opt/s5/siedler-sim-rs | tee "$RUNNER_TEMP/board-guard.txt" || true
+          grep restored "$RUNNER_TEMP/board-guard.txt" >> "$W/summary.txt" 2>/dev/null || true
       - name: Self-merge gate (PRs opened or updated by this run)
         # Planner runs open no PRs; without this guard they gated every PR other runs opened meanwhile
         # (same @me author), e.g. 42 min on 2026-10-18, blocking refill while the planner counts as active.

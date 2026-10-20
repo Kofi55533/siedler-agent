@@ -15,6 +15,8 @@ if [ "$REQ" = 1 ] && [ -n "${mm// /}" ]; then echo "coverage_publish: no aggrega
 python3 "$D/coverage_cache.py" aggregate --sim "$SIM" --indir $W/in --out $W/COVERAGE.md --want $(cut -d' ' -f2 $W/keys) > $W/agg.txt
 cat $W/agg.txt
 [ -s $W/COVERAGE.md ] || { echo "coverage_publish: empty COVERAGE.md"; exit 1; }
+# full uncited list (every executed, uncited logic function, not just the top 50) for the planner's port fill source
+python3 "$D/coverage_cache.py" aggregate --sim "$SIM" --indir $W/in --out $W/COVERAGE-full.md --top 5000 --want $(cut -d' ' -f2 $W/keys) >/dev/null || rm -f $W/COVERAGE-full.md
 { echo "clean_integration_sha=$(git -C "$SIM" rev-parse HEAD)"
   echo "generated_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   grep -E '^(fixtures|stale)=' $W/agg.txt
@@ -25,5 +27,5 @@ if ! gh release view coverage-cache -R $R >/dev/null 2>&1; then
   gh release create coverage-cache -R $R --target main --prerelease -t coverage-cache \
     -n "Hourly coverage map of siedler-sim-rs clean/integration (coverage.yml). Assets are overwritten each run." >/dev/null
 fi
-gh release upload coverage-cache -R $R --clobber $W/COVERAGE.md $W/coverage-meta.txt
+gh release upload coverage-cache -R $R --clobber $W/COVERAGE.md $W/coverage-meta.txt $( [ -s $W/COVERAGE-full.md ] && echo $W/COVERAGE-full.md )
 echo "coverage_publish: published COVERAGE.md $(wc -c < $W/COVERAGE.md) bytes, missing=[${missing# }] secs=$(( $(date +%s)-t0 ))"

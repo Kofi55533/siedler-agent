@@ -81,25 +81,84 @@ for i, l in lc[-25:]:
     P(f"- L{i}: {short(l.strip(), 220)}")
 P("(Still read the last ~200 board lines yourself for Opus/Codex notes, claims and wiring requests.)\n")
 
-# 3. open PRs
-prs = gh("pr", "list", "-R", S, "--state", "open", "--limit", "200", "--json",
-         "number,title,headRefName,baseRefName,author,isDraft,updatedAt,mergeable,statusCheckRollup,body,files") or []
-P(f"## Open PRs in {S}: {len(prs)}")
-P("#n | head -> base | draft | mergeable | checks | updated | title | cited addrs | files")
+# 3. open PRs (GraphQL: `gh pr list` returns mergeable=UNKNOWN for most PRs because GitHub computes it lazily; the GraphQL
+#    query triggers the computation, so UNKNOWN ones are re-queried after a short wait). Also the last self-merge gate verdict.
+Q = """query($c:String){repository(owner:"Kofi55533",name:"siedler-sim-rs"){pullRequests(states:OPEN,first:50,after:$c){
+ pageInfo{hasNextPage endCursor} nodes{number title headRefName baseRefName isDraft updatedAt mergeable body
+ files(first:60){nodes{path}} comments(last:30){nodes{body createdAt}}}}}}"""
+
+
+def fetch_prs():
+    res, cur = [], None
+    for _ in range(6):
+        args = ["api", "graphql", "-f", f"query={Q}"] + (["-f", f"c={cur}"] if cur else [])
+        d = gh(*args)
+        if not d:
+            break
+        pr = d["data"]["repository"]["pullRequests"]
+        res += pr["nodes"]
+        if not pr["pageInfo"]["hasNextPage"]:
+            break
+        cur = pr["pageInfo"]["endCursor"]
+    return res
+
+
+prs = fetch_prs()
+for _ in range(3):
+    if not any(p.get("mergeable") == "UNKNOWN" for p in prs):
+        break
+    time.sleep(8)
+    again = {p["number"]: p for p in fetch_prs()}
+    prs = [again.get(p["number"], p) for p in prs]
+for p in prs:
+    p["files"] = [{"path": f["path"]} for f in ((p.get("files") or {}).get("nodes") or [])]
+    gate = ""
+    for c in reversed((p.get("comments") or {}).get("nodes") or []):
+        b = c.get("body") or ""
+        if "self-merge gate" in b.split("\n", 1)[0]:
+            v = "PASS" if "PASS" in b.split("\n", 1)[0] else "FAIL"
+            why = next((l.strip() for l in b.splitlines() if "GATE FAIL" in l), "")
+            gate = f"{v} {age(c['createdAt'])} ago" + (f": {short(why.replace('GATE FAIL:', ''), 150)}" if why else "")
+            break
+    p["gate"] = gate or "never gated"
+
+# fresh Opus/Codex lane claims (same parser and 6 h window as the gate): which open PRs they block and until when
+claims = []
+try:
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("lane_claims", os.path.join(os.path.dirname(os.path.abspath(__file__)), "lane-claims.py"))
+    lcm = importlib.util.module_from_spec(spec); spec.loader.exec_module(lcm)
+    nowb = NOW.astimezone(lcm.BER)
+    for owner, t, files in lcm.parse(board):
+        if owner in ("Opus", "Codex") and dt.timedelta(0) <= nowb - t < dt.timedelta(hours=6):
+            claims.append((owner, t, set(files)))
+except Exception as e:
+    errors.append(f"lane claims: {str(e)[:120]}")
+
+
+def lane_block(p):
+    fs = {f["path"] for f in p["files"]}
+    hit = [(o, t) for o, t, cf in claims if fs & cf]
+    if not hit:
+        return ""
+    until = max(t for _, t in hit) + dt.timedelta(hours=6)
+    return f"{'/'.join(sorted({o for o, _ in hit}))} lane claim until {until:%H:%M} Berlin"
+
+
+for p in prs:
+    p["lane"] = lane_block(p)
+conf = [p for p in prs if p.get("mergeable") == "CONFLICTING"]
+P(f"## Open PRs in {S}: {len(prs)} ({len(conf)} CONFLICTING, "
+  f"{sum(1 for p in prs if p['lane'])} blocked by a fresh Opus/Codex lane claim)")
+P("#n | head -> base | draft | mergeable | updated | last gate | lane block | title | cited addrs | files")
 for p in sorted(prs, key=lambda p: p["number"]):
-    roll = p.get("statusCheckRollup") or []
-    cs = {}
-    for c in roll:
-        k = (c.get("conclusion") or c.get("state") or c.get("status") or "?").lower()
-        cs[k] = cs.get(k, 0) + 1
-    checks = ",".join(f"{k}:{v}" for k, v in sorted(cs.items())) or "-"
     addrs = sorted({a.upper().replace("0X", "0x") for a in HEX.findall((p.get("title") or "") + " " + (p.get("body") or ""))})
     files = [f["path"] for f in (p.get("files") or [])
              if os.path.basename(f["path"]) not in (".gitignore", "Cargo.lock", "Cargo.toml")]
     fs = ", ".join(files[:5]) + (f" +{len(files) - 5}" if len(files) > 5 else "")
     P(f"- #{p['number']} | {p['headRefName']} -> {p['baseRefName']} | {'draft' if p.get('isDraft') else 'ready'} | "
-      f"{(p.get('mergeable') or '?').lower()} | {checks} | {age(p.get('updatedAt'))} ago | {short(p['title'], 90)} | "
-      f"{' '.join(addrs[:12])}{' …' if len(addrs) > 12 else ''} | {fs}")
+      f"{(p.get('mergeable') or '?').lower()} | {age(p.get('updatedAt'))} ago | {p['gate']} | {p['lane'] or '-'} | "
+      f"{short(p['title'], 90)} | {' '.join(addrs[:12])}{' …' if len(addrs) > 12 else ''} | {fs}")
 P("")
 
 # 4. runs + queued + recent issues
@@ -129,7 +188,157 @@ for i in sorted(rec, key=lambda i: i["number"]):
             res = short(b.splitlines()[0] if b else "", 160)
             break
     labels = ",".join(l["name"] for l in i.get("labels") or []) or "-"
-    P(f"- #{i['number']} {i['state'].lower()} | {labels} | {short(i['title'], 110)} | {res or '(no result yet)'}")
+    st = "ACTIVE" if i["title"] in act else "QUEUED" if "queued" in labels else "FINISHED" if res else "launched"
+    i["_st"], i["_res"] = st, res
+    P(f"- #{i['number']} {st} | {short(i['title'], 110)} | {res or '(no result yet)'}")
+P("")
+
+# 4b. frontier work map: per diverging fixture FAMILY (combat + combat-long, genc-x + genc-x-5000 share one boundary),
+#     what holds it and what the planner can do (deterministic, from the data above)
+scen = {sc["name"]: sc for sc in (sb or {}).get("scenarios", [])}
+
+
+def fam(n):
+    b = re.sub(r"-(\d{4,}|long)$", "", n)
+    return b if b != n and (b in scen or re.search(r"-\d{4,}$", n)) else n
+
+
+fams = sorted({fam(n) for n in scen}, key=len, reverse=True)
+
+
+def fx_of(text):
+    t = (text or "").lower()
+    best = None  # first mentioned fixture wins; at equal position the longest (combat-big, not combat)
+    for f in fams:
+        m = re.search(r"(?<![\w-])" + re.escape(f) + r"(?![\w]|-(?!long\b)[a-z])", t)
+        if m and (best is None or m.start() < best[0]):
+            best = (m.start(), f)
+    return best[1] if best else None
+
+
+def needs_codex(p):
+    return any("needs-codex" in (c.get("body") or "") for c in ((p.get("comments") or {}).get("nodes") or []))
+
+
+groups = {}
+for n, sc in scen.items():
+    if not sc.get("identical") and isinstance(sc.get("turn"), int):
+        groups.setdefault(fam(n), []).append(sc)
+pr_by = {}
+for p in prs:
+    if p["headRefName"].startswith("agent/"):
+        f = fx_of(p["headRefName"]) or fx_of(p["title"])
+        if f:
+            pr_by.setdefault(f, []).append(p)
+P("## Frontier work map (diverging fixture families; holder -> what is plannable)")
+P("Use this as the dedupe/selection basis: FREE rows -> bucket A, REBASE rows -> bucket D (mandatory, see planner.md 2.D),")
+P("all other rows -> no task. `finished` = task issues of the last 24 h whose run has ended (they are NOT pending work).")
+rebase = []
+for f, scs in sorted(groups.items(), key=lambda kv: min(s["turn"] for s in kv[1])):
+    sc = min(scs, key=lambda s: s["turn"])
+    turn = sc["turn"]
+    members = ", ".join(f"{s['name']} {s['turn']}/{s.get('total')}" for s in sorted(scs, key=lambda s: s["name"]))
+    src = f"{short(sc.get('source'), 30)} {sc.get('when')}"
+    ps = pr_by.get(f, [])
+    ac = [i for i in rec if i["_st"] in ("ACTIVE", "QUEUED", "launched") and fx_of(i["title"]) == f]
+    fin = [i for i in rec if i["_st"] == "FINISHED" and fx_of(i["title"]) == f]
+    same = [i for i in fin if re.search(rf"(?<!\d){turn}(?!\d)", i["title"])]
+    stale = "index.json" in (sc.get("source") or "") or (sc.get("total") and turn >= sc["total"])
+    remeas = [i for i in fin if re.search(r"IDENTICAL|no (first )?divergence|stale|recording cap|fully matched", i["_res"], re.I)]
+    if ac:
+        verdict = "nothing (task active/queued: " + " ".join(f"#{i['number']}" for i in ac) + ")"
+    elif any(p.get("mergeable") == "CONFLICTING" and not needs_codex(p) for p in ps):
+        c = [p for p in ps if p.get("mergeable") == "CONFLICTING" and not needs_codex(p)]
+        verdict = "REBASE task (bucket D, mandatory): " + " ".join(f"PR #{p['number']}" for p in c)
+        rebase += c
+    elif ps and all(p["lane"] for p in ps):
+        verdict = "nothing until " + max(p["lane"][-12:] for p in ps) + " (PR held by a lane claim; its gate re-runs later)"
+    elif ps:
+        verdict = "nothing (open PR, WIP limit 1)"
+    elif remeas and (stale or any(i in same for i in remeas)):
+        verdict = f"nothing (scoreboard value is stale; re-measured by #{remeas[-1]['number']}: {short(remeas[-1]['_res'], 70)})"
+    elif len(same) >= 2:
+        verdict = f"STUCK ({len(same)} finished runs on turn {turn}): board handoff to Opus (anti-stuck), no task"
+    else:
+        verdict = "FREE -> diagnosis task (bucket A)" + (" — value looks stale (index.json / turn >= total): task = re-measure first" if stale else "")
+    pp = "; ".join(f"#{p['number']} {(p.get('mergeable') or '?').lower()}, {p['gate'][:30]}{', ' + p['lane'] if p['lane'] else ''}" for p in ps) or "-"
+    P(f"- {f}: {members} [{src}] | PRs: {pp} | active/queued: {' '.join('#%d' % i['number'] for i in ac) or '-'} | "
+      f"finished 24h: {len(fin)} ({len(same)} on turn {turn}) | => {verdict}")
+other = [p for p in conf if p["headRefName"].startswith("agent/") and not needs_codex(p) and p not in rebase
+         and not any(fx_of(i["title"]) and f"#{p['number']}" in i["title"] for i in rec if i["_st"] in ("ACTIVE", "QUEUED", "launched"))]
+P("")
+P(f"## Conflicting agent/* PRs without a frontier fixture (rebase candidates, bucket D, after the mandatory ones): "
+  + (" ".join(f"PR #{p['number']}" for p in other) or "none"))
+P("(needs-codex drafts are excluded: they belong to Codex.)\n")
+
+# coverage cache download (also used by section 5)
+cov0 = os.path.join(W, "COVERAGE.md")
+gh("release", "download", "coverage-cache", "-R", A, "-D", W, "--clobber", "-p", "COVERAGE.md", "-p", "coverage-meta.txt", parse=False)
+subprocess.run(["gh", "release", "download", "coverage-cache", "-R", A, "-D", W, "--clobber", "-p", "COVERAGE-full.md"],
+               capture_output=True, timeout=120)  # optional (full uncited list); absent before the first publish
+_m = dict(l.strip().partition("=")[::2] for l in open(os.path.join(W, "coverage-meta.txt"))) if os.path.isfile(os.path.join(W, "coverage-meta.txt")) else {}
+fresh_cov = os.path.isfile(cov0) and os.path.getsize(cov0) > 1000 and bool(_m.get("generated_utc")) and \
+    NOW - ts(_m["generated_utc"]) < dt.timedelta(hours=3)
+
+# 4c. inexhaustible task sources (Dominic 2026-10-20 10:09): when the frontier map has fewer FREE/REBASE rows than slots,
+#     the planner fills the rest from these lists (already deduped against cited code, open PRs and task issues).
+allissues = gh("issue", "list", "-R", A, "--state", "all", "--limit", "400", "--json", "number,title,state,createdAt") or []
+prtext = " ".join((p.get("title") or "") + " " + (p.get("body") or "") for p in prs)
+tasked = " ".join(i["title"] for i in allissues if not i["title"].startswith("[planner]"))
+taken = {a.upper().replace("0X", "0x") for a in HEX.findall(prtext + " " + tasked)}
+cited = {a.upper().replace("0X", "0x") for a in HEX.findall(git("grep", "-hoiE", r"0x[0-9a-f]{6}\b", "origin/clean/integration", "--", "crates/s5clean/src"))}
+P("## Fill sources (use when FREE/REBASE rows < slots; a planner must always queue N tasks unless the rest are provable duplicates)")
+covf = (os.path.join(W, "COVERAGE-full.md") if os.path.isfile(os.path.join(W, "COVERAGE-full.md")) else cov0) if fresh_cov else None
+cand = {}
+if covf:
+    fx = None
+    for l in open(covf):
+        h = re.match(r"### (\S+) \(turns", l)
+        if h:
+            fx = h.group(1)
+        if l.startswith("### Uncited registered handlers"):
+            fx = "handler"
+        m = re.match(r"\|\s*\d+\s*\|\s*`(0x[0-9A-Fa-f]{6})`\s*\|\s*([^|]*)\|\s*(\d+)\s*\|\s*(\d+)", l)
+        if m and fx:
+            a = "0x" + m.group(1)[2:].upper()
+            c = cand.setdefault(a, {"role": m.group(2).strip(), "fx": [], "blocks": 0, "first": int(m.group(4))})
+            c["fx"].append(fx); c["blocks"] = max(c["blocks"], int(m.group(3)))
+free_ports = {a: c for a, c in cand.items() if a not in cited and a not in taken}
+P(f"### (a) Port candidates: executed in the reference, uncited in crates/s5clean/src, not named by any open PR or task issue: "
+  f"{len(free_ports)} of {len(cand)} listed in COVERAGE.md")
+P("Group 5-15 related ones (same class prefix / call chain) per `Port:` task; bit-exact vs recomp/ with unit tests, cite each address,")
+P("wire it where state is compared; if a function turns out read-only/inert, the run records that in one line and moves to the next.")
+bycls = {}
+for a, c in free_ports.items():
+    k = (c["role"].split(" ")[0] if c["role"] and not c["role"].startswith("FUN_") else "(unclassified)")
+    bycls.setdefault(k, []).append((a, c))
+for k, lst in sorted(bycls.items(), key=lambda kv: -sum(c["blocks"] for _, c in kv[1]))[:40]:
+    lst.sort(key=lambda x: -x[1]["blocks"])
+    P(f"- {k} ({len(lst)}): " + ", ".join(f"{a} [{short(c['role'], 50)}; {'/'.join(sorted(set(c['fx']))[:3])}; first {c['first']}]" for a, c in lst[:15]))
+if not covf:
+    P("- (coverage cache stale: read docs/clean/COVERAGE.md and dedupe the same way)")
+ts_ = ((sb or {}).get("percent") or {}).get("test_scope") or {}
+low = (prtext + " " + tasked).lower()
+cmds = [c for c in (ts_.get("commands") or {}).get("untested", []) if c.split()[0].lower() not in low and
+        (len(c.split()) < 2 or c.split()[1].lower() not in low) and str(int(c.split()[0], 16)) not in low]
+P(f"\n### (b) Untested commands without an open PR/task ({len(cmds)} of {len((ts_.get('commands') or {}).get('untested', []))} untested; "
+  f"tested {(ts_.get('commands') or {}).get('tested')}/{(ts_.get('commands') or {}).get('total')}): " + ", ".join(cmds))
+maps = [m for m in (ts_.get("maps") or {}).get("untested", []) if m.split(": ")[-1].lower() not in low]
+P(f"### (b) Untested official maps without an open PR/task ({len(maps)}; tested {(ts_.get('maps') or {}).get('tested')}/"
+  f"{(ts_.get('maps') or {}).get('total')}): " + ", ".join(maps[:40]) + (" …" if len(maps) > 40 else ""))
+P("One `Coverage:` task per command group or map: a generator/fixture that reaches the command's native handler (name it as")
+P("`New-code-path:`), reference export with s5verify, private release asset, s5clean live, first divergence on the board.")
+unm = [sc for sc in (sb or {}).get("scenarios", []) if sc.get("turn") is None and not sc.get("identical")]
+P(f"\n### (c) Unmeasured scenarios (scoreboard has no clean/integration value): {len(unm)}")
+for sc in unm:
+    n = sc["name"]
+    act_ = [i for i in rec if i["_st"] in ("ACTIVE", "QUEUED", "launched") and fx_of(i["title"]) == fam(n)]
+    done_ = [i for i in rec if i["_st"] == "FINISHED" and fx_of(i["title"]) == fam(n)]
+    note = ("task active/queued #" + str(act_[0]["number"])) if act_ else \
+        (f"measured by #{done_[-1]['number']}: {short(done_[-1]['_res'], 80)} -> board line missing; task only if the result is unclear") if done_ else "FREE -> measure task"
+    P(f"- {n} (start {sc.get('start')}, total {sc.get('total')}): {note}")
+P("A measure task installs the fixture (private release / fixtures-gen), runs s5-live on origin/clean/integration and writes one")
+P("board line `live <fixture>: turn X` (or IDENTICAL n); if it diverges, it is a new frontier (bucket A next run).")
 P("")
 
 # 5. coverage

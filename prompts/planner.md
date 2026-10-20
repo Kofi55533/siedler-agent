@@ -28,8 +28,12 @@ ones take slots from the other buckets; if there are more than N, take them olde
 ## 1. Gather state (read-only)
 FIRST read `$W/planner_state.md`: precomputed by the workflow right before this run (frontiers from the scoreboard, all DS-REQ
 and recent LANE-CLAIM board lines, every open siedler-sim-rs PR with draft/mergeable/checks/cited addresses/files, active runs,
-QUEUED tasks (= not yet launched, count as existing tasks for dedupe), task issues of the last 24 h with their last result line,
-and which coverage map to use). It replaces the individual gh calls listed below; make such a call only for a detail the file
+QUEUED tasks (= not yet launched, count as existing tasks for dedupe), task issues of the last 24 h with their state
+(ACTIVE / QUEUED / FINISHED) and last result line, the FRONTIER WORK MAP (per diverging fixture: holder and what is plannable),
+the FILL SOURCES (port candidates, untested commands/maps, unmeasured scenarios, conflicting PRs) and which coverage map to use).
+IMPORTANT: task issues are never closed after their run, so "open issue" does NOT mean pending work (there are hundreds).
+Only ACTIVE and QUEUED tasks and open PRs hold a lane. FINISHED issues only feed the anti-stuck rule and tell you what was
+already tried/measured; a FINISHED issue on an older boundary of the same fixture does not block the current boundary. It replaces the individual gh calls listed below; make such a call only for a detail the file
 lacks (e.g. a PR body/file list beyond the shown excerpt) or to re-check right before queueing.
 This planner runner has NO game data, no siedler-forschung clone and no build: never run s5-live/s5-build/s5recomp here.
 Use `gh` (GH_TOKEN is set) and the local checkout /opt/s5/siedler-sim-rs (`git fetch -q origin clean/integration`).
@@ -63,12 +67,21 @@ floor(0.2N) hygiene; give the remaining slots in the order diagnosis, ports, hyg
 Examples: N=19 -> 10 / 4 / 1 / 4, N=20 -> 10 / 4 / 2 / 4, N=10 -> 5 / 2 / 1 / 2 (diagnosis / ports / scenarios / hygiene).
 Open DS-REQs (section 0) are created first and count in the bucket they fit (default: diagnosis).
 Queue items (`docs/agent-queue/`) are used only if they fit one of the buckets and count there. If a bucket has no qualifying
-task, give its slots to diagnosis, then hygiene; never pad with a non-qualifying task. Justify the split in one summary line.
+task, give its slots to diagnosis, then hygiene, then the FILL SOURCES (below); never pad with a non-qualifying task.
+Justify the split in one summary line.
+ALWAYS QUEUE N (Dominic 2026-10-20 10:09): a planner never ends with fewer than N tasks because frontiers/DS-REQs are exhausted
+or deduped away. Fill the remaining slots from the FILL SOURCES of planner_state.md, in this order and round-robin if one runs
+low: (d) rebase of conflicting agent/* PRs, (a) ports of executed-but-uncited functions, (c) measuring unmeasured scenarios,
+(b) new/longer scenarios for untested commands and maps. These lists are already deduped against cited code, open PRs and
+task issues; still re-check each pick. Fewer than N is allowed ONLY if every remaining candidate is a provable duplicate:
+then name the skipped candidates and the issue/PR each duplicates in the summary.
 WIP LIMIT: at most 1 open PR per run (= per agent lane / issue). Never create a task for a lane, fixture/scenario or function group
-that already has an open agent/* PR in siedler-sim-rs; that PR is handled by a hygiene task (D) instead.
+that already has an open agent/* PR in siedler-sim-rs; that PR is handled by a hygiene task (D) instead: a CONFLICTING one gets a
+rebase task (the frontier work map marks it `REBASE ... mandatory`), a mergeable one held by a fresh Opus/Codex lane claim gets
+NO task (the gate merges it after the claim expires; the map shows until when).
 
-A. FRONTIER DIAGNOSIS (50%). One task per frontier fixture; never two tasks (incl. active runs, open issues of the last 24h,
-   open PRs) on the same frontier fixture + first differing entity. Order by earliest divergence turn first (2026-10-18:
+A. FRONTIER DIAGNOSIS (50%). One task per frontier fixture; never two tasks (incl. ACTIVE/QUEUED tasks and open PRs) on the
+   same frontier fixture + first differing entity; take the FREE rows of the frontier work map. Order by earliest divergence turn first (2026-10-18:
    gen-campaign 16, gen-recruit-attack 31, combat set 166-173, gen-a-dunkelforst 331, then later ones; re-read the board for newer
    values). Owned frontiers: bc-full 1501 and gen-a-wintersturm 1352 = Codex; economy-long, late-economy, combat, combat-waves,
    combat-big, ai-long = Opus. Prefer unowned frontiers; an owned one only if no active/recent task or owner board entry (last 12h)
@@ -78,7 +91,7 @@ A. FRONTIER DIAGNOSIS (50%). One task per frontier fixture; never two tasks (inc
    (title prefix `Diverge <fixture>-<turn>:`), OR, if the fix lies in a file with a fresh Opus/Codex LANE-CLAIM, a precise wiring
    request on the board (addresses, expected values, file + function to touch, fixture + turn). Former claimed areas (economy/,
    world/commands.rs, workers/, ...) are NOT off limits any more; the gate merges there only when a frontier moves and nothing regresses.
-B. FRONTIER-REACHED PORTS (20%). Title prefix `Port:`. A function qualifies ONLY if (a) the reference executes it within +-50 turns of
+B. FRONTIER-REACHED PORTS (20%). Title prefix `Port:`. A function qualifies for bucket B if (a) the reference executes it within +-50 turns of
    a current frontier (per-turn function census: `s5recomp` block trace with `TRACE_TURNS` = the turns frontier-50..frontier+50 and
    `tools/coverage_map.py`, as `tools/coverage_map.sh` does; `tools/census.sh` = window divergence census per field / World::unmodelled,
    queue opus-008, helps to pick the window), (b) its address is not cited in `crates/s5clean/src` on origin/clean/integration, and
@@ -99,14 +112,25 @@ D. HYGIENE (20%). Goal: open PRs in siedler-sim-rs below 60. Each task names its
    (title `Rebase PR #<n> ...`), or close stale/superseded drafts and duplicates (title `Hygiene: close PR #<n> PR #<m> ...`):
    only agent/* heads, never opus/codex/haiku heads or PRs handed to Codex (needs-codex comment), always a one-line reason comment
    naming the superseding PR/merge, branches kept. Pick the oldest conflicted/duplicate PRs first; no two hygiene tasks on one PR.
-   If open PRs are already below 60, give these slots to diagnosis.
+   MANDATORY regardless of the open-PR count (Dominic 2026-10-20): every `REBASE ... mandatory` row of the frontier work map
+   (a CONFLICTING agent/* PR that holds a frontier) gets a `Rebase PR #<n>` task first; then the other conflicting agent/* PRs
+   of the fill list. Only the remaining hygiene slots (closing stale drafts) go to diagnosis when open PRs are below 60.
+   A rebase task tells the run: rebase onto origin/clean/integration, keep the PR's hunks (patch-id), keep DRAFT/branch, abort
+   that single rebase with a board handoff if the conflict lies in a file with a fresh Opus/Codex LANE-CLAIM.
 
-STOP (never create these): ports from COVERAGE.md / function_inventory.json that no frontier census reaches; duplicate tasks (dedupe
+FILL PORTS (fill source (a), Dominic 2026-10-20): outside bucket B, any logic function the reference EXECUTES in a fixture
+   (listed in planner_state.md "Port candidates", from the cached coverage map) that is uncited in crates/s5clean/src qualifies as
+   a `Port:` fill task: one coherent group (5-15, same class / call chain) per task, addresses + fixture + first turn named,
+   ported from the Ghidra decompile cross-checked against recomp/ (the lift is the truth), bit-exact unit tests against recomp/,
+   each address cited, wired where its state is compared; an inert/read-only function is recorded in one line and skipped.
+STOP (never create these): ports of functions the reference never executes in any fixture (function_inventory.json alone is not
+enough; use it only for the class/role of an executed function); duplicate tasks (dedupe
 every candidate against open issues AND open PRs AND active runs: same fixture+turn+entity, same function addresses, same area/map);
 tasks or PRs that only document an "inert helper"; tasks whose only output is a self-merge board entry; pure stay-IDENTICAL
 time extensions of already covered paths; a second task/PR on a lane that already has an open agent/* PR (WIP limit 1).
-Every task must be DISTINCT from each other and from every active run, open issue of the last 24h and open agent/* PR. If you cannot
-find N genuinely distinct qualifying tasks, create fewer. Never invent topics from other Settlers games (S5 has no bakery/woodcutter/
+Every task must be DISTINCT from each other and from every ACTIVE/QUEUED task, every FINISHED task of the last 24 h with the same
+target (same fixture+turn, same addresses, same command/map) and every open agent/* PR. If the frontier buckets cannot fill N,
+use the FILL SOURCES (section 2, "ALWAYS QUEUE N"); create fewer only with the proof described there. Never invent topics from other Settlers games (S5 has no bakery/woodcutter/
 forester); cite recomp/ functions or game data when naming a subsystem.
 Anti-stuck: before creating a task for a fixture+boundary, check recent issues/runs (last ~24h) on the same fixture+turn. If 2-3 runs
 already ended without moving that boundary, do NOT create another task for it; post a short handoff line on `docs/AGENT_BOARD.md`

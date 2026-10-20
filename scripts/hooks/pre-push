@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# global pre-push hook on agent runners (core.hooksPath): append-only docs/AGENT_BOARD.md on clean/integration
+case "$2" in *siedler-sim-rs*) exec python3 "$(dirname "$0")/../board-guard.py" prepush "$(git rev-parse --show-toplevel)";; esac
+exit 0
