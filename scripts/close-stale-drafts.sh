@@ -19,6 +19,9 @@ echo "stale-drafts: $(printf '%s\n' "$L" | grep -c . ) draft PRs older than ${H}
 closed=0
 while read -r n head created mg; do
   [ -z "${n:-}" ] && continue
+  # Persistent v2 packages are repaired/resized by their domain owner. Closing
+  # one for an unchanged frontier would discard its unexecuted-code evidence.
+  case "$head" in agent/unit-*) echo "keep #$n (persistent domain package)"; continue ;; esac
   [ $closed -ge $MAX ] && { echo "cap $MAX reached"; break; }
   # mergeability from the (GraphQL) list: CONFLICTING = REST mergeable_state dirty; one REST call per PR only if UNKNOWN
   # (was 1-2 REST calls for each of up to 300 drafts every hour)

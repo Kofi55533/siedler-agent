@@ -1,0 +1,30 @@
+name: fleet-verify-v2
+run-name: preflight ${{ inputs.ticket }} ${{ inputs.nonce }}
+on:
+  workflow_dispatch:
+    inputs:
+      ticket: {required: true, type: string}
+      nonce: {required: true, type: string}
+permissions:
+  contents: read
+jobs:
+  verify:
+    if: vars.FLEET_V2_ENABLED == 'true' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 140
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - name: Private verification inputs
+        env: {T: '${{ secrets.PRIVATE_REPO_TOKEN }}'}
+        run: scripts/s5-setup.sh clean/integration 1
+      - name: Full independent preflight
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          FLEET_V2_ENABLED: ${{ vars.FLEET_V2_ENABLED }}
+          TICKET: ${{ inputs.ticket }}
+          NONCE: ${{ inputs.nonce }}
+        run: |
+          source scripts/s5-env.sh
+          python3 scripts/autonomy.py verify --ticket "$TICKET" --nonce "$NONCE"

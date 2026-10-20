@@ -45,6 +45,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   refill:
+    if: vars.FLEET_V2_ENABLED != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -212,7 +213,7 @@ jobs:
     # so each run re-dispatches itself ~5 min later. Extra runs collapse via the `refill` concurrency group
     # (only one pending run is kept), so parallel chains cannot multiply.
     needs: refill
-    if: always()
+    if: always() && vars.FLEET_V2_ENABLED != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:

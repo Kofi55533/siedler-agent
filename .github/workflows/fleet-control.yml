@@ -1,0 +1,33 @@
+name: fleet-control-v2
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        type: choice
+        options: [shadow, control]
+        default: shadow
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_run:
+    workflows: [fleet-worker-v2, fleet-verify-v2, fleet-integrate-v2, opencode]
+    types: [completed]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: fleet-control-v2
+  cancel-in-progress: false
+jobs:
+  control:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read-only shadow or approved controller
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          FLEET_V2_ENABLED: ${{ vars.FLEET_V2_ENABLED }}
+          MODE: ${{ inputs.mode || 'control' }}
+        run: |
+          if [ "$FLEET_V2_ENABLED" != true ] || [ "$GITHUB_REF_NAME" != main ]; then MODE=shadow; fi
+          python3 scripts/autonomy.py "$MODE"

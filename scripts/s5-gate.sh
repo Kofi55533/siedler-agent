@@ -61,9 +61,10 @@ PAR=${S5_GATE_PARALLEL:-}; if [ -z "$PAR" ]; then
 BREL=gate-baseline; BREPO=Kofi55533/siedler-agent
 DV2=$(gh release view data-v2 -R Kofi55533/siedler-data --json assets -q '.assets[]|select(.name|test("tzst"))|"\(.name) \(.size) \(.updatedAt)"' 2>/dev/null | sort) && [ -n "$DV2" ] || DV2=""
 bkey(){ # $1 = commit -> cache key of its live matrix (fixture list is part of the file, missing fixtures are measured)
-  { git ls-tree -r "$1" | grep -vP '\tdocs/(.*\.md|subsystems/(DS[0-9]{2}-[^/]+/[^/]+|domains\.json))$'
+  { python3 "$D/gate_contract.py" input-tree "$S5_REPO" "$1"
     echo "$DV2"
-    cat "$D/s5-live.sh" "$D/s5-env.sh" "$D/s5-build.sh"; echo "timeout=${S5_LIVE_TIMEOUT:-1800}"; } | sha256sum | cut -c1-16; }
+    python3 "$D/gate_contract.py" script-digest "$D"
+    echo "timeout=${S5_LIVE_TIMEOUT:-1800}"; } | sha256sum | cut -c1-16; }
 if [ "${S5_GATE_BASELINE_ONLY:-0}" = 1 ]; then
   cd $S5_REPO; git fetch -q origin "+refs/heads/$BASE:refs/remotes/origin/$BASE" || fail "fetch"
   bs=$(git rev-parse origin/$BASE); FIX="$S5_GATE_FIXTURES"
@@ -80,6 +81,7 @@ XC=""; XCALL=0; XCOK=0   # subsystem rule state (set by the PR-only checks below
 if [ "${S5_GATE_BASELINE_ONLY:-0}" != 1 ]; then
 j=$(gh pr view "$PR" -R $R --json baseRefName,headRefName,headRefOid,state,isCrossRepository,files,createdAt) || apifail "pr lookup"
 read -r b h hs st x < <(python -c "import json,sys;d=json.loads(sys.argv[1]);print(d['baseRefName'],d['headRefName'],d['headRefOid'],d['state'],d['isCrossRepository'])" "$j")
+[ -z "${S5_GATE_EXPECT_HEAD:-}" ] || [ "$hs" = "$S5_GATE_EXPECT_HEAD" ] || fail "head differs from the reserved verification ticket"
 [ "$b" = $BASE ] || fail "base is $b, not $BASE"
 [ "$st" = OPEN ] && [ "$x" = False ] || fail "state=$st cross=$x"
 case $h in agent/*) ;; *) fail "head $h is not agent/*" ;; esac
@@ -87,6 +89,12 @@ cd $S5_REPO
 [ -f .git/shallow ] && { git fetch -q --unshallow origin 2>/dev/null || git fetch -q --deepen=5000 origin; }
 git fetch -q origin "+refs/heads/$BASE:refs/remotes/origin/$BASE" "+refs/pull/$PR/head:refs/gate/pr" || fail "fetch"
 bs=$(git rev-parse origin/$BASE); [ "$(git rev-parse refs/gate/pr)" = "$hs" ] || fail "head moved"
+# Independent preflights share an immutable integration epoch. These hooks are
+# available only in dry-run mode; they can never merge an unreviewed union.
+if [ -n "${S5_GATE_PIN_BASE:-}${S5_GATE_EXTRA_HEADS:-}" ]; then
+  [ "$DRY" = 1 ] || fail "pinned/combined candidates require --dry-run"
+  [ -z "${S5_GATE_PIN_BASE:-}" ] || bs=$(git rev-parse "${S5_GATE_PIN_BASE}^{commit}") || fail "unknown pinned base"
+fi
 echo "pr=#$PR head=$h@${hs:0:8} base=$BASE@${bs:0:8}" >> "$G/report.txt"
 # board hunks never merge with a PR (Dominic 2026-10-20 11:14): docs/AGENT_BOARD.md is append-only on clean/integration and
 # board lines go there directly, so a PR's board edits only cause conflicts (22 of 76 gate FAILs 2026-10-19/20). The gate adds
@@ -133,6 +141,13 @@ git show "origin/$BASE:docs/AGENT_BOARD.md" > "$G/board.md" 2>/dev/null || : > "
 git fetch -q origin '+refs/heads/codex/*:refs/remotes/origin/codex/*' '+refs/heads/opus/*:refs/remotes/origin/opus/*' 2>/dev/null || true
 prc=$(python -c "import json,sys;print(json.loads(sys.argv[1]).get('createdAt',''))" "$j")
 LCARGS=(--owners Opus,Codex --hours 6 --repo "$S5_REPO" --diff "$G/pr.diff" --old-rev "$(git merge-base "$bs" refs/gate/pr)" --new-rev refs/gate/pr --pr-created "$prc")
+# The independent fleet enforces live, run-backed resource leases before a
+# writer starts and again before integration. Historic heavy-owner board
+# claims cannot make that fleet wait for Codex/Opus availability (Dominic).
+if [ "${S5_AUTONOMOUS:-0}" = 1 ]; then
+  [ "$DRY" = 1 ] || fail "autonomous verification requires --dry-run"
+  LCARGS=(--owners DeepSeekLease --hours 0 --repo "$S5_REPO" --diff "$G/pr.diff" --old-rev "$(git merge-base "$bs" refs/gate/pr)" --new-rev refs/gate/pr --pr-created "$prc")
+fi
 # a Codex claim holds only while the Codex box loop is active (heartbeat, Dominic 2026-10-20 11:14; scripts/heartbeat.sh)
 # (heartbeat.sh reads the asset download URL, no API call; "--heartbeat-unknown" = github.com unreachable)
 read -r -a HB <<<"$("$D/heartbeat.sh" fetch "$G/heartbeat.json")"; LCARGS+=("${HB[@]}")
@@ -160,8 +175,11 @@ if grep -qiE '^[[:space:]]*diverge\b' "$G/title.txt" || grep -qiE '^[[:space:]]*
   echo "frontier PR: body states live before -> after turns" >> "$G/report.txt"
 fi
 # optional extra frontier fixtures named in the PR body ("Frontier-fixture: gen-campaign"), only if installed on this runner
-FIX="$S5_GATE_FIXTURES"
-for x in $(cat "$G/body.txt" | grep -oiE '^[[:space:]]*frontier-fixture:[[:space:]]*[a-z0-9-]+' | sed -E 's/.*:[[:space:]]*//' | sort -u); do
+FIX="$S5_GATE_FIXTURES ${S5_GATE_EXTRA_FIXTURES:-}"
+# All names on a Frontier-fixture line are required (including comma lists).
+# Never interpret prose on another line as the name of an optional fixture.
+python3 "$D/gate_contract.py" fixtures "$G/body.txt" > "$G/frontier-names.txt" || fail "invalid required fixture declaration"
+for x in $(cat "$G/frontier-names.txt"); do
   case " $FIX " in *" $x "*) continue ;; esac
   # install it (git fixtures-gen/<x> on the PR/base/fixture branches, or the private fixtures-gen-* release named in the body);
   # base and PR are both measured on it (base.cached never has it), so the no-regression rule covers it too
@@ -207,7 +225,7 @@ live_one(){ # $1=fixture $2=label: one s5-live run -> $G/$2.d/<fixture> "fixture
   out=$("$D/s5-live.sh" "$f" 2>/dev/null); rc=$?; n=$(grep -oE 'DIVERGENT turn [0-9]+' <<<"$out" | grep -oE '[0-9]+$' | head -n1)
   if [ -z "$n" ]; then k=$(grep -oE 'IDENTICAL [0-9]+ ticks' <<<"$out" | grep -oE '[0-9]+' | head -n1); [ -n "$k" ] && n=$((k+1000000)); fi
   [ -e "$G/$l.STOP" ] && return 0   # killed by fail-fast: not a measurement
-  if ! [[ "$n" =~ ^[0-9]+$ ]] || [ "$n" -le 0 ]; then
+  if ! [[ "$n" =~ ^[0-9]+$ ]] || [ "$n" -le 0 ] || { [ "$rc" != 0 ] && [ "$rc" != 1 ]; }; then
     echo "$f $( [ $rc = 124 ] && echo TIMEOUT || echo ERROR ) exit=$rc secs=$(( $(date +%s)-t0 ))" > "$G/$l.d/$f.err"; return 0; fi
   echo "$f $n $(( $(date +%s)-t0 ))" > "$G/$l.d/$f"
   if [ "$l" = pr ] && [ "${S5_GATE_FAILFAST:-1}" = 1 ]; then
@@ -265,7 +283,12 @@ measure_base(){ # baseline = $bs: cached per code tree (rows with turn 0 = legac
 evaluate(){ # candidate = PR merged onto $bs: build, s5clean tests, differential tests, live matrix, comparison -> $G/cmp.txt, moved
   git checkout -q --detach "$bs" || fail "checkout base"
   git -c user.name=gate -c user.email=gate@local merge -q --no-edit --no-ff refs/gate/pr >/dev/null 2>&1 || { git merge --abort; git checkout -q --detach "$bs"; fail "merge conflict with $BASE@${bs:0:8}"; }
+  for extra in ${S5_GATE_EXTRA_HEADS:-}; do
+    [[ "$extra" =~ ^[0-9a-f]{40}$ ]] || fail "invalid combined candidate head"
+    git -c user.name=gate -c user.email=gate@local merge -q --no-edit --no-ff "$extra" >/dev/null 2>&1 || { git merge --abort; git checkout -q --detach "$bs"; fail "combined candidate conflict"; }
+  done
   CT=$(git rev-parse 'HEAD^{tree}')
+  CANDIDATE_COMMIT=$(git rev-parse HEAD)
   echo "candidate: PR head ${hs:0:8} merged onto $BASE@${bs:0:8}, tree ${CT:0:12}" >> "$G/report.txt"
   "$D/s5-build.sh" >/dev/null || { git checkout -q --detach "$bs"; fail "build (s5verify) failed on the merged tree ${CT:0:12}"; }
   (cd crates/s5clean && cargo test -q -j "$(nproc)" > $S5/gate-test.log 2>&1); trc=$?
@@ -310,9 +333,12 @@ while :; do
   evaluate
   nb=$(git ls-remote origin refs/heads/$BASE | cut -f1)
   [ -n "$nb" ] || blocked "cannot read $BASE head after the measurement"
+  # A pinned dry-run is evidence for that exact base, even if the live fleet
+  # moves meanwhile. The integration writer must pass a non-force Git CAS.
+  [ -z "${S5_GATE_PIN_BASE:-}" ] || break
   [ "$nb" = "$bs" ] && break
   git fetch -q origin "+refs/heads/$BASE:refs/remotes/origin/$BASE" || blocked "fetch moved base"
-  nd=$(git diff --name-only "$bs" "$nb" | grep -vcE '^docs/(.*\.md|subsystems/(DS[0-9]{2}-[^/]+/[^/]+|domains\.json))$')
+  nd=$(git diff --name-only "$bs" "$nb" | grep -vcE '^docs/.*\.md$')
   if [ "$nd" = 0 ]; then echo "base moved to ${nb:0:8} (docs/*.md or docs/subsystems/DSnn-*/ ledgers only, no build/test input changed): measurement of ${CT:0:12} stands" >> "$G/report.txt"; break; fi
   echo "base moved ${bs:0:8} -> ${nb:0:8} with $nd code/data file(s): re-measuring the exact new merged tree (attempt $((ATT+1)))" >> "$G/report.txt"
   if [ "${S5_GATE_BUDGET_MIN:-0}" -gt 0 ] && [ $(( ( $(date +%s)-GT0 + $(date +%s)-AT0 ) / 60 + 2 )) -gt "${S5_GATE_BUDGET_MIN}" ]; then
@@ -322,6 +348,7 @@ while :; do
   git merge-tree --write-tree "$bs" refs/gate/pr >/dev/null 2>&1 || fail "merge conflict with moved $BASE@${bs:0:8}"
 done
 cp "$G/receipt.tsv" "$S5/gate-receipt-$PR.tsv" 2>/dev/null
+python3 "$D/gate_contract.py" receipt "$G/receipt.tsv" "$bs" "$CT" "$hs" "$CANDIDATE_COMMIT" "$FIX" "$XC" > "$G/receipt.json" || fail "incomplete typed receipt"
 # re-check lane claims on the newest board (a claim may have been posted during the ~75 min live suite)
 git fetch -q origin "+refs/heads/$BASE:refs/remotes/origin/$BASE" 2>/dev/null && git show "origin/$BASE:docs/AGENT_BOARD.md" > "$G/board.md" 2>/dev/null
 LCARGS=("${LCARGS[@]:0:${#LCARGS[@]}-${#HB[@]}}"); read -r -a HB <<<"$("$D/heartbeat.sh" fetch "$G/heartbeat.json")"; LCARGS+=("${HB[@]}")
