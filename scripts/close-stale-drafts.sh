@@ -12,16 +12,19 @@ R=Kofi55533/siedler-sim-rs; BASE=clean/integration
 DRY=0; [ "${1:-}" = --dry-run ] && DRY=1
 H=${STALE_HOURS:-48}; MAX=${STALE_MAX:-25}
 cut=$(date -u -d "-$H hours" +%FT%TZ)
-L=$(gh pr list -R $R --state open --base $BASE --draft --limit 300 --json number,headRefName,baseRefName,createdAt,isDraft \
-  -q ".[] | select(.isDraft and .baseRefName==\"$BASE\" and .createdAt < \"$cut\") | select(.headRefName | test(\"^(opus|codex|haiku)/\") | not) | \"\(.number) \(.headRefName) \(.createdAt)\"") \
+L=$(gh pr list -R $R --state open --base $BASE --draft --limit 300 --json number,headRefName,baseRefName,createdAt,isDraft,mergeable \
+  -q ".[] | select(.isDraft and .baseRefName==\"$BASE\" and .createdAt < \"$cut\") | select(.headRefName | test(\"^(opus|codex|haiku)/\") | not) | \"\(.number) \(.headRefName) \(.createdAt) \(.mergeable)\"") \
   || { echo "pr list failed"; exit 1; }
 echo "stale-drafts: $(printf '%s\n' "$L" | grep -c . ) draft PRs older than ${H}h (cutoff $cut, dry=$DRY)"
 closed=0
-while read -r n head created; do
+while read -r n head created mg; do
   [ -z "${n:-}" ] && continue
   [ $closed -ge $MAX ] && { echo "cap $MAX reached"; break; }
-  ms=$(gh api "repos/$R/pulls/$n" -q .mergeable_state 2>/dev/null)
-  [ "$ms" = unknown ] && { sleep 5; ms=$(gh api "repos/$R/pulls/$n" -q .mergeable_state 2>/dev/null); }
+  # mergeability from the (GraphQL) list: CONFLICTING = REST mergeable_state dirty; one REST call per PR only if UNKNOWN
+  # (was 1-2 REST calls for each of up to 300 drafts every hour)
+  case "$mg" in CONFLICTING) ms=dirty ;; MERGEABLE) ms=clean ;; *)
+    ms=$(gh api "repos/$R/pulls/$n" -q .mergeable_state 2>/dev/null)
+    [ "$ms" = unknown ] && { sleep 5; ms=$(gh api "repos/$R/pulls/$n" -q .mergeable_state 2>/dev/null); } ;; esac
   reason=
   if [ "$ms" = dirty ]; then
     reason="it has merge conflicts with \`$BASE\` (mergeable_state dirty)"

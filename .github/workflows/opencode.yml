@@ -166,6 +166,17 @@ jobs:
           P
           # Subsystem runs (title 'Subsystem: <id> ...', queued by refill): append the subsystem prompt variant (overrides the scope)
           case "$TITLE" in Subsystem:*) python3 "$GITHUB_WORKSPACE/scripts/subsystem_task.py" prompt "$TITLE" >> "$RUNNER_TEMP/prompt.txt" ;; esac
+          # gh call log + polling floor (API budget, 2026-10-20: the shared PAT hit 5000 REST calls/h). Every gh call of the agent is
+          # logged (command words only, no arguments); `gh run watch` / `gh pr checks --watch` poll every 3/10 s by default
+          # (~1200 calls/h each) -> forced to --interval 60. Printed after the run as "agent gh calls".
+          REALGH=$(command -v gh); mkdir -p "$RUNNER_TEMP/ghshim"; export GH_CALL_LOG="$RUNNER_TEMP/gh-calls.log"; : > "$GH_CALL_LOG"
+          printf '%s\n' '#!/usr/bin/env bash' \
+            'echo "$(date +%s) ${1:-} ${2:-}" >> "$GH_CALL_LOG"' \
+            'w=0; i=0; for a in "$@"; do case "$a" in watch|--watch) w=1 ;; -i|--interval|--interval=*) i=1 ;; esac; done' \
+            "if [ \$w = 1 ] && [ \$i = 0 ]; then exec $REALGH \"\$@\" --interval 60; fi" \
+            "exec $REALGH \"\$@\"" > "$RUNNER_TEMP/ghshim/gh"
+          chmod +x "$RUNNER_TEMP/ghshim/gh"; export PATH="$RUNNER_TEMP/ghshim:$PATH"
+          rl0=$("$REALGH" api rate_limit -q .resources.core.used 2>/dev/null)
           cd "$W"
           set +e
           # Model per run: a 'model: opencode/<id>' line in the comment or issue body (comment wins), else default.
@@ -175,6 +186,8 @@ jobs:
           echo "model=$MODEL"
           timeout 200m opencode run -m "$MODEL" "$(cat "$RUNNER_TEMP/prompt.txt")" > "$RUNNER_TEMP/opencode.log" 2>&1
           echo "exit=$? log_lines=$(wc -l < "$RUNNER_TEMP/opencode.log")"
+          echo "agent gh calls: $(wc -l < "$GH_CALL_LOG") in $(( ($(date +%s)-$(date -d "$T0" +%s))/60 )) min; top: $(awk '{print $2, $3}' "$GH_CALL_LOG" | sort | uniq -c | sort -rn | head -6 | awk '{printf "%s %s %s; ", $1, $2, $3}')"
+          echo "PAT core used (account-wide, all consumers): start ${rl0:-?} -> now $("$REALGH" api rate_limit -q .resources.core.used 2>/dev/null)"
           rm -f ~/.local/share/opencode/auth.json
       - name: Board guard (restore lines of docs/AGENT_BOARD.md deleted during this run)
         if: always()
