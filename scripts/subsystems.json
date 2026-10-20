@@ -1,0 +1,36 @@
+{
+  "_doc": "Subsystem runs (Dominic 2026-10-20): 2 of the 18 opencode slots port a whole function group instead of one divergence. scripts/subsystem_task.py keeps 2 Subsystem tasks active/queued (refill), at most one run per subsystem at a time, in this order; a subsystem with status 'done' is skipped. Edit status/scope here.",
+  "slots": 2,
+  "subsystems": [
+    {
+      "id": "battle",
+      "status": "active",
+      "title": "leader/soldier battle logic",
+      "branch": "agent/subsystem-battle",
+      "scope": "the battle state machine of leaders and soldiers (attack/approach/hit/retreat states), return to formation after a fight, ranged fire and projectiles (arrows, cannon balls: creation, flight, impact, damage), and the leader attack-target search (who a leader or soldier engages, re-targeting, engagement end)",
+      "classes": "GGL::CBattleBehavior, GGL::CLeaderBehavior (battle, attack, engagement-end and formation-return states/events), GGL::CSoldierBehavior, GGL::CFormationBehavior, the leader/soldier target-search helpers, and the projectile / flying-effect classes named in recomp/ for arrows and cannon balls",
+      "files": "crates/s5clean/src/combat/ crates/s5clean/src/world/battle_melee.rs crates/s5clean/src/world/leader_tick.rs crates/s5clean/src/world/leader_tasks.rs crates/s5clean/src/world/leader_stance.rs crates/s5clean/src/world/formation.rs crates/s5clean/src/entity/leader.rs crates/s5clean/src/movement/soldier.rs",
+      "fixtures": "combat combat-waves combat-big combat-long ai-long genb-combat-ops genb-waves-assault genb-ailong-mixed"
+    },
+    {
+      "id": "ai-village",
+      "status": "active",
+      "title": "AI village building",
+      "branch": "agent/subsystem-ai-village",
+      "scope": "the computer player's village/economy building logic: build-order selection, placement search, construction and rebuild of farms/residences/production, worker/serf assignment requested by the AI",
+      "classes": "GAI::CPlayer / GAI village and construction managers, GAI::CEntityDynamic/CEntityStatic order objects used for building, and the GGL helpers they call for placement and cost",
+      "files": "crates/s5clean/src/ai/ crates/s5clean/src/world/ai.rs",
+      "fixtures": "ai-builds-oldkings ai-builds-active ai-long late-ai"
+    },
+    {
+      "id": "lua-callbacks",
+      "status": "active",
+      "title": "Lua callback system",
+      "branch": "agent/subsystem-lua-callbacks",
+      "scope": "the engine-to-Lua callback system: trigger registration and dispatch, event getters (Event.GetEntityID ...), game callbacks (GameCallback_*), job/trigger timers and the order in which the engine calls them",
+      "classes": "the Lua trigger/event classes and callback dispatch in recomp/ (TriggerFix, event getters, GameCallback_* call sites)",
+      "files": "crates/s5clean/src/script/",
+      "fixtures": "bc-full camp-crawford gen-gained-resources gen-campaign"
+    }
+  ]
+}

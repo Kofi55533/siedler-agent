@@ -135,6 +135,10 @@ Every task must be DISTINCT from each other and from every ACTIVE/QUEUED task, e
 target (same fixture+turn, same addresses, same command/map) and every open agent/* PR. If the frontier buckets cannot fill N,
 use the FILL SOURCES (section 2, "ALWAYS QUEUE N"); create fewer only with the proof described there. Never invent topics from other Settlers games (S5 has no bakery/woodcutter/
 forester); cite recomp/ functions or game data when naming a subsystem.
+SUBSYSTEM RUNS (Dominic 2026-10-20): 2 of the 18 slots run 'Subsystem:' tasks (whole function groups: battle logic, then AI village
+building, then Lua callbacks), queued by refill itself; never queue them. Do not create Port/Diverge tasks that edit functions under a
+fresh 'LANE-CLAIM Subsystem' line; Diverge tasks on the same fixtures stay allowed and must post their exact divergence as a wiring
+request for the subsystem branch. Battle logic is never given to Codex (Codex owns player statistics).
 TASK SUPPLY (Dominic 2026-10-20, enforced by refill: a violating queued task is closed instead of launched):
 - never queue a `Port:` task whose addresses are listed under "Known done" in planner_state.md (evidence-only runs proved them
   ported/modelled, inert, STL/CRT helpers or unreached); a group may keep at most a minority of known-done addresses, named as such;

@@ -96,6 +96,9 @@ jobs:
           GBA=$(gh_ run list -R "$R" -w gate-baseline.yml --limit 60 --json status -q '[.[]|select(.status=="in_progress")]|length' || echo 0)
           isnum "$GBA" || GBA=0
           [ "$GBA" -gt 0 ] && { log "gate-baseline jobs running: $GBA (counted as slots)"; act=$((act+GBA)); }
+          # 1b) subsystem runs (Dominic 2026-10-20): keep 2 'Subsystem:' tasks active or queued (scripts/subsystems.json); they
+          #     are launched first, so 2 of the TARGET slots always port whole function groups
+          timeout -k 10 180 python3 scripts/subsystem_task.py ensure 2>&1 | while read -r l; do log "$l"; done
           # 2) queued backlog; close stale ones
           Q=$(gh_ issue list -R "$R" --label queued --state open --limit 100 --json number,title,createdAt) || { log "queued list failed -> skip"; exit 1; }
           stale=$(date -u -d "-${STALE_H} hours" +%FT%TZ)
@@ -103,7 +106,7 @@ jobs:
             gh_ issue comment "$n" -R "$R" --body "Stale queued task (queued > ${STALE_H} h, never launched); closed by refill. The planner re-plans it if still relevant." >/dev/null
             gh_ issue edit "$n" -R "$R" --remove-label queued >/dev/null; gh_ issue close "$n" -R "$R" >/dev/null && log "closed stale queued #$n"
           done
-          ORDER=$(jq -r --arg s "$stale" '[.[]|select(.createdAt >= $s)]|sort_by((if (.title|startswith("DS-REQ")) then 0 else 1 end), .createdAt)|.[].number' <<<"$Q")
+          ORDER=$(jq -r --arg s "$stale" '[.[]|select(.createdAt >= $s)]|sort_by((if (.title|startswith("Subsystem:")) then 0 elif (.title|startswith("DS-REQ")) then 1 else 2 end), .createdAt)|.[].number' <<<"$Q")
           backlog=$(wc -w <<<"$ORDER")
           log "opencode active=$act (planner=$plan), queued=$backlog, target=$TARGET"
           # 3) launch into free slots (even while a planner runs)

@@ -145,6 +145,9 @@ jobs:
           LANE CLAIMS replace directory claims: a board line "LANE-CLAIM <Owner> <YYYY-MM-DD HH:MM> <file>[::<function>] ... -- <note>" (Berlin time)
           reserves that file/function for 6 hours. A fresh Opus/Codex lane claim on a file you touch keeps your PR draft; do not edit such a
           file, post a wiring request instead. You may post your own LANE-CLAIM DeepSeek line for the files you work on (advisory, 6 h).
+          A fresh 'LANE-CLAIM Subsystem' line (a subsystem run porting a whole function group, e.g. battle logic) reserves exactly the
+          functions it names: do not edit them; still deliver the exact next divergence (fixture, turn, entity+field, native handler,
+          expected values) and post it on the board as a wiring request for that subsystem branch.
           Base your branch on origin/clean/integration, keep PRs small, never merge yourself and never target main.
           COORDINATION (mandatory, every run; Opus > Codex > Muse): first read siedler-sim-rs docs/AGENT_BOARD.md and docs/agent-queue/ (incl. started/)
           on origin/clean/integration. Before working, CLAIM your task: for a queue task use the file already moved to started/ (or move it there);
@@ -161,6 +164,8 @@ jobs:
           $IBODY
           Task: $TASK
           P
+          # Subsystem runs (title 'Subsystem: <id> ...', queued by refill): append the subsystem prompt variant (overrides the scope)
+          case "$TITLE" in Subsystem:*) python3 "$GITHUB_WORKSPACE/scripts/subsystem_task.py" prompt "$TITLE" >> "$RUNNER_TEMP/prompt.txt" ;; esac
           cd "$W"
           set +e
           # Model per run: a 'model: opencode/<id>' line in the comment or issue body (comment wins), else default.
