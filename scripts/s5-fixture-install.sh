@@ -34,19 +34,43 @@ if [ -d "$S5_REPO/.git" ]; then
 fi
 # 2. releases
 R=Kofi55533/siedler-sim-rs
-tags=$( { [ -n "$body" ] && [ -f "$body" ] && grep -oE 'fixtures-gen-[0-9]{4}-[0-9]{2}-[0-9]{2}-[a-z0-9-]+' "$body" | sed 's/[-.]*$//'
-          gh release list -R $R --limit 200 --json tagName -q '.[].tagName' 2>/dev/null | grep '^fixtures-gen-' |
-            awk -v x="$x" '{t=$0; sub(/^fixtures-gen-[0-9-]{11}/,"",t); fam=x; sub(/-.*/,"",fam);
-                           if (index(x,t)||index(t,x)||(fam~/^gen[bc]$/ && index(t,fam))) print $0}'; } | awk '!s[$0]++' | head -8)
-tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
-for t in $tags; do
+# candidate (tag asset) pairs: tags named in the PR body first, then releases whose tag or asset name matches the fixture
+# (genb-*/genc-* fixtures live in family archives such as genc-longmixed.tar.gz), newest first
+pairs=$( { [ -n "$body" ] && [ -f "$body" ] && grep -oE 'fixtures-gen-[0-9]{4}-[0-9]{2}-[0-9]{2}-[a-z0-9-]+' "$body" | sed 's/[-.]*$//' | sed 's/$/ */'
+           gh api "repos/$R/releases?per_page=100" 2>/dev/null | python3 -c '
+import json, sys, re
+x = sys.argv[1]; fam = x.split("-")[0]
+for r in json.load(sys.stdin):
+    t = r["tag_name"]
+    if not t.startswith("fixtures-gen-"):
+        continue
+    suf = re.sub(r"^fixtures-gen-\d{4}-\d{2}-\d{2}-", "", t)
+    names = [a["name"] for a in r.get("assets", [])]
+    if "scenario.json" in names and (suf in x or x in suf):  # loose fixture files as assets (no archive)
+        print(t, "__loose__")
+    for a in r.get("assets", []):
+        n = a["name"]; base = re.sub(r"(-full)?\.(tar\.gz|tgz|tar|tzst|tar\.zst|tzst\.tar\.gz)$", "", n)
+        if suf in x or x in suf or base in x or x.startswith(base) or (fam in ("genb", "genc") and n.startswith(fam)):
+            print(t, n)' "$x"; } | awk '!s[$0]++' | head -10)
+DL=$S5_NF/.dl; mkdir -p "$DL"   # downloaded archives are kept for the other fixtures of this runner (family archives)
+while read -r t pat; do
+  [ -n "$t" ] || continue
+  if [ "$pat" = __loose__ ]; then
+    lo=$DL/loose-$t; [ -f "$lo/scenario.json" ] || { rm -rf "$lo"; gh release download "$t" -R $R -D "$lo" --clobber >/dev/null 2>&1 || continue; }
+    n=$(python3 -c "import json,sys;print(json.load(open(sys.argv[1])).get('name',''))" "$lo/scenario.json" 2>/dev/null)
+    [ "$n" = "$x" ] || continue
+    rm -rf "$dst"; cp -r "$lo" "$dst" && fix "release $t (loose files)" && exit 0
+    continue
+  fi
   for a in $(gh release view "$t" -R $R --json assets -q '.assets[]|select(.size < 400000000)|.name' 2>/dev/null); do
+    [ "$pat" = "*" ] || [ "$a" = "$pat" ] || continue
     case "$a" in *.tar.gz|*.tgz|*.tar|*.tzst|*.tar.zst) ;; *) continue ;; esac
-    rm -rf "$tmp/x"; mkdir -p "$tmp/x"
-    gh release download "$t" -R $R -p "$a" -D "$tmp" --clobber >/dev/null 2>&1 || continue
-    case "$a" in *.tzst|*.tar.zst) zstd -dcq "$tmp/$a" | tar -x -C "$tmp/x" 2>/dev/null ;; *) tar -xf "$tmp/$a" -C "$tmp/x" 2>/dev/null ;; esac
-    rm -f "$tmp/$a"
-    s=$(python3 - "$tmp/x" "$x" <<'PY'
+    [ -s "$DL/$a" ] || gh release download "$t" -R $R -p "$a" -D "$DL" --clobber >/dev/null 2>&1 || continue
+    ex=$DL/x-${a%%.*}
+    if [ ! -d "$ex" ]; then mkdir -p "$ex.tmp"
+      case "$a" in *.tzst|*.tar.zst) zstd -dcq "$DL/$a" | tar -x -C "$ex.tmp" 2>/dev/null ;; *) tar -xf "$DL/$a" -C "$ex.tmp" 2>/dev/null ;; esac
+      mv "$ex.tmp" "$ex"; fi
+    s=$(python3 - "$ex" "$x" <<'PY'
 import json, os, sys
 root, x = sys.argv[1], sys.argv[2]
 hits = []
@@ -61,5 +85,5 @@ PY
     [ -n "$s" ] || continue
     rm -rf "$dst"; cp -r "$s" "$dst" && fix "release $t/$a" && exit 0
   done
-done
+done <<<"$pairs"
 echo "$x: not installable (no fixtures-gen/$x in git and no matching private release asset)"; exit 1
