@@ -7,7 +7,7 @@ run-name: gate-baseline ${{ inputs.mode }} ${{ inputs.pr }}
 on:
   workflow_dispatch:
     inputs:
-      mode: { description: 'warm | check-old | check-new | verify-merge', default: 'warm' }
+      mode: { description: 'warm | check-old | check-new | verify-merge | regate', default: 'warm' }
       pr: { description: 'PR number (check modes) or merge commit sha (verify-merge)', default: '' }
 permissions:
   contents: read
@@ -93,3 +93,42 @@ jobs:
             printf '%-22s parent %-9s merge %-9s %s\n' $f $n0 ${n1:--} $s
           done < $S5/baseline-${P:0:12}.tsv
           echo "verdict: $([ $reg = 0 ] && echo 'no fixture earlier (merge OK)' || echo 'REGRESSION')"
+  regate:
+    # re-run the normal self-merge gate (same criteria, comments + merges on PASS) for a PR whose last verdict was a lane-claim
+    # hold; dispatched by refill. A cheap claim check runs first, so a still-held PR costs ~1 min instead of the full setup.
+    if: inputs.mode == 'regate'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    concurrency:
+      group: gate-regate-${{ inputs.pr }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - name: Lane-claim pre-check (no setup)
+        id: pre
+        env: { T: '${{ secrets.PRIVATE_REPO_TOKEN }}', GH_TOKEN: '${{ secrets.PRIVATE_REPO_TOKEN }}', PR: '${{ inputs.pr }}' }
+        run: |
+          set -u
+          git clone -q --filter=blob:none --no-checkout "https://x-access-token:${T}@github.com/Kofi55533/siedler-sim-rs.git" /tmp/sr
+          cd /tmp/sr
+          git fetch -q origin "+refs/pull/$PR/head:refs/gate/pr" '+refs/heads/codex/*:refs/remotes/origin/codex/*' '+refs/heads/opus/*:refs/remotes/origin/opus/*'
+          j=$(gh pr view "$PR" -R Kofi55533/siedler-sim-rs --json state,files,createdAt)
+          [ "$(jq -r .state <<<"$j")" = OPEN ] || { echo "PR not open"; echo go=false >> "$GITHUB_OUTPUT"; exit 0; }
+          jq -r '.files[].path' <<<"$j" > /tmp/files.txt; gh pr diff "$PR" -R Kofi55533/siedler-sim-rs > /tmp/pr.diff
+          git show origin/clean/integration:docs/AGENT_BOARD.md > /tmp/board.md
+          lc=$(python3 "$GITHUB_WORKSPACE/scripts/lane-claims.py" /tmp/board.md /tmp/files.txt --owners Opus,Codex --hours 6 --repo /tmp/sr --diff /tmp/pr.diff \
+                 --old-rev "$(git merge-base origin/clean/integration refs/gate/pr)" --new-rev refs/gate/pr --pr-created "$(jq -r .createdAt <<<"$j")")
+          if [ -n "$lc" ]; then echo "still held: $lc"; echo go=false >> "$GITHUB_OUTPUT"; else echo "no claim holds PR #$PR -> full gate"; echo go=true >> "$GITHUB_OUTPUT"; fi
+      - uses: actions/setup-python@v5
+        if: steps.pre.outputs.go == 'true'
+        with: { python-version: '3.11' }
+      - name: Setup (quiet)
+        if: steps.pre.outputs.go == 'true'
+        env: { T: '${{ secrets.PRIVATE_REPO_TOKEN }}' }
+        run: |
+          scripts/s5-setup.sh codex/clean-commands 1
+          scripts/s5-build.sh || true
+      - name: Self-merge gate
+        if: steps.pre.outputs.go == 'true'
+        env: { GH_TOKEN: '${{ secrets.PRIVATE_REPO_TOKEN }}' }
+        run: S5_LIVE_TIMEOUT=900 timeout 100m scripts/s5-gate.sh "${{ inputs.pr }}" || true

@@ -123,6 +123,9 @@ FILL PORTS (fill source (a), Dominic 2026-10-20): outside bucket B, any logic fu
    a `Port:` fill task: one coherent group (5-15, same class / call chain) per task, addresses + fixture + first turn named,
    ported from the Ghidra decompile cross-checked against recomp/ (the lift is the truth), bit-exact unit tests against recomp/,
    each address cited, wired where its state is compared; an inert/read-only function is recorded in one line and skipped.
+CLAIMS (Dominic 2026-10-20): never create a task whose work lies in a file or function listed under "Fresh Opus/Codex lane
+claims" in planner_state.md (a `file::function` claim reserves that function, a plain file claim the whole file) — the owner is
+on it; pick the next candidate instead. A task near such a lane must say "do not edit <claimed items>; post a wiring request".
 STOP (never create these): ports of functions the reference never executes in any fixture (function_inventory.json alone is not
 enough; use it only for the class/role of an executed function); duplicate tasks (dedupe
 every candidate against open issues AND open PRs AND active runs: same fixture+turn+entity, same function addresses, same area/map);

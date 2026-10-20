@@ -26,7 +26,7 @@ on:
       target:
         description: 'Target number of active opencode runs'
         required: false
-        default: '20'
+        default: '18'
 permissions:
   contents: read
 concurrency:
@@ -64,6 +64,19 @@ jobs:
           # 0b) keep the s5-gate baseline cache warm for the current clean/integration code tree (pre-check exits in ~20 s on a hit)
           wb=$(gh_ run list -R "$R" -w gate-baseline.yml --limit 10 --json status,displayTitle -q '[.[]|select(.status!="completed" and (.displayTitle|test("warm")))]|length' || echo 1)
           [ "$wb" = 0 ] && gh_ workflow run gate-baseline.yml -R "$R" --ref main -f mode=warm >/dev/null && log "gate-baseline warm-up dispatched"
+          # 0c) re-gate PRs held by a lane claim (Dominic 2026-10-20: Codex and DeepSeek must not block each other). Nobody re-runs
+          #     the gate of a held PR otherwise; gate-baseline mode=regate first checks the claim (cheap) and runs the normal gate
+          #     (same criteria, merges on PASS) only if the claim no longer holds it. Max 2 per cycle, each PR at most every 90 min.
+          RG=$(gh_ run list -R "$R" -w gate-baseline.yml --limit 60 --json displayTitle,createdAt -q "[.[]|select(.createdAt > \"$(date -u -d '-90 min' +%FT%TZ)\")|.displayTitle]|join(\"|\")" || echo SKIP)
+          if [ "$RG" != SKIP ]; then
+            nrg=0
+            for pr in $(gh_ api graphql -f query='{repository(owner:"Kofi55533",name:"siedler-sim-rs"){pullRequests(states:OPEN,first:100){nodes{number headRefName comments(last:15){nodes{body createdAt}}}}}}' \
+                -q '.data.repository.pullRequests.nodes[]|select(.headRefName|startswith("agent/"))|select(([.comments.nodes[]|select(.body|test("self-merge gate"))]|last|.body // "")|test("fresh lane claim"))|.number' 2>/dev/null); do
+              [ "$nrg" -ge 2 ] && break
+              grep -qE "(^|\|)gate-baseline regate $pr(\||$)" <<<"$RG" && continue
+              gh_ workflow run gate-baseline.yml -R "$R" --ref main -f mode=regate -f pr="$pr" >/dev/null && { nrg=$((nrg+1)); log "re-gate dispatched for lane-held PR #$pr"; }
+            done
+          fi
           # 1) active slots = distinct issue titles of non-completed opencode runs
           J=$(gh_ run list -R "$R" -w opencode.yml --limit 100 --json status,displayTitle) || { log "gh run list failed -> skip"; exit 1; }
           act=$(jq '[.[]|select(.status!="completed")|.displayTitle]|unique|length' <<<"$J")

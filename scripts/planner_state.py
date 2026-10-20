@@ -147,6 +147,14 @@ def lane_block(p):
 
 for p in prs:
     p["lane"] = lane_block(p)
+P("## Fresh Opus/Codex lane claims (6 h): never create a task that edits these files/functions (no duplicated work)")
+try:
+    for owner, t, items in lcm.parse_items(board):
+        if owner in ("Opus", "Codex") and dt.timedelta(0) <= nowb - t < dt.timedelta(hours=6):
+            P(f"- {owner} {t:%H:%M} until {t + dt.timedelta(hours=6):%H:%M} Berlin: " + " ".join(f + (f"::{fn}" if fn else "") for f, fn in items))
+except Exception as e:
+    errors.append(f"claim list: {str(e)[:120]}")
+P("(The gate holds a PR only if it changes a claimed function, or touches a whole-file claim; see scripts/lane-claims.py.)\n")
 conf = [p for p in prs if p.get("mergeable") == "CONFLICTING"]
 P(f"## Open PRs in {S}: {len(prs)} ({len(conf)} CONFLICTING, "
   f"{sum(1 for p in prs if p['lane'])} blocked by a fresh Opus/Codex lane claim)")

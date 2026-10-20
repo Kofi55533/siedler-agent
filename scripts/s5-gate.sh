@@ -47,7 +47,7 @@ if [ "${S5_GATE_BASELINE_ONLY:-0}" = 1 ]; then
     gh release view $BREL -R $BREPO --json assets -q '.assets[].name' 2>/dev/null | grep -qx "base-$k.tsv" && echo "$k $bs hit" || echo "$k $bs miss"; exit 0; fi
 fi
 if [ "${S5_GATE_BASELINE_ONLY:-0}" != 1 ]; then
-j=$(gh pr view "$PR" -R $R --json baseRefName,headRefName,headRefOid,state,isCrossRepository,files) || fail "pr lookup"
+j=$(gh pr view "$PR" -R $R --json baseRefName,headRefName,headRefOid,state,isCrossRepository,files,createdAt) || fail "pr lookup"
 read -r b h hs st x < <(python -c "import json,sys;d=json.loads(sys.argv[1]);print(d['baseRefName'],d['headRefName'],d['headRefOid'],d['state'],d['isCrossRepository'])" "$j")
 [ "$b" = $BASE ] || fail "base is $b, not $BASE"
 [ "$st" = OPEN ] && [ "$x" = False ] || fail "state=$st cross=$x"
@@ -72,7 +72,12 @@ c=$(grep -Ef "$G/hard.re" "$G/files.txt" | head -5 | tr '\n' ' ')
 [ -n "$c" ] && fail "touches hard-blocked path (recomp/oracle/s5verify/s5diff/.github; Opus/Codex review): $c"
 # lane claims: a fresh (<6 h) Opus/Codex LANE-CLAIM line on the board naming a touched file keeps the PR draft
 git show "origin/$BASE:docs/AGENT_BOARD.md" > "$G/board.md" 2>/dev/null || : > "$G/board.md"
-lc=$(python3 "$D/lane-claims.py" "$G/board.md" "$G/files.txt" --owners Opus,Codex --hours 6 2>/dev/null | head -5 | tr '\n' ';')
+# claim granularity (Dominic 2026-10-20 10:22): file::item claims hold only PRs that change that item; a plain file claim does not
+# hold a PR opened before the claim once the owner pushed his work on that file (never merge onto possibly uncommitted work).
+git fetch -q origin '+refs/heads/codex/*:refs/remotes/origin/codex/*' '+refs/heads/opus/*:refs/remotes/origin/opus/*' 2>/dev/null || true
+prc=$(python -c "import json,sys;print(json.loads(sys.argv[1]).get('createdAt',''))" "$j")
+LCARGS=(--owners Opus,Codex --hours 6 --repo "$S5_REPO" --diff "$G/pr.diff" --old-rev "$(git merge-base "$bs" refs/gate/pr)" --new-rev refs/gate/pr --pr-created "$prc")
+lc=$(python3 "$D/lane-claims.py" "$G/board.md" "$G/files.txt" "${LCARGS[@]}" 2>/dev/null | head -5 | tr '\n' ';')
 [ -n "$lc" ] && fail "fresh lane claim on a touched file (kept draft; wait for expiry or ask the owner on the board): $lc"
 soft=$(grep -Ef "$G/soft.re" "$G/files.txt" | head -5 | tr '\n' ' ')
 t=$(grep '^+' "$G/pr.diff" | grep -cEf "$G/topics.re"); [ "$t" != 0 ] && soft="$soft topic-markers($t lines)"
@@ -194,7 +199,7 @@ if [ "$nb" != "$bs" ]; then
 fi
 # re-check lane claims on the newest board (a claim may have been posted during the ~75 min live suite)
 git fetch -q origin "+refs/heads/$BASE:refs/remotes/origin/$BASE" 2>/dev/null && git show "origin/$BASE:docs/AGENT_BOARD.md" > "$G/board.md" 2>/dev/null
-lc=$(python3 "$D/lane-claims.py" "$G/board.md" "$G/files.txt" --owners Opus,Codex --hours 6 2>/dev/null | head -5 | tr '\n' ';')
+lc=$(python3 "$D/lane-claims.py" "$G/board.md" "$G/files.txt" "${LCARGS[@]}" 2>/dev/null | head -5 | tr '\n' ';')
 [ -n "$lc" ] && fail "fresh lane claim on a touched file appeared during the gate (kept draft): $lc"
 if [ $DRY = 1 ]; then echo "all gates green" >> "$G/report.txt"; finish 0; fi
 gh pr ready "$PR" -R $R >/dev/null 2>&1

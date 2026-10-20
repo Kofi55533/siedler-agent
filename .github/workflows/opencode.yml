@@ -220,3 +220,7 @@ jobs:
           elif [ -s "$RUNNER_TEMP/opencode.log" ]; then S="$(sed 's/\x1b\[[0-9;]*m//g' "$RUNNER_TEMP/opencode.log" | grep -v '^\s*$' | tail -n 3 | head -c 500)"
           else S='No summary produced.'; fi
           gh issue comment "$N" -R "$GITHUB_REPOSITORY" --body "$(printf '%s\n\n[run](%s)' "$S" "$RUN")"
+          # task issues are done when their run ends (Dominic 2026-10-20: 374 open planner-task issues looked like pending work
+          # to the planner); planner issues stay open too briefly to matter and are closed the same way
+          gh issue edit "$N" -R "$GITHUB_REPOSITORY" --remove-label launched --remove-label queued >/dev/null 2>&1 || true
+          gh issue close "$N" -R "$GITHUB_REPOSITORY" --reason completed >/dev/null 2>&1 || true
