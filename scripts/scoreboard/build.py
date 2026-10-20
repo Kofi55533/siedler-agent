@@ -244,12 +244,23 @@ BASEWORD = re.compile(r"(?i)\bbase\s+(?:origin/)?clean/integration|\bon\s+(?:cur
                       r"(?:origin/)?clean/integration\s*@|\blive\s+base\b|\bbaseline\b|\(base\b|\bbase\s*@")
 
 
+def is_claim(e):
+    """A claim entry ('... Muse claim: ...' without 'result' in its head line) is written before the work."""
+    head = clean_md(e.get("head") or clean_md(e["text"]).split("\n", 1)[0])
+    # only the entry kind right after the agent name counts ("— Muse claim:", "— Codex LANE-CLAIM"); a long one-line claim
+    # often says "... post an evidence-only result ..." later, which must not turn it into a result
+    return bool(CLAIM_HEAD.match(head))
+
+
+CLAIM_HEAD = re.compile(r"(?i)^[#\s]*\d{4}-\d{2}-\d{2}(?:\s+\d{1,2}:\d{2})?(?:\s+Berlin)?\s*[—–-]*\s*[A-Za-z]+\s+(?:[\w-]+\s+){0,2}(?:lane-)?claim\b(?!\s*(?:\+|&|and|/)\s*result)")
+
+
 def entry_unmerged_pr(e):
     """The unmerged PR a board entry measured on (its head line names it, or the text names its agent/* branch), else None.
     PRs that are only referenced as already merged ('after the #562 merge') do not count."""
     t = clean_md(e["text"])
     head = clean_md(e.get("head") or t.split("\n", 1)[0])
-    if re.search(r"(?i)\bclaim\b", head) and not re.search(r"(?i)\bresult\b", head):
+    if is_claim(e):
         return None  # a claim is written before the work: its numbers are the base values it starts from
     cands = [int(n) for n in PRREF.findall(head)]
     cands += [PR_BY_BRANCH[b.rstrip(".,;:)")] for b in BRANCHREF.findall(t) if b.rstrip(".,;:)") in PR_BY_BRANCH]
@@ -287,7 +298,7 @@ def board_value(entries, name, floor=0, total=None, start=0):
     ne = re.escape(name)
     pats = [
         re.compile(rf"\blive\s+{ne}\s*:\s*(?:before\s+)?(?:(?:turn\s*)?(?:IDENTICAL\s*)?(\d+))?[^\n;]*?(?:->|→)\s*(?:after\s+)?(?:(IDENTICAL)(?:\s+(\d+))?|(?:turn\s*)?(\d+))"),
-        re.compile(rf"(?<![\w-]){ne}(?![\w-])\s*:?\s*(?:(IDENTICAL)(?:\s+(\d+))?|(?:DIVERGENT\s*)?(?:(?:at\s+)?turn\s*)?(\d+)(?!\s*(?:x|×|%|GB|MB|KB|min|turns|Züge)))"),
+        re.compile(rf"(?<![\w-]){ne}(?![\w-])\s*:?\s*(?:(IDENTICAL)(?:\s+(\d+))?|(?:DIVERGENT\s*)?(?:(?:at\s+)?turn\s*)?(\d+)(?!\d)(?!\s*(?:x|×|%|GB|MB|KB|min|turns|Züge|[-–]\s*\d)))"),
         re.compile(rf"(?<![\w-]){ne}(?![\w-])[^\n.;]{{0,40}}?first divergence(?:\s+(?:at\s+)?turn)?\s*(?:(IDENTICAL)(?:\s+(\d+))?|(\d+))"),
     ]
     if name == "bc-full":  # Codex writes "BC advances 5564 -> 7010" / "BC: 763 -> 1501" (no fixture name)
@@ -295,6 +306,7 @@ def board_value(entries, name, floor=0, total=None, start=0):
     nexp = 2 if name == "bc-full" else 1  # patterns with a before-group
     for e in reversed(entries):
         t = clean_md(e["text"])
+        claim = is_claim(e)
         unmerged = entry_unmerged_pr(e) if PR_STATE else None
         if unmerged and not pr_changes_source(unmerged):
             unmerged = None  # fixture/docs-only PR: its live values are measured with clean/integration code
@@ -320,6 +332,12 @@ def board_value(entries, name, floor=0, total=None, start=0):
                     before = n if not ident else before
                     ident = bool(arrow.group(1))
                     n = int(arrow.group(2)) if arrow.group(2) else n
+                if claim and (explicit or (arrow and (arrow.group(1) or arrow.group(2)))):
+                    # a claim measures nothing: "does not duplicate open #606 (ai-long 266 -> 283)" names another PR's result;
+                    # only its before/base value is a clean/integration number
+                    if before is None:
+                        continue
+                    n, ident = int(before), False
                 if unmerged:
                     if before is not None:
                         n, ident = int(before), False  # the before-value is the clean/integration measurement
