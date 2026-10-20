@@ -234,41 +234,110 @@ def board_discover(entries):
     return {n for n in names if n not in SKIP_NAMES and not n.startswith("agent")}
 
 
-def board_value(entries, name, floor=0):
+# PR states for the "measured on clean/integration?" check (filled in main(): number -> "merged" | "open" | "closed",
+# head branch -> number). A board line that reports "before X -> after Y" on an UNMERGED PR's branch measured Y on that branch,
+# not on clean/integration: the scoreboard takes X (the base value) from it. (2026-10-20: bc-full jumped to 12440 from draft #594.)
+PR_STATE, PR_BY_BRANCH = {}, {}
+PRREF = re.compile(r"(?:\bPR\s*#|\(#|\bdraft\s+#|\bDRAFT\s+(?:PR\s+)?#)(\d{2,5})\b")
+BRANCHREF = re.compile(r"\b(agent/[A-Za-z0-9._/-]+)")
+BASEWORD = re.compile(r"(?i)\bbase\s+(?:origin/)?clean/integration|\bon\s+(?:current\s+)?(?:origin/)?clean/integration|"
+                      r"(?:origin/)?clean/integration\s*@|\blive\s+base\b|\bbaseline\b|\(base\b|\bbase\s*@")
+
+
+def entry_unmerged_pr(e):
+    """The unmerged PR a board entry measured on (its head line names it, or the text names its agent/* branch), else None.
+    PRs that are only referenced as already merged ('after the #562 merge') do not count."""
+    t = clean_md(e["text"])
+    head = clean_md(e.get("head") or t.split("\n", 1)[0])
+    if re.search(r"(?i)\bclaim\b", head) and not re.search(r"(?i)\bresult\b", head):
+        return None  # a claim is written before the work: its numbers are the base values it starts from
+    cands = [int(n) for n in PRREF.findall(head)]
+    cands += [PR_BY_BRANCH[b.rstrip(".,;:)")] for b in BRANCHREF.findall(t) if b.rstrip(".,;:)") in PR_BY_BRANCH]
+    for n in cands:
+        if PR_STATE.get(n) in ("open", "closed"):
+            return n
+    return None
+
+
+PR_SRC = {}
+
+
+def pr_changes_source(n):
+    """True if PR #n changes code (crates/, recomp/, tools/ ...); a fixture/docs-only PR measures clean/integration code."""
+    if n not in PR_SRC:
+        fs = []
+        for page in range(1, 5):
+            r = safe(lambda: api(f"repos/{PRIV}/pulls/{n}/files?per_page=100&page={page}"), None, f"files #{n}")
+            if r is None:
+                PR_SRC[n] = True  # unknown -> treat as code change (safe side)
+                return True
+            fs += [f["filename"] for f in r]
+            if len(r) < 100:
+                break
+        PR_SRC[n] = any(not re.match(r"(docs/|fixtures-gen/|fixtures/)", f) for f in fs)
+    return PR_SRC[n]
+
+
+def board_value(entries, name, floor=0, total=None, start=0):
     """Newest board measurement for one fixture -> {turn, identical, time, line} or None.
-    'live <name>: a -> N' takes N; a plain '<name> [DIVERGENT] [turn] N' / 'IDENTICAL [N]' takes the first value."""
+    'live <name>: a -> N' takes N; a plain '<name> [DIVERGENT] [turn] N' / 'IDENTICAL [N]' takes the first value.
+    Only clean/integration values count (Dominic 2026-10-20): on an entry about an unmerged PR the after-value is replaced by the
+    before-value, and a plain value there counts only if its sentence says it is the base/clean/integration value.
+    A value above the scenario total is impossible: IDENTICAL clamps to the total, a divergence turn above it is rejected."""
     ne = re.escape(name)
     pats = [
-        re.compile(rf"\blive\s+{ne}\s*:[^\n;]*?(?:->|→)\s*(?:(IDENTICAL)(?:\s+(\d+))?|(?:turn\s*)?(\d+))"),
+        re.compile(rf"\blive\s+{ne}\s*:\s*(?:before\s+)?(?:(?:turn\s*)?(?:IDENTICAL\s*)?(\d+))?[^\n;]*?(?:->|→)\s*(?:after\s+)?(?:(IDENTICAL)(?:\s+(\d+))?|(?:turn\s*)?(\d+))"),
         re.compile(rf"(?<![\w-]){ne}(?![\w-])\s*:?\s*(?:(IDENTICAL)(?:\s+(\d+))?|(?:DIVERGENT\s*)?(?:(?:at\s+)?turn\s*)?(\d+)(?!\s*(?:x|×|%|GB|MB|KB|min|turns|Züge)))"),
         re.compile(rf"(?<![\w-]){ne}(?![\w-])[^\n.;]{{0,40}}?first divergence(?:\s+(?:at\s+)?turn)?\s*(?:(IDENTICAL)(?:\s+(\d+))?|(\d+))"),
     ]
     if name == "bc-full":  # Codex writes "BC advances 5564 -> 7010" / "BC: 763 -> 1501" (no fixture name)
-        pats.insert(0, re.compile(r"\bBC(?:\s+(?:advances|first divergence))?\s*:?\s*\d+\s*(?:->|→)\s*(?:(IDENTICAL)(?:\s+(\d+))?|(\d+))"))
+        pats.insert(0, re.compile(r"\bBC(?:\s+(?:advances|first divergence))?\s*:?\s*(\d+)\s*(?:->|→)\s*(?:(IDENTICAL)(?:\s+(\d+))?|(\d+))"))
+    nexp = 2 if name == "bc-full" else 1  # patterns with a before-group
     for e in reversed(entries):
         t = clean_md(e["text"])
+        unmerged = entry_unmerged_pr(e) if PR_STATE else None
+        if unmerged and not pr_changes_source(unmerged):
+            unmerged = None  # fixture/docs-only PR: its live values are measured with clean/integration code
         for pi, p in enumerate(pats):
-            mm = None
             for mm in p.finditer(t):
-                break
-            if mm:
-                ident = bool(mm.group(1))
-                if not ident:
+                explicit = pi < nexp
+                g = mm.groups()
+                if explicit:
+                    before, ident, n_id, n_dv = g
+                else:
+                    before, (ident, n_id, n_dv) = None, g
+                ident = bool(ident)
+                n = (int(n_id) if ident and n_id else (int(n_dv) if n_dv else None))
+                if not explicit and not ident:
                     # "economy 360, build 650 ... are all IDENTICAL" -> same sentence says IDENTICAL, none says diverg
                     a = max(t.rfind(".", 0, mm.start()), t.rfind("\n", 0, mm.start())) + 1
                     b = min([x for x in (t.find(".", mm.end()), t.find("\n", mm.end())) if x >= 0] or [len(t)])
                     seg = t[a:b]
                     if "IDENTICAL" in seg and not re.search(r"(?i)diverg|DIVERGENT", seg):
                         ident = True
-                n = int(mm.group(2)) if ident and mm.group(2) else (int(mm.group(3)) if mm.group(3) else None)
-                arrow = re.match(r"\s*(?:->|→)\s*(?:DIVERGENT\s*)?(?:turn\s*)?(IDENTICAL)?\s*(\d+)?", t[mm.end():])
-                if pi > 0 and arrow and (arrow.group(1) or arrow.group(2)):  # "bc-full 763 -> 1501": the after-value counts
+                arrow = re.match(r"\s*(?:->|→)\s*(?:after\s+)?(?:DIVERGENT\s*)?(?:turn\s*)?(IDENTICAL)?\s*(\d+)?", t[mm.end():])
+                if not explicit and arrow and (arrow.group(1) or arrow.group(2)):  # "bc-full 763 -> 1501": the after-value counts
+                    before = n if not ident else before
                     ident = bool(arrow.group(1))
                     n = int(arrow.group(2)) if arrow.group(2) else n
-                if pi > 0 and not ident and (n or 0) < floor:
+                if unmerged:
+                    if before is not None:
+                        n, ident = int(before), False  # the before-value is the clean/integration measurement
+                    else:
+                        a = max(t.rfind(".", 0, mm.start()), t.rfind("\n", 0, mm.start())) + 1
+                        if not BASEWORD.search(t[a:mm.end() + 40]):
+                            continue  # value measured on the unmerged PR branch -> not a clean/integration value
+                if total and n:
+                    if ident and n > total:
+                        n = total  # "IDENTICAL 24000" (tick count) on a locally extended copy -> identical over the official total
+                    elif not ident and n > (start or 0) + total:
+                        continue  # divergence turn after the scenario's last turn: impossible (command id, other number, ...)
+                    elif not ident and n == (start or 0) + total:
+                        n, ident = total, True  # "turn 6200" = start 200 + 6000: ran to the last turn without divergence
+                if not explicit and not ident and (n or 0) < floor:
                     continue  # loose mention below the known value (often another fixture's note) -> keep looking
                 return {"turn": n, "identical": ident, "time": e["time"], "line": e["line"], "agent": e["agent"],
-                        "explicit": pi == 0}
+                        "explicit": explicit, "unmerged_pr": unmerged}
     return None
 
 
@@ -588,6 +657,16 @@ def main():
     os.makedirs(OUT, exist_ok=True)
     board = safe(lambda: content(PRIV, "docs/AGENT_BOARD.md", BRANCH), "", "AGENT_BOARD")
     entries = board_entries(board)
+    for page in range(1, 15):  # PR states: after-values of unmerged PRs are not clean/integration values
+        pl = safe(lambda: api(f"repos/{PRIV}/pulls?state=all&per_page=100&page={page}"), [], "pr states")
+        for pr in pl:
+            PR_STATE[pr["number"]] = "merged" if pr.get("merged_at") else pr["state"]
+            if pr["state"] == "open" or not pr.get("merged_at"):
+                PR_BY_BRANCH.setdefault(pr["head"]["ref"], pr["number"])
+            else:
+                PR_BY_BRANCH[pr["head"]["ref"]] = pr["number"] if pr["head"]["ref"] not in PR_BY_BRANCH else PR_BY_BRANCH[pr["head"]["ref"]]
+        if len(pl) < 100:
+            break
     global BRANCHES
     BRANCHES = []
     for page in range(1, 10):
@@ -619,10 +698,12 @@ def main():
         # a board measurement written after the live matrix is newer -> it wins (matrix can be hours old)
         # a loose mention ("wsecon 229" inside another fixture's note) may only raise the value;
         # a drop needs an explicit "live <name>: a -> b" measurement
-        bv = board_value(entries, name, floor=(v or {}).get("turn") or 0)
+        tk = tot.get(name) or tot.get(ALIAS_TOTAL.get(name, ""))
+        tturns = 23900 if name == "bc-full" else (tk["turns"] if tk else None)
+        bv = board_value(entries, name, floor=(v or {}).get("turn") or 0, total=tturns,
+                         start=121 if name == "bc-full" else (tk["start"] if tk else 0))
         if bv and (not live or int(bv["line"]) > int(live[0]["line"])):
             v, vsrc, vwhen = bv, f"Board ({bv['agent']}, Zeile {bv['line']})", bv["time"]
-        tk = tot.get(name) or tot.get(ALIAS_TOTAL.get(name, ""))
         ncmd = summ = None
         cp = f"fixtures/{fdir}/commands.jsonl" if fdir else None
         if cp and cp in ci_files:
@@ -651,7 +732,8 @@ def main():
     for name in sorted(found):
         f = found[name]
         lv = matrix.get(name)
-        bv = board_value(entries, name)
+        ft = f.get("turns") or (int(re.search(r"-(\d{3,5})$", name).group(1)) if re.search(r"-(\d{3,5})$", name) else None)
+        bv = board_value(entries, name, total=ft, start=f.get("start") or 0)
         iv = f.get("index_value")
         if bv and (not lv or not live or int(bv["line"]) > int(live[0]["line"])):
             val, src, when = bv, f"Board ({bv['agent']}, Zeile {bv['line']})", bv["time"]
