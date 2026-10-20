@@ -33,11 +33,17 @@ ported {ported}, executed by a fixture {executed} (not yet ported: {executed_unp
 - Measure with s5-live.sh on ALL of: {fixtures} before your first change (baseline) and after each completed part; no fixture may
   diverge earlier. Report every fixture as 'live <fixture>: before turn X -> after turn Y' in the PR body (add a
   'Frontier-fixture: <name>' line for each generated fixture outside the standard matrix).
-- Branch {branch}, base origin/clean/integration. If the branch or its PR already exists, CONTINUE it: merge/rebase
-  origin/clean/integration first, read docs/subsystems/{id}.md and the PR body for what is done, then do the next part. Exactly
-  ONE PR for this branch (draft, base clean/integration, title 'Subsystem {id}: ...'); never a second one.
-- COMMIT AND PUSH INCREMENTALLY (git push after every function or test group that builds, and the overview with it, at least every
-  ~20 minutes), so nothing is lost when the 200-minute timeout hits. Never commit docs/AGENT_BOARD.md on the branch.
+- BRANCH EPOCHS (STRATEGY_20261020 s3.3). The unit {id} is the persistent parent; this run is one attempt on branch {branch}
+  (base origin/clean/integration). If {branch} or its open PR already exists, CONTINUE it: merge origin/clean/integration first,
+  read docs/subsystems/{id}.md and the PR body for what is done, then do the next part. One open PR per epoch branch (draft, base
+  clean/integration, title 'Subsystem {id}: ...'); never open a second PR for the same branch. If {branch} is an agent/unit-...-eNN
+  branch that does not exist yet, create it from fresh origin/clean/integration (the previous epoch was merged): never reuse a
+  squash-merged branch tip. After this epoch's PR merges, the next run of {id} gets epoch NN+1 automatically.
+- CHECKPOINT EVERY 20 MINUTES (and after every function or test group that builds): commit and git push {branch} together with
+  the overview, so nothing is lost when the 200-minute timeout hits. Each checkpoint updates the overview's 'Next step' line and a
+  'Checkpoint: <YYYY-MM-DD HH:MM> <head sha> <what builds/passes> <exact next command>' line. Open the draft PR at the FIRST
+  checkpoint (not at the end), so an interrupted run still leaves a PR the next attempt continues. Never commit
+  docs/AGENT_BOARD.md on the branch.
 - CLAIM narrowly: at start post on clean/integration's board ONE line
   'LANE-CLAIM Subsystem <YYYY-MM-DD HH:MM> <file>::<function> ... -- subsystem {id} on {branch}' (Berlin time) naming only the
   functions you will change in this run (not whole directories); refresh it with a new line when you start another part. Other
@@ -45,6 +51,6 @@ ported {ported}, executed by a fixture {executed} (not yet ported: {executed_unp
   player statistics, then the shared battle transition core); post a wiring request instead.
 - The self-merge gate criteria are not weakened (build, s5clean tests, no fixture earlier, frontier move for soft areas — for
   code no fixture reaches, the green differential tests above stand in for the frontier move). It gates your PR at the end of the
-  run; a partial but green subsystem PR merges, the next subsystem run continues the branch.
+  run; a partial but green subsystem PR merges, the next subsystem run starts the next epoch branch.
 - summary.txt: functions ported (count + addresses), differential tests (count, passed), fixture added/requested, PR link,
   'live <fixture>: before turn X -> after turn Y' for every fixture above, and the next step written to the overview.
