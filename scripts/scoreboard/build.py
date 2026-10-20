@@ -5,7 +5,12 @@ Reads (never writes) the private repo Kofi55533/siedler-sim-rs and the public re
 Kofi55533/siedler-agent via the GitHub REST API and writes data.json (numbers/titles only)
 plus an appended history.json. No code, no tokens, no full board text are published.
 
-env: GH_TOKEN (read access to both repos), OUT (output dir), PREV (optional previous history.json)
+env: GH_TOKEN (read access to both repos), OUT (output dir), PREV (optional previous history.json),
+     GH_TOKEN_PUB (optional: built-in GITHUB_TOKEN, used for every call that does not touch the private repo; separate limit),
+     API_CACHE (optional dir: ETag cache across runs; a 304 answer does not count against the rate limit),
+     SB_MIN_REMAINING (default 400: skip the build when the PAT has fewer REST calls left).
+If a fetch hits a rate limit (HTTP 403/429) or the board is unreadable, no data.json is written: OUT/SKIP_PUBLISH holds the
+reason and the workflow keeps the last good gh-pages data (2026-10-20 13:04/13:18: an empty page was published, all fetches 403).
 """
 import base64, json, os, re, sys, urllib.request, urllib.error
 from datetime import datetime, timedelta, timezone
@@ -16,6 +21,12 @@ PUB = "Kofi55533/siedler-agent"
 BRANCH = "clean/integration"
 BERLIN = ZoneInfo("Europe/Berlin")
 TOKEN = os.environ.get("GH_TOKEN", "")
+TOKEN_PUB = os.environ.get("GH_TOKEN_PUB", "") or TOKEN
+API_CACHE = os.environ.get("API_CACHE", "")
+STATS = {"requests": 0, "pat": 0, "pub": 0, "not_modified_pat": 0, "not_modified_pub": 0, "immutable_hits": 0}
+GH_CLI = os.environ.get("SB_GH_CLI") == "1"  # local test runs: calls go through the gh CLI (its own login), no ETag cache
+RATE = {"limited": False, "what": ""}
+_CACHE = {}
 OUT = os.environ.get("OUT", "out")
 PREV = os.environ.get("PREV", "")
 NOW = datetime.now(timezone.utc)
@@ -103,15 +114,80 @@ def describe(map_, start, turns, what):
     return (t + ": " if t else "") + (what or "")
 
 
+class RateLimited(Exception):
+    code = 403
+
+
+IMMUTABLE = re.compile(r"/git/blobs/[0-9a-f]{40}$|/commits/[0-9a-f]{40}$")
+
+
+def cache_load():
+    global _CACHE
+    if API_CACHE:
+        try:
+            _CACHE = json.load(open(os.path.join(API_CACHE, "etags.json")))
+        except Exception:
+            _CACHE = {}
+
+
+def cache_save():
+    if API_CACHE:
+        os.makedirs(API_CACHE, exist_ok=True)
+        keep = {k: v for k, v in _CACHE.items() if v.get("used")}  # only entries this run used (no unbounded growth)
+        for v in keep.values():
+            v.pop("used", None)
+        json.dump(keep, open(os.path.join(API_CACHE, "etags.json"), "w"))
+
+
 def api(path, raw=False, auth=True):
     url = path if path.startswith("http") else "https://api.github.com/" + path.lstrip("/")
+    is_api = url.startswith("https://api.github.com/")
+    priv = f"/repos/{PRIV}/" in url
+    tok = TOKEN if priv else TOKEN_PUB
+    if is_api and RATE["limited"]:
+        raise RateLimited(RATE["what"])  # stop spending calls after the first rate-limit answer
     hdr = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "siedler-scoreboard"}
-    if auth and TOKEN:
-        hdr["Authorization"] = "Bearer " + TOKEN
+    if auth and tok:
+        hdr["Authorization"] = "Bearer " + tok
+    key = ("P " if priv else "U ") + url
+    ent = _CACHE.get(key) if (is_api and not raw) else None
+    if ent and IMMUTABLE.search(url.split("?")[0]):
+        ent["used"] = 1; STATS["immutable_hits"] += 1
+        return ent["data"]
+    if ent and ent.get("etag"):
+        hdr["If-None-Match"] = ent["etag"]
+    if GH_CLI and is_api:
+        import subprocess
+        STATS["requests"] += 1; STATS["pat"] += 1
+        a = ["gh", "api", url[len("https://api.github.com/"):]] + (["-H", "Accept: application/vnd.github.raw"] if raw else [])
+        r = subprocess.run(a, capture_output=True)
+        if r.returncode:
+            err = r.stderr.decode("utf-8", "replace")
+            if "rate limit" in err.lower():
+                RATE["limited"], RATE["what"] = True, "gh CLI rate limit"
+            raise urllib.error.HTTPError(url, 403 if ("403" in err or "rate limit" in err.lower()) else 404 if "404" in err else 500, "gh", None, None)
+        return r.stdout if raw else json.loads(r.stdout)
     req = urllib.request.Request(url, headers=hdr)
-    with urllib.request.urlopen(req, timeout=60) as r:
-        data = r.read()
-    return data if raw else json.loads(data)
+    if is_api:
+        STATS["requests"] += 1; STATS["pat" if tok == TOKEN and auth else "pub"] += 1
+    try:
+        with urllib.request.urlopen(req, timeout=60) as r:
+            data = r.read()
+            etag = r.headers.get("ETag")
+    except urllib.error.HTTPError as e:
+        if e.code == 304 and ent:
+            ent["used"] = 1; STATS["not_modified_pat" if tok == TOKEN and auth else "not_modified_pub"] += 1
+            return ent["data"]
+        if is_api and e.code in (403, 429) and (e.headers.get("X-RateLimit-Remaining") == "0" or e.code == 429
+                                                 or "rate limit" in (e.read() or b"").decode("utf-8", "replace").lower()):
+            RATE["limited"], RATE["what"] = True, f"{'PAT' if tok == TOKEN else 'GITHUB_TOKEN'} rate limit at {url.split('?')[0][23:90]}"
+        raise
+    if raw:
+        return data
+    d = json.loads(data)
+    if is_api and (etag or IMMUTABLE.search(url.split("?")[0])) and len(data) < 8_000_000:
+        _CACHE[key] = {"etag": etag, "data": d, "used": 1}
+    return d
 
 
 def safe(fn, default, what):
@@ -124,6 +200,8 @@ def safe(fn, default, what):
 
 
 def content(repo, path, ref):
+    if GH_CLI:
+        return api(f"repos/{repo}/contents/{path}?ref={urllib.parse.quote(ref, safe='')}", raw=True).decode("utf-8", "replace")
     d = api(f"repos/{repo}/contents/{path}?ref={urllib.parse.quote(ref, safe='')}")
     if d.get("content"):
         return base64.b64decode(d["content"]).decode("utf-8", "replace")
@@ -758,9 +836,34 @@ def fleet_pools():
 
 
 # ---------------- main ----------------
+def rate_remaining(tok):
+    try:
+        req = urllib.request.Request("https://api.github.com/rate_limit", headers={"Authorization": "Bearer " + tok, "User-Agent": "siedler-scoreboard"})
+        with urllib.request.urlopen(req, timeout=30) as r:  # /rate_limit itself does not count
+            c = json.loads(r.read())["resources"]["core"]
+        return c["remaining"], c["reset"]
+    except Exception:
+        return None, None
+
+
+def skip_publish(reason):
+    """No data.json: the publish step keeps the last good gh-pages data."""
+    cache_save()
+    open(os.path.join(OUT, "SKIP_PUBLISH"), "w").write(reason + "\n")
+    print(f"SKIP_PUBLISH: {reason}; api={STATS}")
+    sys.exit(0)
+
+
 def main():
     os.makedirs(OUT, exist_ok=True)
+    cache_load()
+    if TOKEN:
+        rem, rst = rate_remaining(TOKEN)
+        if rem is not None and rem < int(os.environ.get("SB_MIN_REMAINING", "400")):
+            skip_publish(f"PAT has only {rem} REST calls left (reset {datetime.fromtimestamp(rst, BERLIN):%H:%M} Berlin); build skipped")
     board = safe(lambda: content(PRIV, "docs/AGENT_BOARD.md", BRANCH), "", "AGENT_BOARD")
+    if not board:
+        skip_publish("AGENT_BOARD unreadable (" + "; ".join(ERRORS[:3]) + ")")
     entries = board_entries(board)
     for page in range(1, 15):  # PR states: after-values of unmerged PRs are not clean/integration values
         pl = safe(lambda: api(f"repos/{PRIV}/pulls?state=all&per_page=100&page={page}"), [], "pr states")
@@ -1029,6 +1132,10 @@ def main():
     data["codex"]["activity"] = activity("codex", cc and datetime.strptime(cc["time"], "%Y-%m-%d %H:%M").replace(tzinfo=BERLIN).astimezone(timezone.utc))
     data["codex"]["paused_until_utc"] = datetime(2026, 10, 22, 15, 57, tzinfo=BERLIN).astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     data["errors"] = ERRORS
+    # any rate-limited / forbidden fetch makes the page partial (12:49: 198 errors, 35 of 86 scenarios) -> keep the last good page
+    bad = [e for e in ERRORS if re.search(r"\b(403|429)\b|RateLimited", e)]
+    if RATE["limited"] or bad:
+        skip_publish(f"{RATE['what'] or 'HTTP 403/429'}: {len(bad)} of {len(ERRORS)} fetches failed ({'; '.join(bad[:3])})")
 
     # history (one point per new live-matrix source)
     hist = []
@@ -1056,6 +1163,10 @@ def main():
     data["history"] = hist[-200:]
     json.dump(hist[-200:], open(os.path.join(OUT, "history.json"), "w"), ensure_ascii=False, indent=1)
     json.dump(data, open(os.path.join(OUT, "data.json"), "w"), ensure_ascii=False, indent=1)
+    cache_save()
+    print(f"api requests={STATS['requests']} (PAT {STATS['pat']}, GITHUB_TOKEN {STATS['pub']}; 304 not modified PAT {STATS['not_modified_pat']} "
+          f"/ GITHUB_TOKEN {STATS['not_modified_pub']}, immutable cache hits {STATS['immutable_hits']}; counted: PAT "
+          f"{STATS['pat'] - STATS['not_modified_pat']}, GITHUB_TOKEN {STATS['pub'] - STATS['not_modified_pub']})")
     print(f"scenarios={len(rows)} live={'yes' if live else 'no'} ds_running={len(ds)} merged24h={len(merged)} fleet={[(p["account"], p["active"], p["today"]) for p in (data["fleet"] or {}).get("pools", [])]} errors={len(ERRORS)}")
 
 

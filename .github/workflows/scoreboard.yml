@@ -2,12 +2,17 @@ name: scoreboard
 # Builds the public status page (GitHub Pages, branch gh-pages) every 15 min.
 # Reads the private repo via PRIVATE_REPO_TOKEN; publishes only numbers/titles (data.json) + static index.html.
 # Independent of opencode.yml / refill.yml (own concurrency group, no issues/comments).
+# API budget (2026-10-20: one build cost ~990 REST calls of the shared PAT, 4-6 builds/h, the PAT hit 5000/h 12:48-13:26 and
+# the 13:04/13:18 pages were published empty): ETag cache across runs (a 304 does not count; blobs/commits by sha are
+# immutable), AES-encrypted with a key derived from the PAT (it holds private-repo data; fork PRs get no secrets); public-repo
+# calls use the built-in GITHUB_TOKEN; a rate-limited/partial build writes SKIP_PUBLISH and the last good page stays.
 on:
   schedule:
     - cron: '*/15 * * * *'
   workflow_dispatch:
 permissions:
   contents: write
+  actions: write
 jobs:
   build:
     # concurrency only on the build job, so a sleeping rearm job never blocks a manual/new build
@@ -27,16 +32,41 @@ jobs:
           else
             echo '[]' > "$RUNNER_TEMP/prev.json"
           fi
+      - name: Restore API cache (encrypted)
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/apicache.enc
+          key: sbapi-${{ github.run_id }}
+          restore-keys: sbapi-
       - name: Build data.json
         env:
           GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          GH_TOKEN_PUB: ${{ github.token }}
           OUT: ${{ runner.temp }}/out
           PREV: ${{ runner.temp }}/prev.json
-        run: python3 scripts/scoreboard/build.py
+          API_CACHE: ${{ runner.temp }}/apicache
+          ENC: ${{ runner.temp }}/apicache.enc
+        run: |
+          K=$(printf 'siedler-scoreboard-cache:%s' "$GH_TOKEN" | sha256sum | cut -c1-64); export K
+          mkdir -p "$API_CACHE"
+          if [ -s "$ENC" ]; then openssl enc -d -aes-256-cbc -pbkdf2 -pass env:K -in "$ENC" | gzip -dc > "$API_CACHE/etags.json" 2>/dev/null || rm -f "$API_CACHE/etags.json"; fi
+          echo "api cache in: $(du -h "$API_CACHE/etags.json" 2>/dev/null | cut -f1)"
+          python3 scripts/scoreboard/build.py
+          rm -f "$ENC"; [ -s "$API_CACHE/etags.json" ] && gzip -c "$API_CACHE/etags.json" | openssl enc -aes-256-cbc -pbkdf2 -salt -pass env:K -out "$ENC"
+          rm -rf "$API_CACHE"; echo "api cache out: $(du -h "$ENC" 2>/dev/null | cut -f1)"
+      - name: Save API cache (encrypted)
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/apicache.enc
+          key: sbapi-${{ github.run_id }}
       - name: Publish to gh-pages
         env:
           OUT: ${{ runner.temp }}/out
         run: |
+          if [ -f "$OUT/SKIP_PUBLISH" ]; then
+            echo "Not published (last good page kept): $(cat "$OUT/SKIP_PUBLISH")" | tee -a "$GITHUB_STEP_SUMMARY"; exit 0; fi
+          [ -s "$OUT/data.json" ] || { echo "no data.json -> not published" | tee -a "$GITHUB_STEP_SUMMARY"; exit 0; }
           cp scripts/scoreboard/index.html "$OUT/index.html"
           touch "$OUT/.nojekyll"
           cd "$OUT"
@@ -57,7 +87,7 @@ jobs:
     steps:
       - name: Re-dispatch scoreboard in ~13 min
         env:
-          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          GH_TOKEN: ${{ github.token }}  # same public repo; workflow_dispatch by GITHUB_TOKEN starts a run (actions: write)
           R: ${{ github.repository }}
         run: |
           sleep 780
