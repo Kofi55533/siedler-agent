@@ -73,13 +73,17 @@ jobs:
           #     the gate of a held PR otherwise; gate-baseline mode=regate first checks the claim (cheap) and runs the normal gate
           #     (same criteria, merges on PASS) only if the claim no longer holds it. Max 2 per cycle, each PR at most every 90 min.
           RG=$(gh_ run list -R "$R" -w gate-baseline.yml --limit 60 --json displayTitle,createdAt -q "[.[]|select(.createdAt > \"$(date -u -d '-90 min' +%FT%TZ)\")|.displayTitle]|join(\"|\")" || echo SKIP)
+          # at most 2 re-gate jobs run at once in total (11:24 2026-10-20: 6 concurrent re-gates + scoreboard pushed opencode to 13)
+          RGA=$(gh_ run list -R "$R" -w gate-baseline.yml --limit 60 --json status,displayTitle -q '[.[]|select(.status!="completed" and (.displayTitle|test("regate")))]|length' || echo 2)
+          isnum "$RGA" || RGA=2
           if [ "$RG" != SKIP ]; then
             nrg=0
             for pr in $(gh_ api graphql -f query='{repository(owner:"Kofi55533",name:"siedler-sim-rs"){pullRequests(states:OPEN,first:100){nodes{number headRefName comments(last:15){nodes{body createdAt}}}}}}' \
                 -q '.data.repository.pullRequests.nodes[]|select(.headRefName|startswith("agent/"))|select(([.comments.nodes[]|select(.body|test("self-merge gate"))]|last|.body // "")|test("fresh lane claim"))|.number' 2>/dev/null); do
               [ "$nrg" -ge 2 ] && break
+              [ "$RGA" -ge 2 ] && { log "re-gate cap: $RGA regate jobs running -> no more dispatched"; break; }
               grep -qE "(^|\|)gate-baseline regate $pr(\||$)" <<<"$RG" && continue
-              gh_ workflow run gate-baseline.yml -R "$R" --ref main -f mode=regate -f pr="$pr" >/dev/null && { nrg=$((nrg+1)); log "re-gate dispatched for lane-held PR #$pr"; }
+              gh_ workflow run gate-baseline.yml -R "$R" --ref main -f mode=regate -f pr="$pr" >/dev/null && { nrg=$((nrg+1)); RGA=$((RGA+1)); log "re-gate dispatched for lane-held PR #$pr"; }
             done
           fi
           # 1) active slots = distinct issue titles of non-completed opencode runs
@@ -87,6 +91,11 @@ jobs:
           act=$(jq '[.[]|select(.status!="completed")|.displayTitle]|unique|length' <<<"$J")
           plan=$(jq '[.[]|select(.status!="completed" and (.displayTitle|startswith("[planner]")))|.displayTitle]|unique|length' <<<"$J")
           isnum "$act" && isnum "$plan" || { log "bad run list json -> skip"; exit 1; }
+          # running gate-baseline jobs (regate/remeasure/warm/check) occupy runners too: count them in the slot math so the
+          # account's job limit does not leave launched opencode runs queued (DeepSeek starved, 2026-10-20 11:24)
+          GBA=$(gh_ run list -R "$R" -w gate-baseline.yml --limit 60 --json status -q '[.[]|select(.status=="in_progress")]|length' || echo 0)
+          isnum "$GBA" || GBA=0
+          [ "$GBA" -gt 0 ] && { log "gate-baseline jobs running: $GBA (counted as slots)"; act=$((act+GBA)); }
           # 2) queued backlog; close stale ones
           Q=$(gh_ issue list -R "$R" --label queued --state open --limit 100 --json number,title,createdAt) || { log "queued list failed -> skip"; exit 1; }
           stale=$(date -u -d "-${STALE_H} hours" +%FT%TZ)
