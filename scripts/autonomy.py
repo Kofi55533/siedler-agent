@@ -442,8 +442,11 @@ def admit(pool, count):
     dispatches fleet-worker-v2 in `pool`. Honors that pool's own provider hold
     and outage backoff; the main controller never schedules this pool.
     """
-    if not pool or pool == POOL or not 1 <= count <= 4:
-        raise ValueError("Admit needs another pool and 1-4 workers")
+    # Each account has its own 20 Actions job slots; the pool limit caps this
+    # pool's leased + reserved workers independently of the main 16.
+    limit = int(os.environ.get("FLEET_POOL_WORKER_LIMIT", "20"))
+    if not pool or pool == POOL or not 1 <= count <= 20 or not 0 <= limit <= 20:
+        raise ValueError("Admit needs another pool, 1-20 workers and a pool limit of 0-20")
     legacy = set()
     for run in fs.active_runs(POOL).values():
         if run.get("path", "").endswith("/opencode.yml"):
@@ -455,6 +458,8 @@ def admit(pool, count):
         at = time.time()
         state = read()
         if core.held(state, at, pool) or core.provider(copy.deepcopy(state), pool).get("provider_retry_after", 0) > at:
+            break
+        if core.pool_in_flight(state, pool) >= limit:
             break
         candidates = [u for u in state["units"].values()
                       if u["status"] in {"ready", "repair"} and not u.get("dispatch") and u["id"] not in legacy
