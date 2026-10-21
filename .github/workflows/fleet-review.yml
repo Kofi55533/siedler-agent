@@ -3,6 +3,10 @@ on:
   pull_request:
     paths: ['scripts/**', 'prompts/**', '.github/workflows/**', 'tests/**']
   workflow_dispatch:
+    inputs:
+      model_smoke:
+        type: boolean
+        default: false
 permissions:
   contents: read
 jobs:
@@ -16,3 +20,20 @@ jobs:
           python3 -m unittest discover -s tests -v
           python3 -m compileall -q scripts/autonomy.py scripts/autonomy_state.py scripts/gate_contract.py
           bash -n scripts/s5-gate.sh
+  workspace-smoke:
+    if: github.event_name == 'workflow_dispatch' && inputs.model_smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned CLI
+        run: npm i -g opencode-ai@1.19.3 >/dev/null 2>&1
+      - name: Synthetic workspace read/write, no fleet or game mutations
+        env:
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+        run: |
+          umask 077
+          mkdir -p ~/.local/share/opencode
+          printf '{"opencode":{"type":"api","key":"%s"}}' "$OPENCODE_API_KEY" > ~/.local/share/opencode/auth.json
+          trap 'rm -f ~/.local/share/opencode/auth.json' EXIT
+          python3 scripts/workspace_smoke.py
