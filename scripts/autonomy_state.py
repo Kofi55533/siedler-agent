@@ -153,7 +153,7 @@ def reserve(state, uid, owner, plan, at, external=()):
 
 
 def select(state, active_jobs, legacy_jobs=0, limit=CAPACITY, at=None, unavailable_units=(),
-           worker_limit=CAPACITY - VERIFY_SLOTS):
+           worker_limit=CAPACITY - VERIFY_SLOTS, external_gates=0):
     """No LLM planner, fixed domain quotas or dependency on a heavy owner.
 
     Existing jobs count even when their heartbeat expires. Repairs and never
@@ -172,7 +172,7 @@ def select(state, active_jobs, legacy_jobs=0, limit=CAPACITY, at=None, unavailab
     # Keep four runner slots for gates even before the first package arrives.
     # Otherwise long workers can occupy every slot and starve their own PRs.
     gates = sum(t["status"] == "verifying" or bool(t.get("dispatch")) for t in state["tickets"].values())
-    gates += bool(state.get("integration"))
+    gates += bool(state.get("integration")) + external_gates
     reserve = max(0, VERIFY_SLOTS - gates)
     workers = sum(not lease["owner"].startswith("gate:") for lease in state["leases"].values())
     workers += sum(bool(u.get("dispatch")) and u["id"] not in state["leases"] for u in state["units"].values())

@@ -26,6 +26,7 @@ import uuid
 import autonomy_state as core
 import fleet_state as fs
 import gate_contract as contract
+import legacy_backlog as backlog
 
 HERE = Path(__file__).resolve().parent
 POOL = "Kofi55533/siedler-agent"
@@ -80,7 +81,7 @@ def snapshot():
     # Query each live status explicitly; never infer capacity from the last 100
     # mixed workflow runs. Failed/incomplete reads abort the scheduling cycle.
     active = fs.active_runs(POOL)
-    prs = fs.paged(f"repos/{fs.PROJECT}/pulls?state=open&base=clean/integration")
+    prs = backlog.packages()
     return {"runs": active, "prs": prs, "at": time.time()}
 
 
@@ -141,7 +142,7 @@ def controller_needs_wakeup(state, runs):
     # Worker completion/heartbeats normally provide the clock. Once all
     # producers stop (for example during provider backoff), unreliable cron
     # cannot be the only recovery path. A hard provider hold stays manual.
-    producers = ("/fleet-worker.yml", "/fleet-verify.yml", "/fleet-integrate.yml", "/opencode.yml")
+    producers = ("/fleet-worker.yml", "/fleet-verify.yml", "/fleet-integrate.yml", "/opencode.yml", "/gate-baseline.yml")
     return not state["provider_hold"] and not any(r.get("path", "").endswith(producers) for r in runs.values())
 
 
@@ -167,6 +168,13 @@ def control(shadow=False):
         statuses[rid] = fs.api(f"repos/{POOL}/actions/runs/{rid}")["status"]
     at = snap["at"]
     latest_base = fs.api(f"repos/{fs.PROJECT}/git/ref/heads/{fs.BASE}")["object"]["sha"]
+    previous = state.get("backlog_base")
+    comparison = None
+    if previous and previous["head"] != latest_base:
+        comparison = fs.api(f"repos/{fs.PROJECT}/compare/{previous['head']}...{latest_base}")
+    backlog_base = backlog.epoch(previous, latest_base, comparison)
+    scripts = contract.script_digest(HERE)
+    external_gates = backlog.gate_count(snap["runs"]) + backlog.pending(state, snap["runs"], at)
     stale_bases = set()
     for base in {t["receipt"]["base"] for t in state["tickets"].values() if t["status"] == "verified"}:
         if base == latest_base:
@@ -200,6 +208,7 @@ def control(shadow=False):
             state = read()
 
     def reconcile(s):
+        s["backlog_base"] = backlog_base
         core.reconcile_runs(s, statuses, at)
         for u in s["units"].values():
             pending = u.get("dispatch")
@@ -223,9 +232,15 @@ def control(shadow=False):
                 s["integration"] = None
     if shadow:
         reconcile(state)
+        gates = sum(t["status"] == "verifying" or bool(t.get("dispatch")) for t in state["tickets"].values())
+        gates += bool(state.get("integration")) + external_gates
+        candidates = backlog.select(state, snap["prs"], snap["runs"], at, backlog_base["input"], scripts,
+                                    min(max(0, 20 - len(snap["runs"])), max(0, 4 - gates)))
         print(json.dumps({"mode": "shadow", "live_jobs": len(snap["runs"]),
-                          "would_start": core.select(state, len(snap["runs"]), at=at,
-                                                     unavailable_units=legacy_units, worker_limit=worker_limit),
+                          "would_regate": [c["pr"] for c in candidates],
+                          "would_start": core.select(state, len(snap["runs"]) + len(candidates), at=at,
+                                                     unavailable_units=legacy_units, worker_limit=worker_limit,
+                                                     external_gates=external_gates + len(candidates)),
                           "worker_limit": worker_limit, **core.dashboard(state)}))
         return
     update(reconcile, "reconcile confirmed runs")
@@ -234,7 +249,8 @@ def control(shadow=False):
     # Batches have a short final writer and a full combined test; independent
     # preflights run on up to four runners. Do not occupy model slots waiting.
     batch = core.integration_ready(state, at)
-    if batch and not state["integration"] and room:
+    own_gates = sum(t["status"] == "verifying" or bool(t.get("dispatch")) for t in state["tickets"].values())
+    if batch and not state["integration"] and room and own_gates + external_gates < 4:
         nonce = uuid.uuid4().hex[:12]
         def admit_batch(s):
             if s["integration"] or not all(s["tickets"][t]["status"] == "verified" for t in batch):
@@ -246,6 +262,7 @@ def control(shadow=False):
             room -= 1
     state = read()
     verifying = sum(t["status"] == "verifying" or bool(t.get("dispatch")) for t in state["tickets"].values())
+    verifying += bool(state.get("integration")) + external_gates
     for tid, t in state["tickets"].items():
         # Do not prepare receipts against an epoch whose integration writer is
         # already testing a union. Queue work for the next epoch instead.
@@ -267,7 +284,17 @@ def control(shadow=False):
             room -= 1
             verifying += 1
     state = read()
-    for uid in core.select(state, 20 - room, at=at, unavailable_units=legacy_units, worker_limit=worker_limit):
+    for candidate in backlog.select(state, snap["prs"], snap["runs"], at, backlog_base["input"], scripts,
+                                    min(room, max(0, 4 - verifying))):
+        if update(lambda s: backlog.reserve(s, candidate, at), "reserve legacy fixture regate"):
+            dispatch("gate-baseline.yml", {"mode": "regate", "pr": str(candidate["pr"])})
+            update(lambda s: s["backlog_attempts"][str(candidate["pr"])].update(status="dispatched"),
+                   "confirm legacy fixture regate dispatch")
+            room -= 1
+            external_gates += 1
+    state = read()
+    for uid in core.select(state, 20 - room, at=at, unavailable_units=legacy_units, worker_limit=worker_limit,
+                           external_gates=external_gates):
         if room <= 0:
             break
         nonce = uuid.uuid4().hex[:12]

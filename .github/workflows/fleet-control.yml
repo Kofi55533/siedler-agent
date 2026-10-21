@@ -9,7 +9,7 @@ on:
   schedule:
     - cron: '*/5 * * * *'
   workflow_run:
-    workflows: [fleet-worker-v2, fleet-verify-v2, fleet-integrate-v2, opencode]
+    workflows: [fleet-worker-v2, fleet-verify-v2, fleet-integrate-v2, opencode, gate-baseline]
     types: [completed]
 permissions:
   contents: read

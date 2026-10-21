@@ -65,6 +65,17 @@ squash API. A durable tested-push intent recovers successful pushes followed by 
 Legacy gates remain available during migration. They can move the base; new receipts then requeue. No criteria
 are weakened to avoid this work. No workflow targets the game repository's `main` branch.
 
+The v2 controller also admits stranded legacy fixture PRs to the existing `gate-baseline regate` workflow.
+At most two such jobs share the four verification slots and the overall 20-run limit. Active legacy writers,
+existing re-gates and domain-managed packages are excluded. Infrastructure failures and repaired declarations
+can re-enter the full gate; an unchanged correctness rejection waits for an author repair. Admission supplies
+no PASS and changes no build, native-test, claim, required-fixture or live-matrix rule.
+
+Private retry records bind the PR head, body, verification-input epoch and gate scripts. Markdown board activity
+does not repeatedly re-gate an unchanged package. Code/data, head, body or gate-input changes allow another
+attempt. An uncertain dispatch retains its slot for 20 minutes before retry; successfully dispatched unchanged
+inputs are not repeatedly launched. Legacy gate completion wakes control even when no model worker is active.
+
 ## Rollout, checks and rollback
 
 Run before enabling:
