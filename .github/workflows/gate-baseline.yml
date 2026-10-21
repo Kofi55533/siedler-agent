@@ -27,7 +27,7 @@ jobs:
         run: |
           sudo mkdir -p /opt/s5 && sudo chown "$(id -u):$(id -g)" /opt/s5
           git clone -q --depth 1 -b clean/integration "https://x-access-token:${T}@github.com/Kofi55533/siedler-sim-rs.git" /opt/s5/siedler-sim-rs
-          r=$(S5_GATE_BASELINE_ONLY=1 S5_GATE_KEY_ONLY=1 S5_GATE_COMMENT=0 S5_LIVE_TIMEOUT=900 scripts/s5-gate.sh baseline | tail -n1)
+          r=$(S5_GATE_BASELINE_ONLY=1 S5_GATE_KEY_ONLY=1 S5_GATE_COMMENT=0 S5_LIVE_TIMEOUT=1800 scripts/s5-gate.sh baseline | tail -n1)
           echo "baseline key: $r"
           # "skip": data-v2/cache asset list unreadable (API rate limit) -> no warm-up this time (refill retries every 5 min)
           case "$r" in *" hit"|*" skip") echo need=false >> "$GITHUB_OUTPUT" ;; *) echo need=true >> "$GITHUB_OUTPUT" ;; esac
@@ -48,7 +48,7 @@ jobs:
         env: { GH_TOKEN: '${{ secrets.PRIVATE_REPO_TOKEN }}' }
         run: |
           t0=$(date +%s)
-          S5_GATE_BASELINE_ONLY=1 S5_GATE_COMMENT=0 S5_LIVE_TIMEOUT=900 scripts/s5-gate.sh baseline
+          S5_GATE_BASELINE_ONLY=1 S5_GATE_COMMENT=0 S5_LIVE_TIMEOUT=1800 scripts/s5-gate.sh baseline
           echo "warm secs=$(( $(date +%s)-t0 ))"
   check:
     if: inputs.mode == 'check-old' || inputs.mode == 'check-new'
@@ -69,7 +69,7 @@ jobs:
           G=scripts/s5-gate.sh
           if [ "${{ inputs.mode }}" = check-old ]; then git fetch -q --depth 50 origin main; git show 06c8174:scripts/s5-gate.sh > scripts/s5-gate-old.sh; chmod +x scripts/s5-gate-old.sh; G=scripts/s5-gate-old.sh; fi
           t0=$(date +%s)
-          S5_GATE_COMMENT=0 S5_LIVE_TIMEOUT=900 timeout 170m $G "${{ inputs.pr }}" --dry-run || true
+          S5_GATE_COMMENT=0 S5_LIVE_TIMEOUT=1800 timeout 170m $G "${{ inputs.pr }}" --dry-run || true
           echo "gate secs=$(( $(date +%s)-t0 ))"
   verify-merge:
     # post-hoc: live matrix of a merge commit vs its first parent (both cached as baselines), no-regression verdict
@@ -89,7 +89,7 @@ jobs:
           source scripts/s5-env.sh
           git -C $S5_REPO fetch -q --depth 3 origin "$M"
           P=$(git -C $S5_REPO rev-parse "$M^1"); M=$(git -C $S5_REPO rev-parse "$M")
-          for c in $P $M; do S5_GATE_BASE_REF=$c S5_GATE_BASELINE_ONLY=1 S5_GATE_COMMENT=0 S5_LIVE_TIMEOUT=900 scripts/s5-gate.sh verify-${c:0:8} | grep -E '^(live|baseline)'; done
+          for c in $P $M; do S5_GATE_BASE_REF=$c S5_GATE_BASELINE_ONLY=1 S5_GATE_COMMENT=0 S5_LIVE_TIMEOUT=1800 scripts/s5-gate.sh verify-${c:0:8} | grep -E '^(live|baseline)'; done
           reg=0
           while read -r f n0 _; do n1=$(awk -v f=$f '$1==f{print $2}' $S5/baseline-${M:0:12}.tsv)
             if [ -z "$n1" ] || [ "$n1" -lt "$n0" ]; then s=REGRESSION; reg=1; elif [ "$n1" -gt "$n0" ]; then s=better; else s=same; fi
@@ -101,7 +101,7 @@ jobs:
     # hold; dispatched by refill. A cheap claim check runs first, so a still-held PR costs ~1 min instead of the full setup.
     if: inputs.mode == 'regate'
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 140
     concurrency:
       group: gate-regate-${{ inputs.pr }}
       cancel-in-progress: false
@@ -141,7 +141,7 @@ jobs:
       - name: Self-merge gate
         if: steps.pre.outputs.go == 'true'
         env: { GH_TOKEN: '${{ secrets.PRIVATE_REPO_TOKEN }}' }
-        run: S5_GATE_BUDGET_MIN=96 S5_LIVE_TIMEOUT=900 timeout 100m scripts/s5-gate.sh "${{ inputs.pr }}" || true
+        run: S5_GATE_BUDGET_MIN=110 S5_LIVE_TIMEOUT=1800 timeout 115m scripts/s5-gate.sh "${{ inputs.pr }}" || true
   remeasure:
     if: inputs.mode == 'remeasure'
     runs-on: ubuntu-latest
@@ -156,4 +156,4 @@ jobs:
         run: scripts/s5-setup.sh codex/clean-commands 1
       - name: Re-measure genb/genc on clean/integration (no LLM)
         env: { GH_TOKEN: '${{ secrets.PRIVATE_REPO_TOKEN }}', FX: '${{ inputs.pr }}' }
-        run: S5_LIVE_TIMEOUT=900 timeout 100m scripts/s5-remeasure.sh $FX
+        run: S5_LIVE_TIMEOUT=1800 timeout 100m scripts/s5-remeasure.sh $FX

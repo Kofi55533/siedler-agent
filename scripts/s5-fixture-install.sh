@@ -15,12 +15,11 @@ D=$(cd "$(dirname "$0")" && pwd); source "$D/s5-env.sh"
 x=$1; body=${2:-}; shift; [ $# -gt 0 ] && shift; refs=("$@")
 [[ "$x" =~ ^[a-z0-9][a-z0-9-]*$ ]] || { echo "$x: not installable (bad name)"; exit 1; }
 dst=$S5_NF/fixtures/$x
-[ -f "$dst/scenario.json" ] && { echo "$x: installed (already present)"; exit 0; }
 fix(){ # $1 = source label; validates the installed dir
-  sed -i -e "s#/workspace/siedler/artifacts/new-fixtures#$S5_NF#g" -e "s#/workspace/siedler/artifacts/codex-verify-infra#$S5_V#g" "$dst/scenario.json"
-  local img; img=$(python3 -c "import json,sys;print(json.load(open(sys.argv[1])).get('image',''))" "$dst/scenario.json" 2>/dev/null)
-  if [ -z "$img" ] || [ ! -f "$img" ]; then echo "$x: not installable (start image ${img##*/data/} missing on this runner; from $1)"; rm -rf "$dst"; return 1; fi
+  if ! python3 "$D/fixture_bundle.py" "$dst" "${2:-$dst}" "$S5_NF" "$S5_V" 2>/dev/null; then
+    echo "$x: not installable (start image/state missing or ambiguous; from $1)"; rm -rf "$dst"; return 1; fi
   echo "$x: installed from $1"; return 0; }
+[ ! -f "$dst/scenario.json" ] || { fix "already present" && exit 0; }
 mkdir -p "$S5_NF/fixtures"
 # 1. git
 if [ -d "$S5_REPO/.git" ]; then
@@ -59,7 +58,7 @@ while read -r t pat; do
     lo=$DL/loose-$t; [ -f "$lo/scenario.json" ] || { rm -rf "$lo"; gh release download "$t" -R $R -D "$lo" --clobber >/dev/null 2>&1 || continue; }
     n=$(python3 -c "import json,sys;print(json.load(open(sys.argv[1])).get('name',''))" "$lo/scenario.json" 2>/dev/null)
     [ "$n" = "$x" ] || continue
-    rm -rf "$dst"; cp -r "$lo" "$dst" && fix "release $t (loose files)" && exit 0
+    rm -rf "$dst"; cp -r "$lo" "$dst" && fix "release $t (loose files)" "$lo" && exit 0
     continue
   fi
   for a in $(gh release view "$t" -R $R --json assets -q '.assets[]|select(.size < 400000000)|.name' 2>/dev/null); do
@@ -83,7 +82,7 @@ print(sorted(hits)[0][2] if hits else "")
 PY
 )
     [ -n "$s" ] || continue
-    rm -rf "$dst"; cp -r "$s" "$dst" && fix "release $t/$a" && exit 0
+    rm -rf "$dst"; cp -r "$s" "$dst" && fix "release $t/$a" "$ex" && exit 0
   done
 done <<<"$pairs"
 echo "$x: not installable (no fixtures-gen/$x in git and no matching private release asset)"; exit 1

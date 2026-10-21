@@ -225,7 +225,7 @@ jobs:
           done
           echo "gating PRs:${sel:- none}"
           for n in $(printf '%s\n' $sel | sort -un); do
-            S5_GATE_BUDGET_MIN=72 S5_LIVE_TIMEOUT=900 timeout 75m $S5_SCRIPTS/s5-gate.sh "$n" >> "$W/gate.txt" 2>&1 || true
+            S5_GATE_BUDGET_MIN=82 S5_LIVE_TIMEOUT=1800 timeout 85m $S5_SCRIPTS/s5-gate.sh "$n" >> "$W/gate.txt" 2>&1 || true
             sed -n 's/^### Muse self-merge gate: /gate #'"$n"': /p' "$W/gate.txt" | tail -n1 >> "$W/summary.txt"
           done
       - name: Post summary

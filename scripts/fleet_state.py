@@ -65,6 +65,50 @@ def paged(path, key=None, pages=10):
     raise RuntimeError("Pagination limit reached; refusing an incomplete scheduling snapshot")
 
 
+def open_pr_resources():
+    """Fresh PR/file reservations without one REST call per open PR per plan.
+
+    Paginate both connections; truncated or failed answers never mean an empty
+    reservation. The uncommon >100-file PR falls back to the existing REST
+    paginator. No cached board/PR claims are admitted.
+    """
+    owner, name = PROJECT.split("/")
+    query = """query($owner:String!,$name:String!,$base:String!,$after:String){
+      repository(owner:$owner,name:$name){pullRequests(states:OPEN,first:100,
+        baseRefName:$base,after:$after){nodes{number
+          files(first:100){nodes{path} pageInfo{hasNextPage}}}
+        pageInfo{hasNextPage endCursor}}}}"""
+    result, after = [], None
+    for _ in range(10):
+        value = api("graphql", "POST", {"query": query, "variables": {
+            "owner": owner, "name": name, "base": BASE, "after": after}})
+        if value.get("errors") or not value.get("data", {}).get("repository"):
+            raise RuntimeError("Cannot read complete PR reservations")
+        connection = value["data"]["repository"]["pullRequests"]
+        for pr in connection["nodes"]:
+            files = pr["files"]
+            if files["pageInfo"]["hasNextPage"]:
+                paths = [f["filename"] for f in paged(f"repos/{PROJECT}/pulls/{pr['number']}/files")]
+            else:
+                paths = [f["path"] for f in files["nodes"]]
+            result.append({"number": pr["number"], "files": paths})
+        if not connection["pageInfo"]["hasNextPage"]:
+            return result
+        cursor = connection["pageInfo"].get("endCursor")
+        if not cursor or cursor == after:
+            raise RuntimeError("Incomplete PR reservation pagination")
+        after = cursor
+    raise RuntimeError("PR reservation pagination limit reached")
+
+
+def active_runs(repository):
+    runs = {}
+    for status in ("queued", "in_progress", "waiting", "pending", "requested"):
+        for run in paged(f"repos/{repository}/actions/runs?status={status}", "workflow_runs"):
+            runs[str(run["id"])] = run
+    return runs
+
+
 def file_text(path, ref=BASE, repository=PROJECT):
     value = api(f"repos/{repository}/contents/{path}?ref=" + urllib.parse.quote(ref, safe=""))
     if value.get("encoding") != "base64":
@@ -141,9 +185,14 @@ class Store:
     def read(self):
         ref = api(f"repos/{PROJECT}/git/ref/heads/{CONTROL}")
         head = ref["object"]["sha"]
+        cached = getattr(self, "_snapshot", None)
+        if cached and cached[1] == head:
+            return copy.deepcopy(cached)
         commit = api(f"repos/{PROJECT}/git/commits/{head}")
         state = json.loads(file_text(STATE_PATH, head))
-        return state, head, commit["tree"]["sha"]
+        snapshot = state, head, commit["tree"]["sha"]
+        self._snapshot = copy.deepcopy(snapshot)
+        return snapshot
 
     def initialize(self):
         try:
@@ -189,6 +238,7 @@ class Store:
             try:
                 api(f"repos/{PROJECT}/git/refs/heads/{CONTROL}", "PATCH", {
                     "sha": commit["sha"], "force": False})
+                self._snapshot = copy.deepcopy((state, commit["sha"], new_tree))
                 return result
             except ApiError as error:
                 if error.status not in (409, 422):

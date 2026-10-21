@@ -106,7 +106,7 @@ jobs:
           if [ "$RG" != SKIP ]; then
             nrg=0
             for pr in $(GH_TOKEN="$PAT" gh_ api graphql -f query='{repository(owner:"Kofi55533",name:"siedler-sim-rs"){pullRequests(states:OPEN,first:100){nodes{number headRefName comments(last:15){nodes{body createdAt}}}}}}' \
-                -q '.data.repository.pullRequests.nodes[]|select(.headRefName|startswith("agent/"))|select(([.comments.nodes[]|select(.body|test("self-merge gate"))]|last|.body // "")|test("fresh lane claim|self-merge gate: DEFERRED"))|.number' 2>/dev/null); do
+                -q '.data.repository.pullRequests.nodes[]|select(.headRefName|startswith("agent/"))|select(([.comments.nodes[]|select(.body|test("self-merge gate"))]|last|.body // "")|test("fresh lane claim|self-merge gate: DEFERRED|invalid required fixture declaration|Frontier-fixture .* could not be installed|no result \\(ERROR/TIMEOUT\\)"))|.number' 2>/dev/null); do
               [ "$nrg" -ge 2 ] && break
               [ "$RGA" -ge 2 ] && { log "re-gate cap: $RGA regate jobs running -> no more dispatched"; break; }
               grep -qE "(^|\|)gate-baseline regate $pr(\||$)" <<<"$RG" && continue
@@ -118,6 +118,11 @@ jobs:
           act=$(jq '[.[]|select(.status!="completed")|.displayTitle]|unique|length' <<<"$J")
           plan=$(jq '[.[]|select(.status!="completed" and (.displayTitle|startswith("[planner]")))|.displayTitle]|unique|length' <<<"$J")
           isnum "$act" && isnum "$plan" || { log "bad run list json -> skip"; exit 1; }
+          # Rollback never cancels v2 jobs already running. They still occupy
+          # slots until completion; ignoring them overfills the legacy pool.
+          v2=$(PYTHONPATH=scripts python3 -c 'import fleet_state as f; print(sum(r.get("path", "").endswith(("/fleet-worker.yml", "/fleet-verify.yml", "/fleet-integrate.yml")) for r in f.active_runs("Kofi55533/siedler-agent").values()))') || { log "v2 capacity unreadable -> no launches"; exit 1; }
+          isnum "$v2" || { log "bad v2 capacity -> no launches"; exit 1; }
+          [ "$v2" -gt 0 ] && { log "v2 jobs draining after rollback: $v2 (counted as slots)"; act=$((act+v2)); }
           # running gate-baseline jobs (regate/remeasure/warm/check) occupy runners too: count them in the slot math so the
           # account's job limit does not leave launched opencode runs queued (DeepSeek starved, 2026-10-20 11:24)
           GBA=$(gbq '[.[]|select(.status=="in_progress")]|length'); isnum "$GBA" || GBA=0

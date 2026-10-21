@@ -79,10 +79,7 @@ def read():
 def snapshot():
     # Query each live status explicitly; never infer capacity from the last 100
     # mixed workflow runs. Failed/incomplete reads abort the scheduling cycle.
-    active = []
-    for status in ("queued", "in_progress", "waiting", "pending", "requested"):
-        active.extend(fs.paged(f"repos/{POOL}/actions/runs?status={status}", "workflow_runs"))
-    active = {str(r["id"]): r for r in active}
+    active = fs.active_runs(POOL)
     prs = fs.paged(f"repos/{fs.PROJECT}/pulls?state=open&base=clean/integration")
     return {"runs": active, "prs": prs, "at": time.time()}
 
@@ -141,6 +138,9 @@ def wake_control(soon=False):
 
 
 def control(shadow=False):
+    worker_limit = int(os.environ.get("FLEET_V2_WORKER_LIMIT", "16"))
+    if not 0 <= worker_limit <= 16:
+        raise ValueError("Worker rollout limit must be between 0 and 16")
     snap = snapshot()
     state = read()
     if state is None:
@@ -217,7 +217,8 @@ def control(shadow=False):
         reconcile(state)
         print(json.dumps({"mode": "shadow", "live_jobs": len(snap["runs"]),
                           "would_start": core.select(state, len(snap["runs"]), at=at,
-                                                     unavailable_units=legacy_units), **core.dashboard(state)}))
+                                                     unavailable_units=legacy_units, worker_limit=worker_limit),
+                          "worker_limit": worker_limit, **core.dashboard(state)}))
         return
     update(reconcile, "reconcile confirmed runs")
     state = read()
@@ -258,7 +259,7 @@ def control(shadow=False):
             room -= 1
             verifying += 1
     state = read()
-    for uid in core.select(state, 20 - room, at=at, unavailable_units=legacy_units):
+    for uid in core.select(state, 20 - room, at=at, unavailable_units=legacy_units, worker_limit=worker_limit):
         if room <= 0:
             break
         nonce = uuid.uuid4().hex[:12]
@@ -352,17 +353,28 @@ def run_model(prompt, directory, pulse, minutes, checkpoint=None):
                     last_checkpoint = time.monotonic()
                 time.sleep(5)
             text = path.read_text(errors="replace")
-            private_record(f"autonomy/logs/{RUN}-{uuid.uuid4().hex[:8]}.txt", text)
             lowered = text.lower()
+            failure = None
             if any(s in lowered for s in ("abusive traffic from this ip", "free models aren't available from your current network")):
-                raise PermissionError("Provider access refusal")
-            if any(s in lowered for s in ("invalid api key", "insufficient quota", "rate limit exceeded",
-                                          "model not found", "payment required", "authentication failed")):
-                raise ProviderError("Provider unavailable")
-            if "permission requested:" in lowered and "auto-rejecting" in lowered:
-                raise ToolAccessRefusal("OpenCode refused tool access; no automatic retry")
-            if process.returncode:
-                raise RuntimeError("Model process failed")
+                failure = PermissionError("Provider access refusal")
+            elif any(s in lowered for s in ("invalid api key", "insufficient quota", "rate limit exceeded",
+                                            "model not found", "payment required", "authentication failed",
+                                            "upstream request failed: endpoint is unavailable")):
+                failure = ProviderError("Provider unavailable")
+            elif "permission requested:" in lowered and "auto-rejecting" in lowered:
+                failure = ToolAccessRefusal("OpenCode refused tool access; no automatic retry")
+            elif process.returncode:
+                failure = RuntimeError("Model process failed")
+            try:
+                private_record(f"autonomy/logs/{RUN}-{uuid.uuid4().hex[:8]}.txt", text)
+            except Exception:
+                # Keep the local log. A diagnostics outage must not hide a
+                # provider refusal or turn its global backoff into a unit retry.
+                if failure:
+                    raise failure from None
+                raise
+            if failure:
+                raise failure
         finally:
             if process.poll() is None:
                 os.killpg(process.pid, signal.SIGKILL)
@@ -379,9 +391,9 @@ def external_resources(uid):
         our_prs.add(u["wip"]["pr"])
     from fleet import board_claims
     result = board_claims(fs.file_text("docs/AGENT_BOARD.md"))
-    for p in fs.paged(f"repos/{fs.PROJECT}/pulls?state=open&base=clean/integration"):
+    for p in fs.open_pr_resources():
         if p["number"] not in our_prs:
-            result.extend(f["filename"] for f in fs.paged(f"repos/{fs.PROJECT}/pulls/{p['number']}/files"))
+            result.extend(p["files"])
     return sorted(set(result))
 
 
@@ -642,7 +654,15 @@ def worker_package(u, deadline):
                 run_model(prompt, REPO, pulse, allowance(min(170, plan["minutes"] + 20)), checkpoint=save)
             finally:
                 # Preserve productive work on timeout/provider failure too.
-                save()
+                phase_error = sys.exc_info()[1]
+                try:
+                    save()
+                except Exception:
+                    # A rejected checkpoint never admits source, but must not
+                    # mask the refusal/backoff that stops further model work.
+                    if isinstance(phase_error, (PermissionError, ProviderError)):
+                        raise phase_error from None
+                    raise
             result = json.loads(result_file.read_text())
             if result.get("outcome") == "ready":
                 body_file = scratch / "pr-body.md"
