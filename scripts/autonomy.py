@@ -551,6 +551,29 @@ def planning_prompt(scratch, resources, inherited, plan_error, deadline):
     return prompt
 
 
+def package_review(u, scratch):
+    """Give credential-free workers the actual review of an adopted package."""
+    number = u.get("wip", {}).get("pr") if u.get("wip") else None
+    if not number:
+        return
+    owner, name = fs.PROJECT.split("/")
+    query = """query($owner:String!,$name:String!,$number:Int!){
+      repository(owner:$owner,name:$name){pullRequest(number:$number){
+        state headRefOid body comments(last:100){nodes{body createdAt}}}}}"""
+    value = fs.api("graphql", "POST", {"query": query, "variables": {
+        "owner": owner, "name": name, "number": int(number)}})
+    if value.get("errors") or not value.get("data", {}).get("repository", {}).get("pullRequest"):
+        raise RuntimeError("Cannot read the adopted package review")
+    pr = value["data"]["repository"]["pullRequest"]
+    comments = pr["comments"]["nodes"]
+    gates = [c for c in comments if "self-merge gate:" in c["body"]]
+    path = scratch / "pr-review.json"
+    path.write_text(json.dumps({"pr": number, "head": pr["headRefOid"], "state": pr["state"],
+                               "body": pr["body"], "latest_gate": gates[-1] if gates else None,
+                               "recent_comments": comments[-15:]}, indent=2))
+    u["review_input"] = str(path)
+
+
 def worker_package(u, deadline):
     uid = u["id"]
     def allowance(requested):
@@ -573,6 +596,7 @@ def worker_package(u, deadline):
         inherited = sorted(set(inherited + conflicts))
         scratch = worker_inputs() / ("domain-" + uid)
         scratch.mkdir(exist_ok=True)
+        package_review(u, scratch)
         if u.get("recovery_patch"):
             recovery = scratch / "previous-source.patch"
             recovery.write_text(fs.file_text(u["recovery_patch"], fs.CONTROL))

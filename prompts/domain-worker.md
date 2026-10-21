@@ -51,6 +51,8 @@ output into one final PR, or declare the whole run finished after a small packag
 clock and final checkpoint margin. Record useful residuals in the overview so the next package reuses them.
 
 Never inspect OpenCode's storage, sessions, auth files or provider settings. They are not game inputs.
+Read assignment.review_input when present; use its private gate/review evidence to repair the adopted package.
+Resolve the recorded failure with native proof and current measurements. Do not fetch GitHub or seek credentials.
 A denied operation stays denied. Continue only with the explicitly supplied permitted game inputs; do not
 change permissions or retry the denied operation. Keep temporary probes under assignment's .fleet-input
 workspace. Declare every source/test file in the plan before writing it; Cargo.lock files and temporary
