@@ -1,0 +1,33 @@
+name: fleet-pool-refill
+# Keeps an additional worker pool (another account's fork with its own Actions
+# slots and OpenCode key) full. Runs only in a fork, never in the main pool:
+# the main controller (fleet-control-v2) schedules Kofi55533's own 16 workers.
+# `admit` reserves units in the shared v2 state by CAS, honors this pool's own
+# provider refusal hold and outage backoff, and never exceeds its pool limit.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_run:
+    workflows: [fleet-worker-v2]
+    types: [completed]
+permissions:
+  contents: read
+concurrency:
+  group: fleet-pool-refill
+  cancel-in-progress: false
+jobs:
+  admit:
+    if: >-
+      github.repository != 'Kofi55533/siedler-agent' && github.ref == 'refs/heads/main' &&
+      vars.FLEET_V2_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Refill this pool's worker slots from the shared v2 queue
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          FLEET_V2_ENABLED: ${{ vars.FLEET_V2_ENABLED }}
+          FLEET_POOL_WORKER_LIMIT: ${{ vars.FLEET_POOL_WORKER_LIMIT || '20' }}
+        run: python3 scripts/autonomy.py admit --pool "$GITHUB_REPOSITORY" --count "$FLEET_POOL_WORKER_LIMIT"
