@@ -34,6 +34,28 @@ class SetupTests(unittest.TestCase):
                 self.assertEqual(self.g(repo,'merge-base',tip,'HEAD'),base)
                 self.assertEqual(self.g(repo,'rev-parse','--is-shallow-repository'),'false')
 
+    def test_same_runner_can_set_up_an_unpushed_unit_branch_again(self):
+        # Runs 39635976569 and 39626274937: a stuck package left its local
+        # branch behind; the next claim of that unit failed with git exit 128.
+        with tempfile.TemporaryDirectory() as td:
+            root=Path(td);remote=root/'remote.git';source=root/'source';repo=root/'repo'
+            subprocess.run(['git','init','--bare','-q',remote],check=True)
+            source.mkdir();self.g(source,'init','-q');self.g(source,'config','user.name','test');self.g(source,'config','user.email','test@test.invalid')
+            (source/'a').write_text('base');self.g(source,'add','.');self.g(source,'commit','-qm','base')
+            self.g(source,'remote','add','origin',str(remote));self.g(source,'push','-q','origin','HEAD:refs/heads/clean/integration')
+            subprocess.run(['git','clone','-q','--depth','1','--no-single-branch','--branch','clean/integration',remote.as_uri(),repo],check=True)
+            real=runtime.command
+            def command(args,*a,**kw):
+                if list(map(str,args[:3]))==['git','remote','set-url']:
+                    return subprocess.CompletedProcess(args,0,'','')
+                return real(args,*a,**kw)
+            with patch.object(runtime,'REPO',repo),patch.object(runtime,'command',side_effect=command),patch.object(runtime,'author_environment',return_value=os.environ.copy()):
+                unit={'branch':'agent/unit-battle-e01'}
+                first=runtime.setup_worker_repo(unit)
+                self.assertEqual(runtime.setup_worker_repo(unit),first)
+                self.assertEqual(self.g(repo,'rev-parse','--abbrev-ref','HEAD'),'agent/unit-battle-e01')
+                self.assertEqual(self.g(repo,'rev-parse','HEAD'),first)
+
     def test_inputs_are_in_the_existing_workspace_and_cannot_enter_git_changes(self):
         with tempfile.TemporaryDirectory() as td:
             repo=Path(td);self.g(repo,'init','-q')
