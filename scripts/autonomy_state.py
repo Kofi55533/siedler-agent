@@ -232,6 +232,10 @@ def finish(state, uid, owner, result, at):
         u["wip"] = result["checkpoint"]
     u["findings"].append({"at": at, "outcome": outcome, "summary": str(result.get("summary", ""))[:6000]})
     u["findings"] = u["findings"][-12:]
+    if outcome not in {"provider_error", "access_refusal", "setup_error"}:
+        # A completed model step proves the provider works again; the next
+        # genuine outage starts at the shortest backoff, not at four hours.
+        state["provider_errors"] = 0
     if outcome == "ready":
         if not result.get("pr") or not re.fullmatch(r"[0-9a-f]{40}", result.get("head", "")):
             raise ValueError("Ready package needs an immutable PR head")

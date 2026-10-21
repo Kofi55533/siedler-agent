@@ -42,6 +42,19 @@ class ProviderError(RuntimeError):
     pass
 
 
+class UpstreamUnavailable(ProviderError):
+    """OpenCode's transient 'Upstream request failed: Endpoint is unavailable'.
+
+    Measured 2026-10-21: ~12% of v2 sessions and many legacy sessions end with
+    this line while concurrent sessions on the same provider succeed. It is not
+    a refusal or rate limit, so the same call is retried after a bounded,
+    growing pause on this runner before the fleet-wide backoff applies.
+    """
+
+
+UPSTREAM_RETRY_DELAYS = (60, 180, 420)
+
+
 class ToolAccessRefusal(PermissionError):
     pass
 
@@ -364,6 +377,30 @@ class Pulse:
 
 
 def run_model(prompt, directory, pulse, minutes, checkpoint=None):
+    """Run one model step; retry only a transient upstream outage, with backoff.
+
+    Refusals (provider access, tool permissions) and quota/rate/auth failures
+    are never retried here. The whole step, pauses included, stays inside its
+    time budget and stops as soon as the reservation is lost.
+    """
+    end = time.monotonic() + minutes * 60
+    note = ""
+    for delay in (*UPSTREAM_RETRY_DELAYS, None):
+        remaining = (end - time.monotonic()) / 60
+        if remaining <= 0:
+            raise ModelDeadline("Model phase reached its time budget")
+        try:
+            return run_model_once(prompt + note, directory, pulse, remaining, checkpoint)
+        except UpstreamUnavailable:
+            if delay is None or time.monotonic() + delay + 120 > end:
+                raise ProviderError("Provider unavailable after bounded retries") from None
+        if pulse.lost.wait(delay):
+            raise RuntimeError("Model reservation lost")
+        note = ("\n\nNote: the previous model session for this same step ended with a transient provider outage. "
+                "Inspect the current workspace state and continue this step; do not redo finished work.")
+
+
+def run_model_once(prompt, directory, pulse, minutes, checkpoint=None):
     env = os.environ.copy()
     env["PWD"] = str(directory)
     for key in tuple(env):
@@ -397,9 +434,10 @@ def run_model(prompt, directory, pulse, minutes, checkpoint=None):
             if any(s in lowered for s in ("abusive traffic from this ip", "free models aren't available from your current network")):
                 failure = PermissionError("Provider access refusal")
             elif any(s in lowered for s in ("invalid api key", "insufficient quota", "rate limit exceeded",
-                                            "model not found", "payment required", "authentication failed",
-                                            "upstream request failed: endpoint is unavailable")):
+                                            "model not found", "payment required", "authentication failed")):
                 failure = ProviderError("Provider unavailable")
+            elif "upstream request failed: endpoint is unavailable" in lowered:
+                failure = UpstreamUnavailable("Upstream endpoint transiently unavailable")
             elif "permission requested:" in lowered and "auto-rejecting" in lowered:
                 failure = ToolAccessRefusal("OpenCode refused tool access; no automatic retry")
             elif process.returncode:
@@ -476,13 +514,23 @@ def worker_inputs():
     if not exclude.is_absolute():
         exclude = REPO / exclude
     existing = exclude.read_text() if exclude.exists() else ""
-    if "/.fleet-input/" not in existing.splitlines():
+    # Cargo writes an untracked Cargo.lock into standalone crates such as
+    # crates/s5xcheck on every test run. It is a build byproduct, never a
+    # package resource; without this every checkpoint failed its scope check.
+    missing = [p for p in ("/.fleet-input/", "Cargo.lock") if p not in existing.splitlines()]
+    if missing:
         exclude.parent.mkdir(parents=True, exist_ok=True)
-        exclude.write_text(existing + "\n/.fleet-input/\n")
+        exclude.write_text(existing + "\n" + "\n".join(missing) + "\n")
     return inputs
 
 
 def scope_files(base, resources):
+    worker_inputs()
+    # A tracked lockfile rewritten by a local cargo run is restored, not
+    # submitted: no package resource may change dependencies.
+    for lock in git("diff", "--name-only", "HEAD").splitlines():
+        if Path(lock).name == "Cargo.lock" and lock not in resources:
+            git("checkout", "HEAD", "--", lock)
     git("add", "-N", ".")
     files = git("diff", "--name-only", base).splitlines()
     bad = core.check_files(files, resources)
@@ -659,6 +707,7 @@ def worker_package(u, deadline):
         with Pulse(uid, OWNER) as pulse:
             plan = None
             plan_error = ""
+            last_conflicts = []
             for attempt in range(3):
                 plan_file.unlink(missing_ok=True)
                 prompt = planning_prompt(scratch, resources, inherited, plan_error, deadline)
@@ -684,9 +733,13 @@ def worker_package(u, deadline):
                 conflicts = update(lambda s: core.reserve(s, uid, OWNER, plan, time.time(), resources), "reserve package scope")
                 if not conflicts:
                     break
+                last_conflicts = conflicts
+                plan_error = "Reserved by another package or open PR: " + ", ".join(conflicts[:8])
                 resources = sorted(set(resources + conflicts))
             else:
-                result = {"outcome": "stuck", "summary": "Three plans collided; next attempt selects a different native family"}
+                result = {"outcome": "stuck", "summary": "Three planning attempts failed; next attempt selects a different native family. "
+                          "Last plan feedback: " + (plan_error or "none")[:300]
+                          + ("; last conflicts: " + ", ".join(last_conflicts[:8]) if last_conflicts else "")}
                 return result
             u["plan"] = plan
             (scratch / "plan.json").write_text(json.dumps(plan, indent=2))
