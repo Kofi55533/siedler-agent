@@ -40,4 +40,10 @@ class LaunchTests(unittest.TestCase):
         with self.assertRaises(PermissionError):
             self.launch('permission requested: external_directory; auto-rejecting')
 
+    def test_provider_refusal_cannot_be_hidden_by_an_optional_tool_denial(self):
+        with self.assertRaises(PermissionError) as result:
+            self.launch('permission requested: external_directory; auto-rejecting\n'
+                        'Free models aren\'t available from your current network')
+        self.assertNotIsInstance(result.exception, runtime.ToolAccessRefusal)
+
 if __name__=='__main__':unittest.main()

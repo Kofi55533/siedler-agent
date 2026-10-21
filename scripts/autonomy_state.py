@@ -272,6 +272,9 @@ def split(state, uid, at):
         state["units"][child] = unit(child, u["domain"], group, at, u)
         state["units"][child]["parent"] = uid
         state["units"][child]["parent_overview"] = u["overview"]
+        state["units"][child]["findings"] = copy.deepcopy(u["findings"])
+        if u.get("recovery_patch"):
+            state["units"][child]["recovery_patch"] = u["recovery_patch"]
     event(state, "split", at, unit=uid, remaining=len(members))
 
 
