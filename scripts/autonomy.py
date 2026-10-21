@@ -45,6 +45,10 @@ class ToolAccessRefusal(PermissionError):
     pass
 
 
+class ModelDeadline(RuntimeError):
+    pass
+
+
 def command(args, cwd=None, env=None, timeout=900, check=True):
     result = subprocess.run(list(map(str, args)), cwd=REPO if cwd is None else cwd, env=env, capture_output=True,
                             text=True, timeout=timeout)
@@ -340,7 +344,9 @@ def run_model(prompt, directory, pulse, minutes, checkpoint=None):
                         process.wait(timeout=15)
                     except subprocess.TimeoutExpired:
                         os.killpg(process.pid, signal.SIGKILL)
-                    raise RuntimeError("Model stopped at its time or reservation boundary")
+                    if pulse.lost.is_set():
+                        raise RuntimeError("Model reservation lost")
+                    raise ModelDeadline("Model phase reached its time budget")
                 if checkpoint and time.monotonic() - last_checkpoint > 1200:
                     checkpoint()
                     last_checkpoint = time.monotonic()
@@ -430,7 +436,7 @@ def scope_files(base, resources):
     files = git("diff", "--name-only", base).splitlines()
     bad = core.check_files(files, resources)
     if bad:
-        raise ValueError("Write outside reserved scope")
+        raise ValueError("Write outside reserved scope: " + ", ".join(bad))
     # Check item leases at changed-line granularity, using the existing parser.
     spec = importlib.util.spec_from_file_location("lane_claims", HERE / "lane-claims.py")
     lanes = importlib.util.module_from_spec(spec)
@@ -519,6 +525,20 @@ def worker(uid, nonce):
         raise RuntimeError("Worker startup/provider failure recorded privately; prior packages preserved")
 
 
+def planning_prompt(scratch, resources, inherited, plan_error, deadline):
+    plan_file = scratch / "plan.json"
+    prompt = (HERE.parent / "prompts/domain-plan.md").read_text()
+    prompt += f"\nAssignment: {scratch / 'assignment.json'}\nWrite plan: {plan_file}\nReserved resources: {json.dumps(resources)}"
+    prompt += f"\nAuthorized native input copy: {os.environ['S5_NATIVE_SOURCE']}. Read functions.jsonl/code.jsonl THERE."
+    prompt += "\nDo not access sibling research directories or paths from older docs. All needed native input is in this workspace copy. If missing, return setup_error; do not request external access."
+    prompt += f"\nPrevious plan validation feedback: {plan_error or 'none'}"
+    prompt += "\nNever inspect OpenCode's own storage, sessions, auth files, provider settings or home-directory credentials. They are irrelevant to this game task. Keep denied operations denied and choose permitted inputs."
+    prompt += "\nIf assignment.recovery_input exists, inspect that saved source patch and reserve the valid files before recovering its changes. Never apply protected/out-of-scope hunks."
+    prompt += f"\nExisting WIP files (must be retained and repaired): {json.dumps(inherited)}"
+    prompt += f"\nRemaining runner minutes: {int((deadline - time.monotonic()) / 60)}. The wrapper takes another package after this one."
+    return prompt
+
+
 def worker_package(u, deadline):
     uid = u["id"]
     def allowance(requested):
@@ -541,6 +561,10 @@ def worker_package(u, deadline):
         inherited = sorted(set(inherited + conflicts))
         scratch = worker_inputs() / ("domain-" + uid)
         scratch.mkdir(exist_ok=True)
+        if u.get("recovery_patch"):
+            recovery = scratch / "previous-source.patch"
+            recovery.write_text(fs.file_text(u["recovery_patch"], fs.CONTROL))
+            u["recovery_input"] = str(recovery)
         if u.get("prior_package") and u.get("parent_overview"):
             # The predecessor PR may still be gating, so its written overview
             # is not necessarily on clean/integration. Carry it as read input.
@@ -562,14 +586,16 @@ def worker_package(u, deadline):
             plan_error = ""
             for attempt in range(3):
                 plan_file.unlink(missing_ok=True)
-                prompt = (HERE.parent / "prompts/domain-plan.md").read_text()
-                prompt += f"\nAssignment: {scratch / 'assignment.json'}\nWrite plan: {plan_file}\nReserved resources: {json.dumps(resources)}"
-                prompt += f"\nAuthorized native input copy: {os.environ['S5_NATIVE_SOURCE']}. Read functions.jsonl/code.jsonl THERE."
-                prompt += "\nDo not access sibling research directories or paths from older docs. All needed native input is in this workspace copy. If missing, return setup_error; do not request external access."
-                prompt += f"\nPrevious plan validation feedback: {plan_error or 'none'}"
-                prompt += f"\nExisting WIP files (must be retained and repaired): {json.dumps(inherited)}"
-                prompt += f"\nRemaining runner minutes: {int((deadline - time.monotonic()) / 60)}. The wrapper takes another package after this one."
-                run_model(prompt, REPO, pulse, allowance(15))
+                prompt = planning_prompt(scratch, resources, inherited, plan_error, deadline)
+                try:
+                    run_model(prompt, REPO, pulse, allowance(15))
+                except (ToolAccessRefusal, ModelDeadline) as error:
+                    # The denied operation remains denied. A model may finish
+                    # permitted work after a rejected optional call; otherwise
+                    # re-plan a smaller cut on this SAME runner/reservation.
+                    plan_error = type(error).__name__ + ": use permitted task inputs only; do not retry denied operations; choose a smaller native cut"
+                    if not plan_file.exists():
+                        continue
                 if git("status", "--porcelain"):
                     raise ValueError("Planning phase wrote source before a reservation")
                 try:
@@ -627,8 +653,9 @@ def worker_package(u, deadline):
                     raise ValueError("Ready result has no code or evidence delta")
                 result.update(pr=wip["pr"], head=wip["head"], checkpoint=wip)
     except ToolAccessRefusal:
-        result = {"outcome": "access_refusal", "refusal_kind": "tool_workspace",
-                  "summary": "OpenCode refused tool access; stop without overriding permissions or retrying denied paths"}
+        result = {"outcome": "stuck", "summary": "Optional tool operation denied; keep it denied, preserve work and re-plan from permitted inputs on the same runner"}
+    except ModelDeadline:
+        result = {"outcome": "checkpoint", "summary": "Phase budget reached; saved work and remaining runner budget stay available"}
     except PermissionError:
         result = {"outcome": "access_refusal", "summary": "Provider refused access; hold without IP rotation or refusal bypass"}
     except ProviderError:
@@ -636,6 +663,31 @@ def worker_package(u, deadline):
     except Exception as error:
         private_record(f"autonomy/errors/{RUN}.txt", type(error).__name__ + ": " + str(error))
         result["summary"] += "; " + type(error).__name__
+    # Preserve a rejected or interrupted source delta privately too. It cannot
+    # become a PR or a gate ticket until a later reservation admits its scope.
+    try:
+        roots = [p for p in ("crates/s5clean", "crates/s5xcheck/tests", "docs/subsystems", "docs/logic/tools", "docs/clean/new-fixtures", "fixtures-gen") if (REPO / p).exists()]
+        if roots:
+            git("add", "-N", "--", *roots)
+        patch = git("diff", "--binary", "HEAD")
+        if patch:
+            path = f"autonomy/recovery/{RUN}-{uid}.patch"
+            private_record(path, patch)
+            def remember(s):
+                s["units"][uid]["recovery_patch"] = path
+            update(remember, "preserve source delta for scoped repair")
+            # Only after durable preservation: remove this attempt's delta so
+            # another package does not inherit unreserved dirty source files.
+            paths = git("diff", "--name-only", "HEAD").splitlines()
+            tracked = [p for p in paths if command(["git", "cat-file", "-e", "HEAD:" + p], check=False).returncode == 0]
+            added = [p for p in paths if p not in tracked]
+            if tracked:
+                git("restore", "--source=HEAD", "--staged", "--worktree", "--", *tracked)
+            for path in added:
+                git("reset", "-q", "HEAD", "--", path)
+                (REPO / path).unlink(missing_ok=True)
+    except Exception:
+        pass
     return result
 
 

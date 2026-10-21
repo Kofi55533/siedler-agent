@@ -49,3 +49,9 @@ the wrapper immediately gives this package its own immutable gate ticket and pri
 and takes the next package in the SAME domain on this runner. Do not wait for a gate verdict, combine all run
 output into one final PR, or declare the whole run finished after a small package. The wrapper owns the job
 clock and final checkpoint margin. Record useful residuals in the overview so the next package reuses them.
+
+Never inspect OpenCode's storage, sessions, auth files or provider settings. They are not game inputs.
+A denied operation stays denied. Continue only with the explicitly supplied permitted game inputs; do not
+change permissions or retry the denied operation. Keep temporary probes under assignment's .fleet-input
+workspace. Declare every source/test file in the plan before writing it; Cargo.lock files and temporary
+experiments are not game-code changes to submit. A rejected source delta is saved privately for scoped repair.
