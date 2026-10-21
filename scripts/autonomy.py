@@ -386,6 +386,20 @@ def control(shadow=False):
     # window) keep one of the gate slots free: new preflights and legacy
     # regates must not starve the only step that can merge anything.
     held = int(bool(core.disjoint_batch(state)) and not state.get("integration"))
+    # Warm the gate's baseline replay cache as soon as clean/integration gets new
+    # code (Codex pushes, legacy merges), before the next integration or
+    # preflight needs it. Each gate on a cache miss otherwise re-measures the
+    # whole base matrix itself (~10-16 min) and then runs its PR side without
+    # the cached longest-first order (~950 s instead of ~540 s). The warm-up is
+    # the unchanged s5-gate.sh baseline path: no gate input or verdict changes.
+    if room > 0 and verifying < core.VERIFY_SLOTS - held and core.base_warm_due(
+            state, snap["runs"], backlog_base["input"], at):
+        if update(lambda s: core.record_base_warm(s, backlog_base["input"], at), "reserve baseline warm-up"):
+            dispatch("gate-baseline.yml", {"mode": "warm", "pr": ""})
+            room -= 1
+            verifying += 1
+            external_gates += 1
+        state = read()
     for tid, t in state["tickets"].items():
         # Preflights keep running while the writer tests a union. A receipt is
         # not discarded when clean/integration moves (see above): the next

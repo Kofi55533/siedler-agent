@@ -69,6 +69,10 @@ class AtomicIntegrationTests(unittest.TestCase):
         self.patches.append(patch.object(runtime, "verify_current_claims"))
         self.patches.append(patch.object(runtime, "update", side_effect=lambda op, *a, **kw: op(self.state)))
         self.patches.append(patch.object(runtime.fs, "api", side_effect=self.api))
+        # Slot tests below predate the baseline warm-up; its own tests use the real rule.
+        self.real_warm_due = core.base_warm_due
+        self.warm_patch = patch.object(core, "base_warm_due", return_value=False)
+        self.patches.append(self.warm_patch)
         self.real_command = runtime.command
         self.command_hook = None
         self.patches.append(patch.object(runtime, "command", side_effect=self.wrapped_command))
@@ -350,6 +354,64 @@ class AtomicIntegrationTests(unittest.TestCase):
                 patch.dict(os.environ, {"FLEET_V2_WORKER_LIMIT": "16"}):
             runtime.control()
         self.assertEqual(seen["worker_limit"], core.CAPACITY - core.VERIFY_SLOTS)
+
+    def _real_warm(self):
+        self.warm_patch.stop(); self.patches.remove(self.warm_patch)
+
+    def test_new_base_code_epoch_dispatches_one_baseline_warm_up_in_a_gate_slot(self):
+        self._real_warm()
+        self.state["integration"] = None
+        for tid in ("1", "2"):
+            self.state["tickets"][tid]["status"] = "repair"
+        self._queued(range(3, 30))
+        calls = self._control({})
+        self.assertEqual(calls.count(("gate-baseline.yml", {"mode": "warm", "pr": ""})), 1)
+        # The warm-up runs inside the gate capacity: one preflight fewer.
+        self.assertEqual(len([c for c in calls if c[0] == "fleet-verify.yml"]), core.VERIFY_SLOTS - 1)
+        self.assertEqual(self.state["base_warm"]["input"], self.tip())
+        # Same code epoch: no second warm-up, also not while one is running.
+        self.assertNotIn("gate-baseline.yml", [c[0] for c in self._control({}, at=4100)])
+        warm = {"w": {"status": "in_progress", "path": ".github/workflows/gate-baseline.yml",
+                      "display_title": "gate-baseline warm "}}
+        self.assertNotIn("gate-baseline.yml", [c[0] for c in self._control(warm, at=10 ** 6)])
+
+    def test_new_code_on_base_warms_again_but_docs_only_move_does_not(self):
+        self._real_warm()
+        self.state["integration"] = {"nonce": "busy", "run": "w1", "tickets": ["1", "2"], "at": 3000}
+        live = {"w1": {"status": "in_progress", "path": ".github/workflows/fleet-integrate.yml",
+                       "display_title": "combined integration busy"}}
+        self.assertIn(("gate-baseline.yml", {"mode": "warm", "pr": ""}), self._control(live))
+        self.assertEqual(self.state["backlog_base"]["input"], self.tip())
+        self.competitor(docs_only=True)
+        docs = lambda path, *a: ({"status": "ahead", "files": [{"filename": "docs/AGENT_BOARD.md"}]}
+                                 if "/compare/" in path else self.api(path, *a))
+        with patch.object(runtime.fs, "api", side_effect=docs):
+            self.assertNotIn("gate-baseline.yml", [c[0] for c in self._control(live, at=4100)])
+        old = self.g("rev-parse", "HEAD")
+        self.g("checkout", "-q", "--detach", self.tip())
+        self.write("crates/s5clean/src/base.rs", "new code\n")
+        self.g("commit", "-qam", "code move"); self.g("push", "-q", "origin", "HEAD:refs/heads/clean/integration")
+        self.g("checkout", "-q", "--detach", old)
+        self.assertIn(("gate-baseline.yml", {"mode": "warm", "pr": ""}), self._control(live, at=4200))
+        self.assertEqual(self.state["base_warm"], {"input": self.tip(), "at": 4200, "attempts": 1})
+
+    def test_warm_up_never_takes_the_last_gate_slot_or_a_runner(self):
+        self._real_warm()
+        self.state["integration"] = None
+        busy = {str(i): {"status": "in_progress", "path": ".github/workflows/fleet-worker.yml",
+                         "display_title": f"domain u{i} n"} for i in range(20)}
+        self.assertEqual(self._control(busy), [])
+        self.assertNotIn("base_warm", self.state)
+
+    def test_failed_warm_up_is_retried_once_after_half_an_hour(self):
+        self.assertTrue(self.real_warm_due({}, {}, "x", 0))
+        s = {}; core.record_base_warm(s, "x", 0)
+        self.assertFalse(self.real_warm_due(s, {}, "x", core.WARM_RETRY_SECONDS - 1))
+        self.assertTrue(self.real_warm_due(s, {}, "x", core.WARM_RETRY_SECONDS))
+        core.record_base_warm(s, "x", core.WARM_RETRY_SECONDS)
+        self.assertFalse(self.real_warm_due(s, {}, "x", 10 ** 6))
+        self.assertTrue(self.real_warm_due(s, {}, "y", 10 ** 6))
+        self.assertFalse(self.real_warm_due(s, {}, "", 10 ** 6))
 
     def test_control_keeps_verified_receipt_when_base_moved(self):
         self.competitor()

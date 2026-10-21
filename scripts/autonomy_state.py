@@ -24,6 +24,12 @@ VERIFY_SLOTS = 10
 # only use gate capacity while fewer than four gates of any kind are running,
 # so they never displace v2 preflights or the integration writer.
 LEGACY_GATE_SLOTS = 4
+# Base replay cache warm-up (gate-baseline.yml mode=warm, the unchanged s5-gate.sh
+# S5_GATE_BASELINE_ONLY path). One run per new clean/integration code epoch, inside
+# the gate slots; its ~20 s precheck exits when base-<key>.tsv is already cached
+# (e.g. seeded by the integration that produced the base, PR #1602).
+WARM_RETRY_SECONDS = 1800
+WARM_ATTEMPTS = 2
 # A genuine provider refusal pauses new model work for 30 min, doubling per
 # consecutive refusal (cap 8 h); a clean model step after expiry resets it.
 REFUSAL_BACKOFF = 1800
@@ -462,6 +468,33 @@ def accept(state, tids, commit, at):
         state["leases"].pop(u["id"], None)
     state["integration"] = None
     event(state, "accept", at, tickets=tids, commit=commit)
+
+
+def warm_active(runs):
+    return any(r.get("path", "").endswith("/gate-baseline.yml")
+               and r.get("display_title", "").startswith("gate-baseline warm") for r in runs.values())
+
+
+def base_warm_due(state, runs, epoch_input, at):
+    """Whether to dispatch the baseline warm-up for this code epoch now.
+
+    The warm-up only fills the gate's own baseline cache by running s5-gate.sh
+    itself; it never produces or changes a verdict. A docs-only base move keeps
+    the epoch input (the cache key excludes docs/*.md the same way).
+    """
+    if not epoch_input or warm_active(runs):
+        return False
+    w = state.get("base_warm") or {}
+    if w.get("input") != epoch_input:
+        return True
+    return w.get("attempts", 0) < WARM_ATTEMPTS and at - w.get("at", 0) >= WARM_RETRY_SECONDS
+
+
+def record_base_warm(state, epoch_input, at):
+    w = state.get("base_warm") or {}
+    attempts = w.get("attempts", 0) + 1 if w.get("input") == epoch_input else 1
+    state["base_warm"] = {"input": epoch_input, "at": at, "attempts": attempts}
+    return True
 
 
 def check_files(paths, resources):
