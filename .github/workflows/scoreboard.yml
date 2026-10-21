@@ -2,6 +2,9 @@ name: scoreboard
 # Builds the public status page (GitHub Pages, branch gh-pages) every 15 min.
 # Reads the private repo via PRIVATE_REPO_TOKEN; publishes only numbers/titles (data.json) + static index.html.
 # Independent of opencode.yml / refill.yml (own concurrency group, no issues/comments).
+# Cadence: the cron below plus a box-side timer (/workspace/siedler/box/scoreboard_timer.sh, tmux scoreboard-timer) that dispatches
+# only when no run was created in the last ~12 min. The former `rearm` job (sleep 780 on a runner) is gone: it held one of the
+# 20 concurrent job slots for ~13 min of every cycle.
 # API budget (2026-10-20: one build cost ~990 REST calls of the shared PAT, 4-6 builds/h, the PAT hit 5000/h 12:48-13:26 and
 # the 13:04/13:18 pages were published empty): ETag cache across runs (a 304 does not count; blobs/commits by sha are
 # immutable), AES-encrypted with a key derived from the PAT (it holds private-repo data; fork PRs get no secrets); public-repo
@@ -79,20 +82,3 @@ jobs:
           git commit -q -m "scoreboard $(TZ=Europe/Berlin date '+%F %H:%M %Z')"
           git push -q -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" gh-pages
           echo "Published $(TZ=Europe/Berlin date '+%F %H:%M %Z')" >> "$GITHUB_STEP_SUMMARY"
-  rearm:
-    # GitHub's cron schedule did not fire for this repo (17.10.2026), so each run re-dispatches itself
-    # ~13 min later. Only the newest run re-dispatches, so parallel chains collapse into one.
-    needs: build
-    if: always()
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - name: Re-dispatch scoreboard in ~13 min
-        env:
-          GH_TOKEN: ${{ github.token }}  # same public repo; workflow_dispatch by GITHUB_TOKEN starts a run (actions: write)
-          R: ${{ github.repository }}
-        run: |
-          sleep 780
-          newer=$(gh run list -R "$R" -w scoreboard.yml --limit 20 --json databaseId -q "[.[]|select(.databaseId > ${{ github.run_id }})]|length" || echo 0)
-          if [ "${newer:-0}" -gt 0 ]; then echo "newer run exists -> no re-dispatch"; exit 0; fi
-          gh workflow run scoreboard.yml -R "$R" --ref main
