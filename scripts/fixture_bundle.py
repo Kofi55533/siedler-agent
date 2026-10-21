@@ -36,6 +36,13 @@ def resolve(directory, archive_root, newfix, verify):
         if source.resolve() != image.resolve():
             shutil.copy2(source, image)
             shutil.copy2(sidecar, str(image) + ".state.json")
+            # Metadata-only PRs keep commands/scenario authoritative; retain
+            # the bundle's reference streams needed by scenario consumers.
+            for name in ("start.jsonl", "terminal.jsonl", "canary.jsonl.gz", "checksums.jsonl.gz",
+                         "det.jsonl.gz", "detail.jsonl.gz", "wide.jsonl.gz", "commands.jsonl"):
+                stream = source.parent / name
+                if stream.is_file() and not (directory / name).exists():
+                    shutil.copy2(stream, directory / name)
     if not Path(str(image) + ".state.json").is_file():
         raise ValueError("start image has no state sidecar")
     value["image"] = str(image.resolve())
