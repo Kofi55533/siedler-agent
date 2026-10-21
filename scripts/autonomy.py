@@ -264,12 +264,24 @@ def control(shadow=False):
         tracked.add(state["integration"]["run"])
     pools = {l["run"]: l["pool"] for l in state["leases"].values() if l.get("run") and l.get("pool")}
     for rid in tracked - set(statuses):
-        statuses[rid] = fs.api(f"repos/{pools.get(rid, POOL)}/actions/runs/{rid}")["status"]
+        if rid in pools:
+            # Another account's repository must never abort the main cycle:
+            # an unreadable foreign run keeps its lease (unknown, not completed).
+            try:
+                statuses[rid] = fs.api(f"repos/{pools[rid]}/actions/runs/{rid}")["status"]
+            except Exception:
+                pass
+            continue
+        statuses[rid] = fs.api(f"repos/{POOL}/actions/runs/{rid}")["status"]
     # Dispatches reserved for another pool are matched against that pool's runs.
+    # Unreadable pools keep their reservations instead of failing this cycle.
     foreign = {}
     for pool in sorted({u["dispatch"]["pool"] for u in state["units"].values()
                         if u.get("dispatch", {}).get("pool")}):
-        foreign.update(fs.active_runs(pool))
+        try:
+            foreign[pool] = fs.active_runs(pool)
+        except Exception:
+            pass
     at = snap["at"]
     latest_base = fs.api(f"repos/{fs.PROJECT}/git/ref/heads/{fs.BASE}")["object"]["sha"]
     previous = state.get("backlog_base")
@@ -312,7 +324,9 @@ def control(shadow=False):
             pending = u.get("dispatch")
             if pending and pending["at"] < at - 1200:
                 # Match workflow run-name to the nonce, not to a stale title.
-                runs = foreign if pending.get("pool") else snap["runs"]
+                if pending.get("pool") and pending["pool"] not in foreign:
+                    continue
+                runs = foreign[pending["pool"]] if pending.get("pool") else snap["runs"]
                 if not any(pending["nonce"] in r["display_title"] for r in runs.values()):
                     u.pop("dispatch", None)
         core.repin_queued_heads(s, snap["prs"], at)
