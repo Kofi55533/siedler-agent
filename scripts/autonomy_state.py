@@ -245,7 +245,8 @@ def finish(state, uid, owner, result, at):
         if outcome in {"evidence", "stuck", "too_large"}:
             u["no_gain"] += 1
         if outcome == "access_refusal":
-            state["provider_hold"] = {"at": at, "reason": "Provider refused access; requires an approved configuration"}
+            state["provider_hold"] = {"at": at, "kind": result.get("refusal_kind", "provider_access"),
+                                      "reason": result.get("summary", "Access refused; requires an approved configuration")}
         if outcome == "provider_error":
             state["provider_errors"] = state.get("provider_errors", 0) + 1
             state["provider_retry_after"] = at + min(14400, 900 * 2 ** min(state["provider_errors"] - 1, 4))

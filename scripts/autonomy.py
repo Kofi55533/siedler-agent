@@ -41,6 +41,10 @@ class ProviderError(RuntimeError):
     pass
 
 
+class ToolAccessRefusal(PermissionError):
+    pass
+
+
 def command(args, cwd=None, env=None, timeout=900, check=True):
     result = subprocess.run(list(map(str, args)), cwd=REPO if cwd is None else cwd, env=env, capture_output=True,
                             text=True, timeout=timeout)
@@ -345,7 +349,7 @@ def run_model(prompt, directory, pulse, minutes, checkpoint=None):
             private_record(f"autonomy/logs/{RUN}-{uuid.uuid4().hex[:8]}.txt", text)
             lowered = text.lower()
             if "permission requested:" in lowered and "auto-rejecting" in lowered:
-                raise PermissionError("OpenCode refused tool access; no automatic retry")
+                raise ToolAccessRefusal("OpenCode refused tool access; no automatic retry")
             if any(s in lowered for s in ("abusive traffic from this ip", "free models aren't available from your current network")):
                 raise PermissionError("Provider access refusal")
             if any(s in lowered for s in ("invalid api key", "insufficient quota", "rate limit exceeded",
@@ -548,22 +552,33 @@ def worker_package(u, deadline):
             u["previous_overview_input"] = str(context)
         (scratch / "assignment.json").write_text(json.dumps(u, indent=2))
         plan_file, result_file = scratch / "plan.json", scratch / "result.json"
+        u["native_source_input"] = os.environ["S5_NATIVE_SOURCE"]
+        (scratch / "assignment.json").write_text(json.dumps(u, indent=2))
         for path in (plan_file, result_file, scratch / "pr-body.md"):
             path.unlink(missing_ok=True)
         resources = external_resources(uid)
         with Pulse(uid, OWNER) as pulse:
             plan = None
+            plan_error = ""
             for attempt in range(3):
+                plan_file.unlink(missing_ok=True)
                 prompt = (HERE.parent / "prompts/domain-plan.md").read_text()
                 prompt += f"\nAssignment: {scratch / 'assignment.json'}\nWrite plan: {plan_file}\nReserved resources: {json.dumps(resources)}"
+                prompt += f"\nAuthorized native input copy: {os.environ['S5_NATIVE_SOURCE']}. Read functions.jsonl/code.jsonl THERE."
+                prompt += "\nDo not access sibling research directories or paths from older docs. All needed native input is in this workspace copy. If missing, return setup_error; do not request external access."
+                prompt += f"\nPrevious plan validation feedback: {plan_error or 'none'}"
                 prompt += f"\nExisting WIP files (must be retained and repaired): {json.dumps(inherited)}"
                 prompt += f"\nRemaining runner minutes: {int((deadline - time.monotonic()) / 60)}. The wrapper takes another package after this one."
                 run_model(prompt, REPO, pulse, allowance(15))
                 if git("status", "--porcelain"):
                     raise ValueError("Planning phase wrote source before a reservation")
-                plan = json.loads(plan_file.read_text())
-                plan["resources"] = sorted(set(plan.get("resources", []) + inherited))
-                plan = core.validate_plan(plan, u)
+                try:
+                    plan = json.loads(plan_file.read_text())
+                    plan["resources"] = sorted(set(plan.get("resources", []) + inherited))
+                    plan = core.validate_plan(plan, u)
+                except (ValueError, FileNotFoundError) as error:
+                    plan_error = str(error)[:300]
+                    continue
                 resources = sorted(set(resources + external_resources(uid)))
                 conflicts = update(lambda s: core.reserve(s, uid, OWNER, plan, time.time(), resources), "reserve package scope")
                 if not conflicts:
@@ -591,6 +606,7 @@ def worker_package(u, deadline):
                 git("commit", "--no-edit")
             prompt = (HERE.parent / "prompts/domain-worker.md").read_text()
             prompt += f"\nAssignment: {scratch / 'assignment.json'}\nPlan: {plan_file}\nResult: {result_file}\nOverview: {u['overview']}"
+            prompt += f"\nAuthorized native input copy: {os.environ['S5_NATIVE_SOURCE']}. Read functions.jsonl/code.jsonl here; do not access sibling research directories or old documented paths. If required input is missing, stop with setup_error."
             prompt += "\nFinish this coherent package promptly. The wrapper immediately submits its own PR, then replans the next package in this domain."
             body = "Recoverable domain checkpoint; not ready for integration.\n\n" + plan["goal"]
             def save():
@@ -610,6 +626,9 @@ def worker_package(u, deadline):
                 if not wip:
                     raise ValueError("Ready result has no code or evidence delta")
                 result.update(pr=wip["pr"], head=wip["head"], checkpoint=wip)
+    except ToolAccessRefusal:
+        result = {"outcome": "access_refusal", "refusal_kind": "tool_workspace",
+                  "summary": "OpenCode refused tool access; stop without overriding permissions or retrying denied paths"}
     except PermissionError:
         result = {"outcome": "access_refusal", "summary": "Provider refused access; hold without IP rotation or refusal bypass"}
     except ProviderError:
