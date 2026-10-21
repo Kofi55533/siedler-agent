@@ -17,6 +17,9 @@ subprocess.run(['git', 'init', '-q', root], check=True)
 autonomy.REPO = root
 inputs = autonomy.worker_inputs()
 (inputs/'assignment.json').write_text('{"check":"workspace-input","value":17}')
+native = inputs / 'native'
+native.mkdir()
+(native/'functions.jsonl').write_text('{"synthetic_native_input":23}\n')
 result = inputs/'plan.json'
 result.unlink(missing_ok=True)
 # Store the model log locally only. This command has no GitHub token and does
@@ -25,6 +28,8 @@ autonomy.private_record = lambda *_: None
 prompt = (f'Read {inputs / "assignment.json"}. Write {result} as exactly '
           '{"check":"workspace-input","value":17,"read_success":true}. '
           'This is a synthetic workspace I/O test. Change no other file and do not use GitHub. '
+          f'Authorized native input copy: {native}. Read functions.jsonl THERE and verify synthetic_native_input is 23. '
+          'Do not access sibling research directories or canonical paths from older docs. '
           'Do not change permissions or retry a denied tool call.')
 autonomy.run_model(prompt, root, Pulse(), 2)
 assert json.loads(result.read_text()) == {'check':'workspace-input','value':17,'read_success':True}
