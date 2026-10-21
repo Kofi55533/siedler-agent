@@ -37,6 +37,11 @@ OWNER = uuid.uuid4().hex
 RUN = os.environ.get("GITHUB_RUN_ID", "local")
 REF = os.environ.get("GITHUB_REF_NAME", "")
 KEY = "autonomy_v2"
+# A worker started in another account's fork (its own Actions minutes and
+# OpenCode key) records that pool on its lease and keeps a separate provider
+# hold. The shared state, unit leases and the main-account gate are unchanged.
+SELF = os.environ.get("GITHUB_REPOSITORY") or POOL
+WORKER_POOL = None if SELF == POOL else SELF
 
 
 class ProviderError(RuntimeError):
@@ -257,8 +262,14 @@ def control(shadow=False):
     tracked |= {t.get("run") for t in state["tickets"].values() if t["status"] == "verifying" and t.get("run")}
     if state.get("integration") and state["integration"].get("run"):
         tracked.add(state["integration"]["run"])
+    pools = {l["run"]: l["pool"] for l in state["leases"].values() if l.get("run") and l.get("pool")}
     for rid in tracked - set(statuses):
-        statuses[rid] = fs.api(f"repos/{POOL}/actions/runs/{rid}")["status"]
+        statuses[rid] = fs.api(f"repos/{pools.get(rid, POOL)}/actions/runs/{rid}")["status"]
+    # Dispatches reserved for another pool are matched against that pool's runs.
+    foreign = {}
+    for pool in sorted({u["dispatch"]["pool"] for u in state["units"].values()
+                        if u.get("dispatch", {}).get("pool")}):
+        foreign.update(fs.active_runs(pool))
     at = snap["at"]
     latest_base = fs.api(f"repos/{fs.PROJECT}/git/ref/heads/{fs.BASE}")["object"]["sha"]
     previous = state.get("backlog_base")
@@ -301,7 +312,8 @@ def control(shadow=False):
             pending = u.get("dispatch")
             if pending and pending["at"] < at - 1200:
                 # Match workflow run-name to the nonce, not to a stale title.
-                if not any(pending["nonce"] in r["display_title"] for r in snap["runs"].values()):
+                runs = foreign if pending.get("pool") else snap["runs"]
+                if not any(pending["nonce"] in r["display_title"] for r in runs.values()):
                     u.pop("dispatch", None)
         core.repin_queued_heads(s, snap["prs"], at)
         for t in s["tickets"].values():
@@ -407,6 +419,49 @@ def control(shadow=False):
         with Path(os.environ["GITHUB_OUTPUT"]).open("a") as output:
             output.write("rearm=" + str(controller_needs_wakeup(state, snap["runs"])).lower() + "\n")
     print(json.dumps(core.dashboard(state)))
+
+
+def admit(pool, count):
+    """Operator-started workers for an additional pool (no auto-relaunch).
+
+    Reserves up to `count` units exactly like the controller (CAS, nonce) and
+    dispatches fleet-worker-v2 in `pool`. Honors that pool's own provider hold
+    and outage backoff; the main controller never schedules this pool.
+    """
+    if not pool or pool == POOL or not 1 <= count <= 4:
+        raise ValueError("Admit needs another pool and 1-4 workers")
+    legacy = set()
+    for run in fs.active_runs(POOL).values():
+        if run.get("path", "").endswith("/opencode.yml"):
+            match = re.match(r"Subsystem:\s*([a-z0-9-]+)", run["display_title"])
+            if match:
+                legacy.add(match[1])
+    started = []
+    for _ in range(count):
+        at = time.time()
+        state = read()
+        if core.held(state, at, pool) or core.provider(copy.deepcopy(state), pool).get("provider_retry_after", 0) > at:
+            break
+        candidates = [u for u in state["units"].values()
+                      if u["status"] in {"ready", "repair"} and not u.get("dispatch") and u["id"] not in legacy
+                      and u["id"] not in state["leases"] and core.outstanding(u) and u.get("retry_after", 0) <= at]
+        candidates.sort(key=lambda u: (u["status"] != "repair", u["last_served"], u["no_gain"], u["id"]))
+        if not candidates:
+            break
+        uid, nonce = candidates[0]["id"], uuid.uuid4().hex[:12]
+        def reserve(s):
+            u = s["units"][uid]
+            if u.get("dispatch") or uid in s["leases"] or u["status"] not in {"ready", "repair"}:
+                return False
+            u["dispatch"] = {"nonce": nonce, "at": at, "pool": pool}
+            return True
+        if update(reserve, f"reserve {pool} domain dispatch {uid}"):
+            if started:
+                time.sleep(WORKER_DISPATCH_SPACING)
+            fs.api(f"repos/{pool}/actions/workflows/fleet-worker.yml/dispatches", "POST",
+                   {"ref": "main", "inputs": {"unit": uid, "nonce": nonce}})
+            started.append({"unit": uid, "nonce": nonce})
+    print(json.dumps({"pool": pool, "started": started}))
 
 
 def author_environment():
@@ -730,9 +785,9 @@ def worker(uid, nonce):
     deadline = time.monotonic() + max(0, 285 * 60 - (time.time() - job_started))
     def acquire(s):
         u = s["units"][uid]
-        if u.get("dispatch", {}).get("nonce") != nonce:
+        if u.get("dispatch", {}).get("nonce") != nonce or u["dispatch"].get("pool") != WORKER_POOL:
             return None
-        if not core.claim_unit(s, uid, OWNER, RUN, time.time()):
+        if not core.claim_unit(s, uid, OWNER, RUN, time.time(), WORKER_POOL):
             return None
         u.pop("dispatch", None)
         return copy.deepcopy(u)
@@ -746,12 +801,12 @@ def worker(uid, nonce):
         current = u["id"]
         failed |= result["outcome"] in {"access_refusal", "provider_error", "setup_error"}
         def complete(s):
-            core.finish(s, current, OWNER, result, time.time())
+            core.finish(s, current, OWNER, result, time.time(), WORKER_POOL)
             if result["outcome"] in {"access_refusal", "provider_error", "setup_error"}:
                 return None
             if deadline - time.monotonic() < 25 * 60:
                 return None
-            return core.continue_domain(s, current, OWNER, RUN, time.time())
+            return core.continue_domain(s, current, OWNER, RUN, time.time(), WORKER_POOL)
         u = update(complete, "save package and take next in domain")
         if result["outcome"] == "ready":
             try:
@@ -1206,7 +1261,9 @@ def integrate(nonce):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("mode", choices=("shadow", "control", "worker", "verify", "integrate"))
+    parser.add_argument("mode", choices=("shadow", "control", "worker", "verify", "integrate", "admit"))
+    parser.add_argument("--pool")
+    parser.add_argument("--count", type=int, default=1)
     parser.add_argument("--unit")
     parser.add_argument("--ticket")
     parser.add_argument("--nonce")
@@ -1219,6 +1276,8 @@ def main():
             control()
         elif args.mode == "worker":
             worker(args.unit, args.nonce)
+        elif args.mode == "admit":
+            admit(args.pool, args.count)
         elif args.mode == "verify":
             preflight(args.ticket, args.nonce)
         else:
