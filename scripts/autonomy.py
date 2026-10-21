@@ -633,7 +633,9 @@ def setup_worker_repo(u):
         command(["git", "fetch", "-q", "origin", u["branch"]], env=author_environment())
         git("switch", "-C", u["branch"], "FETCH_HEAD")
     else:
-        git("switch", "-c", u["branch"], "origin/clean/integration")
+        # -C: a stuck package on this runner may have left the unpushed local
+        # branch behind; nothing durable lives there (WIP is remote or a patch).
+        git("switch", "-C", u["branch"], "origin/clean/integration")
     return git("rev-parse", "origin/clean/integration")
 
 
