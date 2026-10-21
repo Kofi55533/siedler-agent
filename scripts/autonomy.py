@@ -1018,6 +1018,14 @@ def verify_current_claims(base, candidate):
         raise ValueError("Fresh lane claim on combined candidate; replan other domain work")
 
 
+def standard_fixtures():
+    names = os.environ.get("S5_GATE_FIXTURES", "").split()
+    if not names:
+        m = re.search(r'S5_GATE_FIXTURES="([^"]*)"', (HERE / "s5-env.sh").read_text())
+        names = m[1].split() if m else []
+    return set(names)
+
+
 def integrate(nonce):
     enabled()
     def acquire(s):
@@ -1039,7 +1047,11 @@ def integrate(nonce):
         # The combined candidate is always measured on the newest base, never
         # on the (possibly older) base of the individual preflight receipts.
         base = fs.api(f"repos/{fs.PROJECT}/git/ref/heads/{fs.BASE}")["object"]["sha"]
-        fixtures = sorted({f for t in tickets for f in t["receipt"]["fixtures"]})
+        # Only receipt fixtures beyond the gate's standard matrix are extra
+        # (Frontier-fixture rows). Passing the standard ones again made the gate
+        # measure each twice and reject its own duplicated receipt rows
+        # ("incomplete typed receipt", first writer run 39618997640).
+        fixtures = sorted({f for t in tickets for f in t["receipt"]["fixtures"]} - standard_fixtures())
         for t in tickets:
             p = fs.api(f"repos/{fs.PROJECT}/pulls/{t['pr']}")
             if (p["state"], p["base"]["ref"], p["head"]["sha"]) != ("open", fs.BASE, t["head"]):
