@@ -86,7 +86,7 @@ read -r b h hs st x < <(python -c "import json,sys;d=json.loads(sys.argv[1]);pri
 [ "$st" = OPEN ] && [ "$x" = False ] || fail "state=$st cross=$x"
 case $h in agent/*) ;; *) fail "head $h is not agent/*" ;; esac
 cd $S5_REPO
-[ -f .git/shallow ] && { git fetch -q --unshallow origin 2>/dev/null || git fetch -q --deepen=5000 origin; }
+[ "$(git rev-parse --is-shallow-repository)" = true ] && { git fetch -q --unshallow origin 2>/dev/null || git fetch -q --deepen=5000 origin; }
 git fetch -q origin "+refs/heads/$BASE:refs/remotes/origin/$BASE" "+refs/pull/$PR/head:refs/gate/pr" || fail "fetch"
 bs=$(git rev-parse origin/$BASE); [ "$(git rev-parse refs/gate/pr)" = "$hs" ] || fail "head moved"
 # Independent preflights share an immutable integration epoch. These hooks are
@@ -360,7 +360,7 @@ echo "merged into $BASE" >> "$G/report.txt"
 # announce on the shared board (Opus > Codex > Muse); retry on concurrent pushes
 t=$(gh pr view "$PR" -R $R --json title -q .title)
 for i in 1 2 3; do
-  [ -f .git/shallow ] && { git fetch -q --unshallow origin 2>/dev/null || git fetch -q --deepen=5000 origin; }
+  [ "$(git rev-parse --is-shallow-repository)" = true ] && { git fetch -q --unshallow origin 2>/dev/null || git fetch -q --deepen=5000 origin; }
 git fetch -q origin "+refs/heads/$BASE:refs/remotes/origin/$BASE" && git checkout -q --detach origin/$BASE || break
   # exactly one self-merge entry per PR (no duplicates from re-gates or retries)
   grep -qF "#$PR \`$h\` " docs/AGENT_BOARD.md && { echo "board: already announced" >> "$G/report.txt"; break; }

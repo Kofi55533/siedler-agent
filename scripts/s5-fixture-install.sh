@@ -25,7 +25,7 @@ mkdir -p "$S5_NF/.dl"
 meta=$(mktemp -d "$S5_NF/.dl/metadata-$x.XXXXXX")
 trap 'rm -rf "$meta"' EXIT
 # 1. git
-if [ -d "$S5_REPO/.git" ]; then
+if [ "$(git -C "$S5_REPO" rev-parse --is-inside-work-tree 2>/dev/null)" = true ]; then
   cd "$S5_REPO"
   git fetch -q origin '+refs/heads/agent/fixtures-*:refs/remotes/origin/agent/fixtures-*' 2>/dev/null || true
   for ref in "${refs[@]}" origin/clean/integration $(git for-each-ref --format='%(refname:short)' 'refs/remotes/origin/agent/fixtures-*'); do
