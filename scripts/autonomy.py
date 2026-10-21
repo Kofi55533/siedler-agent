@@ -41,6 +41,10 @@ class ProviderError(RuntimeError):
     pass
 
 
+class ToolAccessRefusal(PermissionError):
+    pass
+
+
 def command(args, cwd=None, env=None, timeout=900, check=True):
     result = subprocess.run(list(map(str, args)), cwd=REPO if cwd is None else cwd, env=env, capture_output=True,
                             text=True, timeout=timeout)
@@ -345,7 +349,7 @@ def run_model(prompt, directory, pulse, minutes, checkpoint=None):
             private_record(f"autonomy/logs/{RUN}-{uuid.uuid4().hex[:8]}.txt", text)
             lowered = text.lower()
             if "permission requested:" in lowered and "auto-rejecting" in lowered:
-                raise PermissionError("OpenCode refused tool access; no automatic retry")
+                raise ToolAccessRefusal("OpenCode refused tool access; no automatic retry")
             if any(s in lowered for s in ("abusive traffic from this ip", "free models aren't available from your current network")):
                 raise PermissionError("Provider access refusal")
             if any(s in lowered for s in ("invalid api key", "insufficient quota", "rate limit exceeded",
@@ -622,6 +626,9 @@ def worker_package(u, deadline):
                 if not wip:
                     raise ValueError("Ready result has no code or evidence delta")
                 result.update(pr=wip["pr"], head=wip["head"], checkpoint=wip)
+    except ToolAccessRefusal:
+        result = {"outcome": "access_refusal", "refusal_kind": "tool_workspace",
+                  "summary": "OpenCode refused tool access; stop without overriding permissions or retrying denied paths"}
     except PermissionError:
         result = {"outcome": "access_refusal", "summary": "Provider refused access; hold without IP rotation or refusal bypass"}
     except ProviderError:
