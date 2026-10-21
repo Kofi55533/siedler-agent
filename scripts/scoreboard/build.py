@@ -935,7 +935,7 @@ def fleet_v2():
         "domain": {"units": len(units), "unit_status": ustat, "leases": len(leases),
                    "leases_with_run": sum(1 for l in leases.values() if l.get("run")),
                    "tickets": tstat, "inventory": av.get("total"), "verified_functions": len(verified),
-                   "provider_hold": bool(av.get("provider_hold")), "integration": bool(av.get("integration"))} if av else None,
+                   "provider_hold": bool(av.get("provider_hold")) and (not av["provider_hold"].get("until") or av["provider_hold"]["until"] > datetime.now(timezone.utc).timestamp()), "integration": bool(av.get("integration"))} if av else None,
     }
 
 

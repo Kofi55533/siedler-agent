@@ -9,11 +9,16 @@ from __future__ import annotations
 import copy
 import fnmatch
 import re
+import time
 
 MODEL = "opencode/deepseek-v4.1-flash-free"
 SCHEMA = 2
 CAPACITY = 20
 VERIFY_SLOTS = 4
+# A genuine provider refusal pauses new model work for 30 min, doubling per
+# consecutive refusal (cap 8 h); a clean model step after expiry resets it.
+REFUSAL_BACKOFF = 1800
+REFUSAL_BACKOFF_CAP = 28800
 HARD_PATHS = ("recomp/", "oracle/", "crates/s5verify/", "crates/s5diff/", ".github/")
 TERMINAL = {"accepted", "equivalent"}
 OUTCOMES = {"ready", "checkpoint", "evidence", "stuck", "too_large", "too_small",
@@ -130,9 +135,20 @@ def event(state, kind, at, **fields):
     state["events"] = state["events"][-500:]
 
 
+def held(state, at=None):
+    """True while a provider hold is active. A hold without `until` is manual."""
+    hold = state.get("provider_hold")
+    if not hold:
+        return False
+    until = hold.get("until")
+    if until is None:
+        return True
+    return until > (time.time() if at is None else at)
+
+
 def claim_unit(state, uid, owner, run, at):
     u = state["units"][uid]
-    if state["provider_hold"] or u["status"] not in {"ready", "repair"} or uid in state["leases"]:
+    if held(state, at) or u["status"] not in {"ready", "repair"} or uid in state["leases"]:
         return False
     state["leases"][uid] = {"owner": owner, "run": str(run), "heartbeat": at, "resources": []}
     u.update(status="running", last_served=at)
@@ -164,7 +180,7 @@ def select(state, active_jobs, legacy_jobs=0, limit=CAPACITY, at=None, unavailab
     served domains come first, then fair continuing ownership. A thin domain
     joins adjacent work within its run; a stuck unit is split on completion.
     """
-    if state["provider_hold"] or (at is not None and state.get("provider_retry_after", 0) > at):
+    if held(state, at) or (at is not None and state.get("provider_retry_after", 0) > at):
         return []
     room = max(0, min(CAPACITY, limit) - active_jobs - legacy_jobs)
     candidates = [u for u in state["units"].values()
@@ -192,7 +208,7 @@ def continue_domain(state, uid, owner, run, at):
     domain, so neither a slow nor failing gate strands a five-hour worker.
     """
     u = state["units"][uid]
-    if state["provider_hold"] or state.get("provider_retry_after", 0) > at:
+    if held(state, at) or state.get("provider_retry_after", 0) > at:
         return None
     selected = set(u.get("plan", {}).get("addresses", []))
     remaining = [a for a in outstanding(u) if a not in selected]
@@ -240,6 +256,12 @@ def finish(state, uid, owner, result, at):
         # A completed model step proves the provider works again; the next
         # genuine outage starts at the shortest backoff, not at four hours.
         state["provider_errors"] = 0
+        if not held(state, at):
+            # Only a clean step after the refusal hold expired resets it; a
+            # session that was already running during the hold proves nothing.
+            state["provider_refusals"] = 0
+            if state.get("provider_hold") and state["provider_hold"].get("until"):
+                state["provider_hold"] = None
     if outcome == "ready":
         if not result.get("pr") or not re.fullmatch(r"[0-9a-f]{40}", result.get("head", "")):
             raise ValueError("Ready package needs an immutable PR head")
@@ -257,8 +279,14 @@ def finish(state, uid, owner, result, at):
         if outcome in {"evidence", "stuck", "too_large"}:
             u["no_gain"] += 1
         if outcome == "access_refusal":
+            # Legitimate backoff only: pause new model work, no IP rotation or
+            # bypass. Consecutive refusals double the pause (30 min .. 8 h).
+            refusals = state.get("provider_refusals", 0) + 1
+            state["provider_refusals"] = refusals
+            pause = min(REFUSAL_BACKOFF_CAP, REFUSAL_BACKOFF * 2 ** min(refusals - 1, 8))
             state["provider_hold"] = {"at": at, "kind": result.get("refusal_kind", "provider_access"),
-                                      "reason": result.get("summary", "Access refused; requires an approved configuration")}
+                                      "reason": result.get("summary", "Access refused; requires an approved configuration"),
+                                      "until": at + pause, "refusals": refusals}
         if outcome == "provider_error":
             state["provider_errors"] = state.get("provider_errors", 0) + 1
             state["provider_retry_after"] = at + min(14400, 900 * 2 ** min(state["provider_errors"] - 1, 4))
@@ -406,6 +434,6 @@ def dashboard(state):
               if p.get("status") in TERMINAL}
     return {"inventory": state["total"], "reported_reference_verified_and_integrated": len(unique),
             "remaining": state["total"] - len(unique), "leases": len(state["leases"]),
-            "units": len(state["units"]), "provider_hold": bool(state["provider_hold"]),
+            "units": len(state["units"]), "provider_hold": held(state),
             "tickets": {s: sum(t["status"] == s for t in state["tickets"].values())
                         for s in ("queued", "verifying", "verified", "accepted", "repair")}}

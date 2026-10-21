@@ -66,12 +66,12 @@ class UpstreamRetryTests(unittest.TestCase):
         self.assertEqual(len(calls), 1)
 
     def test_refusals_rate_limits_and_tool_denials_are_never_retried(self):
-        for text, kind in [("Free models aren't available from your current network", PermissionError),
-                           ('abusive traffic from this IP', PermissionError),
-                           ('Rate limit exceeded', runtime.ProviderError),
-                           ('permission requested: external_directory (/tmp/*); auto-rejecting', runtime.ToolAccessRefusal),
+        for text, kind in [("Error: OpenCode's free models aren't available from your current network", PermissionError),
+                           ('Error: ... we have detected abusive traffic from this IP address.', PermissionError),
+                           ('Error: Rate limit exceeded', runtime.ProviderError),
+                           ('! permission requested: external_directory (/tmp/*); auto-rejecting', runtime.ToolAccessRefusal),
                            # a refusal wins over a simultaneous outage line
-                           ("Free models aren't available from your current network\n" + UNAVAILABLE, PermissionError)]:
+                           ("Error: OpenCode's free models aren't available from your current network\n" + UNAVAILABLE, PermissionError)]:
             with self.subTest(text=text):
                 calls, error = self.run_sequence([(text, 1), ('done', 0)])
                 self.assertIsInstance(error, kind)

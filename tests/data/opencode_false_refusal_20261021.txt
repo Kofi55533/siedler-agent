@@ -1,0 +1,79 @@
+[0m
+> build · deepseek-v4.1-flash-free
+[0m
+[0m$ [0mcd /home/runner/work/siedler-agent/siedler-agent && grep -n "def run_model" -A 45 scripts/autonomy.py
+401:def run_model(prompt, directory, pulse, minutes, checkpoint=None):
+402-    """Run one model step; retry only a transient upstream outage, with backoff.
+403-
+404-    Refusals (provider access, tool permissions) and quota/rate/auth failures
+405-    are never retried here. The whole step, pauses included, stays inside its
+406-    time budget and stops as soon as the reservation is lost.
+407-    """
+408-    end = time.monotonic() + minutes * 60
+409-    note = ""
+410-    for delay in (*UPSTREAM_RETRY_DELAYS, None):
+411-        remaining = (end - time.monotonic()) / 60
+412-        if remaining <= 0:
+413-            raise ModelDeadline("Model phase reached its time budget")
+414-        try:
+415-            return run_model_once(prompt + note, directory, pulse, remaining, checkpoint)
+416-        except UpstreamUnavailable:
+417-            if delay is None or time.monotonic() + delay + 120 > end:
+418-                raise ProviderError("Provider unavailable after bounded retries") from None
+419-        if pulse.lost.wait(delay):
+420-            raise RuntimeError("Model reservation lost")
+421-        note = ("\n\nNote: the previous model call for this same step ended with a transient provider outage. "
+422-                "Inspect the current workspace state and continue this step; do not redo finished work.")
+423-
+424-
+425:def run_model_once(prompt, directory, pulse, minutes, checkpoint=None):
+426-    env = os.environ.copy()
+427-    env["PWD"] = str(directory)
+428-    for key in tuple(env):
+429-        if key in {"GH_TOKEN", "GITHUB_TOKEN", "T", "PAT", "OPENCODE_API_KEY", "SUBSYS_TOKEN"} or key.startswith(("GIT_CONFIG_", "ACTIONS_")):
+430-            env.pop(key, None)
+431-    path = Path(os.environ["RUNNER_TEMP"]) / "model-private.log"
+432-    start = time.monotonic()
+433-    last_checkpoint = start
+434-    with path.open("wb") as log:
+435-        model_config(directory)
+436-        args = ["opencode", "run", "--dir", str(directory), "-m", core.MODEL]
+437-        if SESSION["open"]:
+438-            args.append("--continue")
+439-        process = subprocess.Popen([*args, prompt], cwd=directory,
+440-                                   env=env, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+441-        SESSION["open"] = True
+442-        try:
+443-            while process.poll() is None:
+444-                elapsed = time.monotonic() - start
+445-                if pulse.lost.is_set() or elapsed > minutes * 60:
+446-                    os.killpg(process.pid, signal.SIGTERM)
+447-                    try:
+448-                        process.wait(timeout=15)
+449-                    except subprocess.TimeoutExpired:
+450-                        os.killpg(process.pid, signal.SIGKILL)
+451-                    if pulse.lost.is_set():
+452-                        raise RuntimeError("Model reservation lost")
+453-                    raise ModelDeadline("Model phase reached its time budget")
+454-                if checkpoint and time.monotonic() - last_checkpoint > 1200:
+455-                    checkpoint()
+456-                    last_checkpoint = time.monotonic()
+457-                time.sleep(5)
+458-            text = path.read_text(errors="replace")
+459-            lowered = text.lower()
+460-            failure = None
+461-            if any(s in lowered for s in ("abusive traffic from this ip", "free models aren't available from your current network")):
+462-                failure = PermissionError("Provider access refusal")
+463-            elif any(s in lowered for s in ("invalid api key", "insufficient quota", "rate limit exceeded",
+464-                                            "model not found", "payment required", "authentication failed")):
+465-                failure = ProviderError("Provider unavailable")
+466-            elif "upstream request failed: endpoint is unavailable" in lowered:
+467-                failure = UpstreamUnavailable("Upstream endpoint transiently unavailable")
+468-            elif "permission requested:" in lowered and "auto-rejecting" in lowered:
+469-                failure = ToolAccessRefusal("OpenCode refused tool access; no automatic retry")
+470-            elif process.returncode:
+[0m
+​
+[0m$ [0mcd /home/runner/work/siedler-agent/siedler-agent && sed -n '180,373p' scripts/autonomy_state.py | grep -n "def read\|def update\|STATE\|def _snapshot\|api\|cache" | head -30; grep -n "def read\b\|def update\b" scripts/autonomy_state.py
+(no output)
+[0m

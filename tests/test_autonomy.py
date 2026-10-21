@@ -147,8 +147,10 @@ class StateTests(unittest.TestCase):
     def test_provider_refusal_holds_without_new_runner_retry(self):
         s = fixture(); state.claim_unit(s, "battle", "one", 1, 1)
         state.finish(s, "battle", "one", {"outcome": "access_refusal"}, 2)
-        self.assertEqual(state.select(s, 0), [])
+        self.assertEqual(state.select(s, 0, at=3), [])
         self.assertFalse(state.claim_unit(s, "ai", "other", 2, 3))
+        # Legitimate timed backoff: the hold expires instead of freezing the fleet.
+        self.assertTrue(state.select(s, 0, at=2 + state.REFUSAL_BACKOFF))
 
     def test_two_no_gain_attempts_resplit_without_losing_addresses(self):
         s = fixture()
