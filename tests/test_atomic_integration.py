@@ -128,6 +128,21 @@ class AtomicIntegrationTests(unittest.TestCase):
         for head in self.heads:
             self.g("merge-base", "--is-ancestor", head, self.tip())
 
+    def test_standard_matrix_is_never_passed_again_as_extra_fixtures(self):
+        for t in self.state["tickets"].values():
+            t["receipt"]["fixtures"] = {"combat": {}, "economy": {}, "gen-extra": {}}
+        with patch.dict(os.environ, {"S5_GATE_FIXTURES": "combat economy"}), \
+                patch.object(runtime, "run_gate", return_value=("verified", self.combined)) as gate:
+            runtime.integrate("batch")
+        self.assertEqual(gate.call_args.args[3], ["gen-extra"])
+        self.assertEqual(self.tip(), self.candidate)
+
+    def test_standard_matrix_fallback_reads_s5_env(self):
+        with patch.dict(os.environ, {"S5_GATE_FIXTURES": ""}):
+            names = runtime.standard_fixtures()
+        self.assertIn("bc-full", names)
+        self.assertIn("combat", names)
+
     def test_changed_code_base_never_reuses_old_measurement(self):
         external = []
         def measured(*_):
