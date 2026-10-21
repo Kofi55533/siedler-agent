@@ -162,6 +162,27 @@ class AtomicIntegrationTests(unittest.TestCase):
         self.assertEqual(self.tip(), newer)
         self.assertEqual(self.state["tickets"]["1"]["status"], "repair")
 
+    def test_waiting_verified_batch_keeps_a_gate_slot_free(self):
+        # Fresh receipt inside the coalescing window, three preflights running,
+        # one more queued: the queued preflight must not take the last slot.
+        self.state["integration"] = None
+        for tid in ("1", "2"):
+            self.state["tickets"][tid]["receipt"]["measured_at"] = 3990
+        self.state["tickets"]["2"]["status"] = "verifying"; self.state["tickets"]["2"]["run"] = "r2"
+        self.state["tickets"]["3"] = dict(copy.deepcopy(self.state["tickets"]["2"]), id="3", run="r3", pr=3)
+        self.state["tickets"]["5"] = dict(copy.deepcopy(self.state["tickets"]["2"]), id="5", run="r5", pr=5)
+        self.state["tickets"]["4"] = dict(copy.deepcopy(self.state["tickets"]["2"]), id="4", status="queued", run=None, pr=4)
+        live = {r: {"status": "in_progress", "path": ".github/workflows/fleet-verify.yml", "display_title": "preflight " + r}
+                for r in ("r2", "r3", "r5")}
+        with patch.object(runtime, "snapshot", return_value={"runs": live, "prs": [], "at": 4000}), \
+                patch.object(runtime, "read", side_effect=lambda: self.state), \
+                patch.object(runtime, "dispatch") as dispatched, \
+                patch.object(core, "select", return_value=[]):
+            runtime.control()
+        self.assertNotIn("fleet-verify.yml", [c.args[0] for c in dispatched.call_args_list])
+        self.assertEqual(self.state["tickets"]["4"]["status"], "queued")
+        self.assertNotIn("dispatch", self.state["tickets"]["4"])
+
     def test_control_keeps_verified_receipt_when_base_moved(self):
         self.competitor()
         self.state["integration"] = None
