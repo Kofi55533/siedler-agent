@@ -15,6 +15,7 @@ import os
 from pathlib import Path
 import re
 import signal
+import shutil
 import subprocess
 import sys
 import threading
@@ -373,7 +374,8 @@ def external_resources(uid):
 
 def setup_worker_repo(u):
     git("remote", "set-url", "origin", f"https://github.com/{fs.PROJECT}.git")
-    command(["git", "fetch", "-q", "origin", "+refs/heads/clean/integration:refs/remotes/origin/clean/integration"],
+    deepen = ["--unshallow"] if git("rev-parse", "--is-shallow-repository") == "true" else []
+    command(["git", "fetch", "-q", *deepen, "origin", "+refs/heads/clean/integration:refs/remotes/origin/clean/integration"],
             env=author_environment())
     remote = command(["git", "ls-remote", "origin", "refs/heads/" + u["branch"]], env=author_environment()).stdout.strip()
     if remote:
@@ -393,7 +395,27 @@ def setup_research():
         command(["git", "sparse-checkout", "set", "cloud-re/results/rust_handoff/source"], cwd=root,
                 env=author_environment())
         command(["git", "checkout", "-q"], cwd=root, env=author_environment(), timeout=1200)
-    os.environ["S5_NATIVE_SOURCE"] = str(root / "cloud-re/results/rust_handoff/source")
+    # OpenCode's existing workspace boundary stays unchanged. Materialize the
+    # explicitly authorized native input inside that workspace, rather than
+    # asking it to read the previously denied external runner-temp directory.
+    inputs = worker_inputs()
+    native = inputs / "native"
+    if not native.exists():
+        shutil.copytree(root / "cloud-re/results/rust_handoff/source", native)
+    os.environ["S5_NATIVE_SOURCE"] = str(native)
+
+
+def worker_inputs():
+    inputs = REPO / ".fleet-input"
+    inputs.mkdir(exist_ok=True)
+    exclude = Path(git("rev-parse", "--git-path", "info/exclude"))
+    if not exclude.is_absolute():
+        exclude = REPO / exclude
+    existing = exclude.read_text() if exclude.exists() else ""
+    if "/.fleet-input/" not in existing.splitlines():
+        exclude.parent.mkdir(parents=True, exist_ok=True)
+        exclude.write_text(existing + "\n/.fleet-input/\n")
+    return inputs
 
 
 def scope_files(base, resources):
@@ -463,12 +485,14 @@ def worker(uid, nonce):
         u.pop("dispatch", None)
         return copy.deepcopy(u)
     u = update(acquire, "claim domain " + uid)
+    failed = False
     while u:
         if time.monotonic() >= deadline:
             result = {"outcome": "checkpoint", "summary": "Job budget reached; saved work remains recoverable"}
         else:
             result = worker_package(u, deadline)
         current = u["id"]
+        failed |= result["outcome"] in {"access_refusal", "provider_error", "setup_error"}
         def complete(s):
             core.finish(s, current, OWNER, result, time.time())
             if result["outcome"] in {"access_refusal", "provider_error", "setup_error"}:
@@ -484,6 +508,8 @@ def worker(uid, nonce):
                 # The package is durable; heartbeat/completion will retry.
                 pass
     print("Domain packages saved privately; runner handover complete.")
+    if failed:
+        raise RuntimeError("Worker startup/provider failure recorded privately; prior packages preserved")
 
 
 def worker_package(u, deadline):
@@ -506,7 +532,7 @@ def worker_package(u, deadline):
             raise ValueError("Cannot inspect existing package merge")
         conflicts = [p for p in premerge.stdout.splitlines()[1:] if p.strip()] if premerge.returncode == 1 else []
         inherited = sorted(set(inherited + conflicts))
-        scratch = Path(os.environ["RUNNER_TEMP"]) / ("domain-" + uid)
+        scratch = worker_inputs() / ("domain-" + uid)
         scratch.mkdir(exist_ok=True)
         if u.get("prior_package") and u.get("parent_overview"):
             # The predecessor PR may still be gating, so its written overview

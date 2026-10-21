@@ -1,0 +1,47 @@
+"""Use real Git to pin the shallow Actions checkout and workspace input boundary."""
+import os
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
+import unittest
+from unittest.mock import patch
+
+sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'scripts'))
+import autonomy as runtime
+
+class SetupTests(unittest.TestCase):
+    def g(self,repo,*args):
+        return subprocess.run(['git','-C',str(repo),*args],capture_output=True,text=True,check=True).stdout.strip()
+
+    def test_adopted_wip_has_common_history_after_shallow_actions_setup(self):
+        with tempfile.TemporaryDirectory() as td:
+            root=Path(td);remote=root/'remote.git';source=root/'source';repo=root/'repo'
+            subprocess.run(['git','init','--bare','-q',remote],check=True)
+            source.mkdir();self.g(source,'init','-q');self.g(source,'config','user.name','test');self.g(source,'config','user.email','test@test.invalid')
+            (source/'a').write_text('base');self.g(source,'add','.');self.g(source,'commit','-qm','base');base=self.g(source,'rev-parse','HEAD')
+            (source/'a').write_text('integration');self.g(source,'commit','-qam','integration');self.g(source,'remote','add','origin',str(remote));self.g(source,'push','-q','origin','HEAD:refs/heads/clean/integration')
+            self.g(source,'checkout','--detach',base);(source/'b').write_text('wip');self.g(source,'add','.');self.g(source,'commit','-qm','wip');self.g(source,'push','-q','origin','HEAD:refs/heads/agent/subsystem-example')
+            subprocess.run(['git','clone','-q','--depth','1','--no-single-branch','--branch','clean/integration',remote.as_uri(),repo],check=True)
+            self.assertEqual(self.g(repo,'rev-parse','--is-shallow-repository'),'true')
+            real=runtime.command
+            def command(args,*a,**kw):
+                if list(map(str,args[:3]))==['git','remote','set-url']:
+                    return subprocess.CompletedProcess(args,0,'','')
+                return real(args,*a,**kw)
+            with patch.object(runtime,'REPO',repo),patch.object(runtime,'command',side_effect=command),patch.object(runtime,'author_environment',return_value=os.environ.copy()):
+                tip=runtime.setup_worker_repo({'branch':'agent/subsystem-example'})
+                self.assertEqual(self.g(repo,'merge-base',tip,'HEAD'),base)
+                self.assertEqual(self.g(repo,'rev-parse','--is-shallow-repository'),'false')
+
+    def test_inputs_are_in_the_existing_workspace_and_cannot_enter_git_changes(self):
+        with tempfile.TemporaryDirectory() as td:
+            repo=Path(td);self.g(repo,'init','-q')
+            with patch.object(runtime,'REPO',repo):
+                inputs=runtime.worker_inputs();(inputs/'plan.json').write_text('{}')
+                self.assertTrue(inputs.is_relative_to(repo))
+                self.assertEqual(self.g(repo,'status','--porcelain'),'')
+                runtime.worker_inputs()
+                self.assertEqual((repo/'.git/info/exclude').read_text().count('/.fleet-input/'),1)
+
+if __name__=='__main__': unittest.main()

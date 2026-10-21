@@ -68,7 +68,8 @@ class WorkerLoopTests(unittest.TestCase):
                 self.seen.append(u['id'])
                 return {'outcome': 'provider_error', 'summary': 'provider unavailable'}
             return self.package(u, deadline)
-        self.run_worker(failure)
+        with self.assertRaisesRegex(RuntimeError, 'prior packages preserved'):
+            self.run_worker(failure)
         self.assertEqual(len(self.seen), 2)
         self.assertEqual(self.state['tickets']['1']['pr'], 1)
         self.assertEqual(self.state['tickets']['1']['status'], 'queued')
