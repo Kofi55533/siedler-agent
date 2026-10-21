@@ -254,6 +254,18 @@ class StateTests(unittest.TestCase):
         self.assertEqual(s["tickets"]["1"]["status"], "superseded")
         self.assertEqual(s["tickets"]["2"]["status"], "repair")
 
+    def test_batch_takes_up_to_eight_disjoint_verified_tickets(self):
+        s = fixture()
+        for n in range(1, 13):
+            s["tickets"][str(n)] = {"id": str(n), "status": "verified", "created": n,
+                                     "resources": [f"f{n}.rs"], "receipt": {"base": "b", "measured_at": 0}}
+        s["tickets"]["3"]["resources"] = ["f2.rs::other"]
+        self.assertEqual(state.BATCH_MAX, 8)
+        self.assertEqual(state.disjoint_batch(s), ["1", "2", "4", "5", "6", "7", "8", "9"])
+        # A full batch never waits in the coalescing window.
+        s["tickets"]["13"] = {"id": "13", "status": "verifying"}
+        self.assertEqual(len(state.integration_ready(s, 1)), 8)
+
     def test_failed_union_is_not_repeated(self):
         s = fixture(); s["incompatible_batches"] = [["1", "2"]]
         for n in (1, 2):
