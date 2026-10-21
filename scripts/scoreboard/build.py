@@ -35,6 +35,10 @@ ERRORS = []
 # Base scenarios (fixed list, hand-written German descriptions). Everything else is discovered.
 SCENARIOS = [
     ("bc-full", "Deine BC-Aufnahme (10.08.2026)", "dein ganzes aufgezeichnetes Spiel NETEVENT_RECORDING_2026-08-10: 1.504 Spielerbefehle über 23.900 Züge, ab Zug 121", None),
+    # bc-0804 (2026-10-21): Dominic's real BC game of 2026-08-04 (private release fixtures-gen-2026-10-19-bc-0804). Its fixture
+    # PR #557 could not merge (scenario rule: no new code path / unmodelled marker vs bc-full), so no index.json on
+    # clean/integration lists it; tracked here like bc-full. Not a gate fixture: the value comes from board lines.
+    ("bc-0804", "EMS Wintersturm", "deine BC-Aufnahme vom 04.08.2026: 1.298 Spielerbefehle über 24.141 Züge, ab Zug 121", None),
     ("build", "Wintersturm", "Baustellen anlegen, Leibeigene bauen Gebäude fertig", "build"),
     ("production", "Wintersturm", "Rohstoffabbau und Produktionskette", "production"),
     ("late-economy", "Wintersturm", "über 1 h Wirtschaft: Zahltag, Steuern, Leibeigene kaufen, Bauernhof-Upgrade, Abgaben", None),
@@ -53,6 +57,7 @@ SCENARIOS = [
     ("late-ai", "KI-Testkarte", "1 h KI-Dörfer ohne Spieler (36.000 Züge)", None),
 ]
 BASE = {n for n, *_ in SCENARIOS}
+FIXED_TOTAL = {"bc-full": (121, 23900, 1504), "bc-0804": (121, 24141, 1298)}  # (start turn, turns, player commands)
 ALIAS_TOTAL = {"bc-full": "bc", "economy-mapstart": "economy", "wintersturm-mapstart": "wintersturm"}
 CMD_NAMES = {
     69634: "Bewegen", 69635: "Bewegen (Formation)", 69636: "Leibeigene kaufen", 69638: "Verkaufen",
@@ -909,9 +914,10 @@ def main():
         # a loose mention ("wsecon 229" inside another fixture's note) may only raise the value;
         # a drop needs an explicit "live <name>: a -> b" measurement
         tk = tot.get(name) or tot.get(ALIAS_TOTAL.get(name, ""))
-        tturns = 23900 if name == "bc-full" else (tk["turns"] if tk else None)
+        fixed = FIXED_TOTAL.get(name)  # (start, turns, commands) of a full recording not in TEST_VECTORS/index.json
+        tturns = fixed[1] if fixed else (tk["turns"] if tk else None)
         bv = board_value(entries, name, floor=(v or {}).get("turn") or 0, total=tturns,
-                         start=121 if name == "bc-full" else (tk["start"] if tk else 0))
+                         start=fixed[0] if fixed else (tk["start"] if tk else 0))
         if bv and (not live or int(bv["line"]) > int(live[0]["line"])):
             v, vsrc, vwhen = bv, f"Board ({bv['agent']}, Zeile {bv['line']})", bv["time"]
         gv = GATE.get(name)
@@ -926,8 +932,8 @@ def main():
                 summ = cmd_summary(types)
                 CMD_SEEN.setdefault(name, set()).update(cmd_ids(types))
         start, turns = (tk["start"], tk["turns"]) if tk else (None, None)
-        if name == "bc-full":  # full recording, not the 2000-turn `bc` cut (fixtures/bc)
-            start, turns, ncmd = 121, 23900, 1504
+        if fixed:  # full recording (bc-full: not the 2000-turn `bc` cut in fixtures/bc)
+            start, turns, ncmd = fixed
         if v and not v["identical"] and turns and v["turn"] and v["turn"] >= turns:
             v = dict(v, identical=True)  # matched up to the scenario's last turn = whole run identical
         if v and v["identical"] and turns and v["turn"] and v["turn"] < turns:
