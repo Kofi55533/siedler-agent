@@ -110,10 +110,11 @@ class BacklogTests(unittest.TestCase):
                 self.assertEqual(backlog.epoch(old, "b", {"status": "ahead", "files": files})["input"], "b")
 
     def test_legacy_gates_use_reserved_capacity_without_reserving_four_more_slots(self):
+        free = core.CAPACITY - core.VERIFY_SLOTS
         self.assertEqual(core.select(self.state, 18), [])
-        self.assertEqual(len(core.select(self.state, 18, external_gates=2)), 0)
-        self.assertEqual(len(core.select(self.state, 17, external_gates=2)), 1)
-        self.assertEqual(len(core.select(self.state, 19, external_gates=4)), 1)
+        self.assertEqual(len(core.select(self.state, free + 2, external_gates=2)), 0)
+        self.assertEqual(len(core.select(self.state, free + 1, external_gates=2)), 1)
+        self.assertEqual(len(core.select(self.state, 19, external_gates=core.VERIFY_SLOTS)), 1)
         self.assertEqual(backlog.gate_count({"1": run(1, path="fleet-verify")}), 0)
 
     def test_control_dispatches_the_existing_full_gate_and_shadow_never_writes(self):

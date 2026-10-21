@@ -110,9 +110,10 @@ class StateTests(unittest.TestCase):
 
     def test_capacity_counts_infrastructure_and_legacy(self):
         s = fixture()
-        self.assertEqual(state.select(s, 18, legacy_jobs=2), [])
-        self.assertEqual(state.select(s, 18), [])
-        self.assertEqual(len(state.select(s, 14)), 2)
+        free = state.CAPACITY - state.VERIFY_SLOTS
+        self.assertEqual(state.select(s, free - 2, legacy_jobs=2), [])
+        self.assertEqual(state.select(s, free), [])
+        self.assertEqual(len(state.select(s, free - 2)), 2)
 
     def test_pending_dispatch_is_not_dispatched_twice(self):
         s = fixture(); s["units"]["battle"]["dispatch"] = {"nonce": "already"}
@@ -123,14 +124,23 @@ class StateTests(unittest.TestCase):
 
     def test_verification_capacity_is_not_counted_twice(self):
         s = fixture()
-        for n in range(4):
+        for n in range(state.VERIFY_SLOTS):
             s["tickets"][str(n)] = {"status": "verifying"}
         self.assertEqual(len(state.select(s, 18)), 2)
 
     def test_long_workers_cannot_starve_the_first_gate_jobs(self):
         s = fixture()
-        self.assertEqual(state.select(s, 16), [])
-        self.assertEqual(len(state.select(s, 15)), 1)
+        free = state.CAPACITY - state.VERIFY_SLOTS
+        self.assertEqual(state.select(s, free), [])
+        self.assertEqual(len(state.select(s, free - 1)), 1)
+
+    def test_main_split_is_ten_workers_and_ten_gates(self):
+        # Gate throughput (Dominic 2026-10-21): the fork's 20 workers keep the
+        # queue full, so the main account gives half its runners to gates.
+        self.assertEqual((state.CAPACITY, state.VERIFY_SLOTS), (20, 10))
+        self.assertEqual(state.LEGACY_GATE_SLOTS, 4)
+        board = (Path(__file__).resolve().parents[1] / "scripts/scoreboard/build.py").read_text()
+        self.assertIn(f"V2_GATE = {state.VERIFY_SLOTS}  #", board)
 
     def test_provider_error_backoff_is_not_a_new_runner_loop(self):
         s = fixture(); state.claim_unit(s, "battle", "one", 1, 1)

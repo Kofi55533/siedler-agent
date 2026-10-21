@@ -852,9 +852,9 @@ def fleet_pools():
 
 # ---------------- Fleet v2 slot view (siedler-agent Actions) ----------------
 # Mirrors scripts/autonomy.py: every queued/running run in siedler-agent occupies one of CAPACITY slots; DeepSeek workers
-# (fleet-worker.yml) up to FLEET_V2_WORKER_LIMIT, gate runs (fleet-verify/fleet-integrate/gate-baseline regate) up to 4.
+# (fleet-worker.yml) up to FLEET_V2_WORKER_LIMIT, gate runs (fleet-verify/fleet-integrate/gate-baseline regate) up to VERIFY_SLOTS (10).
 V2_CAPACITY = 20  # scripts/autonomy_state.py CAPACITY (the build checks out only scripts/scoreboard)
-V2_GATE = 4  # scripts/autonomy_state.py VERIFY_SLOTS
+V2_GATE = 10  # scripts/autonomy_state.py VERIFY_SLOTS
 V2_GROUPS = [  # (key, label, workflow files)
     ("worker", "DeepSeek-Worker", ("fleet-worker.yml",)),
     ("gate", "Gate", ("fleet-verify.yml", "fleet-integrate.yml", "gate-baseline.yml", "gate.yml")),
@@ -893,6 +893,7 @@ def fleet_v2():
         wlimit = int(os.environ.get("FLEET_V2_WORKER_LIMIT") or 16)
     except ValueError:
         wlimit = 16
+    wlimit = min(wlimit, V2_CAPACITY - V2_GATE)  # autonomy.control clamps the rollout variable the same way
     limits = {"worker": wlimit, "gate": V2_GATE, "control": None, "legacy": 0 if enabled == "true" else None}
     groups = {k: {"key": k, "label": lbl, "used": 0, "running": 0, "waiting": 0, "limit": limits[k]} for k, lbl, _ in V2_GROUPS}
     out = []
