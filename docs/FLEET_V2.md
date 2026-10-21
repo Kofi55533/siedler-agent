@@ -4,6 +4,9 @@ The fleet in `Kofi55533/siedler-agent` can own the entire game implementation wi
 `FLEET_V2_ENABLED=true` selects this controller; `false` restores the legacy refill path. Existing jobs finish.
 The model remains `opencode/deepseek-v4.1-flash-free`; the OpenCode CLI is pinned to `opencode-ai@1.19.3`.
 A provider access refusal holds new assignments. It never triggers a model change or an IP rotation.
+An optional tool denial remains denied. The worker may finish using permitted task inputs, without retrying
+the denied operation or inspecting OpenCode storage, sessions or credentials. Provider refusals take precedence
+over tool denials. Planning phase deadlines allow a smaller plan within the same runner reservation.
 
 ## Ownership and planning
 
@@ -35,6 +38,8 @@ another package in the same domain on the same runner. A successor gets a differ
 own obligations. Earlier packages keep their resource reservations during verification. The next package cannot
 edit their files. A later provider failure, timeout or gate failure cannot discard earlier PRs. Checkpoint-only
 work keeps its own draft branch and can be resumed independently. No whole-run final PR is required.
+Source changes rejected by the scope checker are saved as private recovery patches before the checkout is
+cleaned. Recovery requires a new valid reservation; a saved patch cannot bypass the gate or protected paths.
 
 Five-minute worker heartbeats coalesce controller dispatches, and completed packages request an early dispatch.
 This provides a refill and gate trigger during long-running jobs without relying exclusively on cron or occupying
@@ -74,8 +79,10 @@ python3 scripts/autonomy.py shadow
 
 Shadow mode reads current GitHub state and computes a plan without state writes, comments, issues, dispatches or
 repository variables. Branch workflow dispatches cannot mutate fleet state; mutation requires the main workflow
-and the enabling variable. Review automation exercises only synthetic Git repositories and fake native tools.
-Those tests establish orchestration and rejection behavior, not game-code bit identity.
+and the enabling variable. Review automation exercises synthetic Git repositories and fake native tools.
+Its optional `worker_smoke` dispatch also runs actual worker setup and planning against private native inputs,
+with no leases, state writes, source edits, pushes or PRs. These checks establish orchestration and rejection
+behavior, not game-code bit identity.
 
 After merging the rebuild PR, enable and trigger the controller:
 
