@@ -21,6 +21,9 @@ fix(){ # $1 = source label; validates the installed dir
   echo "$x: installed from $1"; return 0; }
 [ ! -f "$dst/scenario.json" ] || { fix "already present" && exit 0; }
 mkdir -p "$S5_NF/fixtures"
+mkdir -p "$S5_NF/.dl"
+meta=$(mktemp -d "$S5_NF/.dl/metadata-$x.XXXXXX")
+trap 'rm -rf "$meta"' EXIT
 # 1. git
 if [ -d "$S5_REPO/.git" ]; then
   cd "$S5_REPO"
@@ -28,7 +31,13 @@ if [ -d "$S5_REPO/.git" ]; then
   for ref in "${refs[@]}" origin/clean/integration $(git for-each-ref --format='%(refname:short)' 'refs/remotes/origin/agent/fixtures-*'); do
     git cat-file -e "$ref:fixtures-gen/$x/scenario.json" 2>/dev/null || continue
     rm -rf "$dst"; mkdir -p "$dst"
-    git archive "$ref" "fixtures-gen/$x" | tar -x -C "$dst" --strip-components=2 && fix "git $ref:fixtures-gen/$x" && exit 0
+    if git archive "$ref" "fixtures-gen/$x" | tar -x -C "$dst" --strip-components=2; then
+      # Keep the PR's metadata while looking for its missing image in the
+      # release. Historical workers renamed numeric fixtures to campaign-*
+      # to work around the parser; the image bundle retains its original name.
+      [ -f "$meta/scenario.json" ] || cp -r "$dst/." "$meta/"
+      fix "git $ref:fixtures-gen/$x" && exit 0
+    fi
   done
 fi
 # 2. releases
@@ -69,6 +78,10 @@ while read -r t pat; do
     if [ ! -d "$ex" ]; then mkdir -p "$ex.tmp"
       case "$a" in *.tzst|*.tar.zst) zstd -dcq "$DL/$a" | tar -x -C "$ex.tmp" 2>/dev/null ;; *) tar -xf "$DL/$a" -C "$ex.tmp" 2>/dev/null ;; esac
       mv "$ex.tmp" "$ex"; fi
+    if [ -f "$meta/scenario.json" ]; then
+      rm -rf "$dst"; cp -r "$meta" "$dst"
+      fix "git metadata + release $t/$a" "$ex" && exit 0
+    fi
     s=$(python3 - "$ex" "$x" <<'PY'
 import json, os, sys
 root, x = sys.argv[1], sys.argv[2]
