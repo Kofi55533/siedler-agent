@@ -1362,11 +1362,12 @@ def integrate(nonce):
         private_record(f"autonomy/integration/{RUN}.txt", type(error).__name__ + ": " + str(error))
         def retry(s):
             if union_failed:
-                # A measured interaction failure is not a reason to retry the
-                # same union forever. Integrate its independently green parts
-                # separately, then let the remaining owner repair the partner.
-                import itertools
-                s.setdefault("incompatible_batches", []).extend(list(p) for p in itertools.combinations(tids, 2))
+                # A measured union failure is not a reason to retry the same
+                # union forever, nor to blame every pair in it (T6/T8/T12 on
+                # 2026-10-21 all fell back to singles). Bisect: retest the
+                # halves one integration at a time; only a failing single
+                # ticket is the culprit and goes to repair (single_failure path).
+                core.bisect(s, tids, time.time())
             for tid in tids:
                 if s["tickets"][tid]["status"] != "accepted":
                     t = s["tickets"][tid]
@@ -1380,7 +1381,10 @@ def integrate(nonce):
                         u.update(status="repair", wip={"pr": t["pr"], "head": t["head"], "gate": single_failure})
                         s["leases"].pop(u["id"], None)
             s["integration"] = None
-        update(retry, "requeue batch without a merge verdict")
+        def retry_and_prune(s):
+            retry(s)
+            core.prune_splits(s)
+        update(retry_and_prune, "requeue batch without a merge verdict")
         print("Batch deferred; branches and evidence preserved.")
 
 

@@ -449,6 +449,34 @@ class AtomicIntegrationTests(unittest.TestCase):
         self.assertEqual(self.tip(), self.base)
         self.assertEqual(core.disjoint_batch(self.state), ["1"])
 
+    def test_failed_union_is_bisected_instead_of_marking_every_pair(self):
+        with patch.object(runtime, "run_gate", return_value=("repair", {"error": "REGRESSION"})):
+            runtime.integrate("batch")
+        self.assertEqual(self.state["integration_splits"], [["1"], ["2"]])
+        self.assertNotIn("incompatible_batches", self.state)
+        self.assertTrue(all(t["status"] == "verified" for t in self.state["tickets"].values()))
+        # Next writer: the first half alone. It fails -> it alone goes to repair.
+        self.state["integration"] = {"nonce": "half", "run": None, "tickets": core.integration_ready(self.state, 1),
+                                     "at": 1}
+        self.assertEqual(self.state["integration"]["tickets"], ["1"])
+        with patch.object(runtime, "run_gate", return_value=("repair", {"error": "REGRESSION"})) as gate:
+            runtime.integrate("half")
+        self.assertEqual(gate.call_args.args[2], [])
+        self.assertEqual(self.state["tickets"]["1"]["status"], "repair")
+        self.assertEqual(self.state["tickets"]["2"]["status"], "verified")
+        self.assertEqual(self.state["integration_splits"], [["2"]])
+        # The green half merges on its own.
+        self.state["integration"] = {"nonce": "last", "run": None, "tickets": core.integration_ready(self.state, 1),
+                                     "at": 1}
+        g = self.g
+        g("checkout", "-q", "--detach", self.base); g("merge", "-q", "--no-ff", "--no-edit", self.heads[1])
+        combined = dict(self.combined, commit=g("rev-parse", "HEAD"), tree=g("rev-parse", "HEAD^{tree}"))
+        with patch.object(runtime, "run_gate", return_value=("verified", combined)):
+            runtime.integrate("last")
+        self.assertEqual(self.state["tickets"]["2"]["status"], "accepted")
+        self.assertEqual(self.tip(), combined["commit"])
+        self.assertEqual(self.state["integration_splits"], [])
+
     def test_changed_head_never_gets_tested_or_merged(self):
         self.heads[0] = "f" * 40
         with patch.object(runtime, "run_gate") as gate:
