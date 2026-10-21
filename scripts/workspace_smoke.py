@@ -3,12 +3,17 @@ import json
 import os
 from pathlib import Path
 import threading
+import subprocess
+import tempfile
 import autonomy
 
 class Pulse:
     lost = threading.Event()
 
-root = Path(os.environ['GITHUB_WORKSPACE'])
+# Match the worker topology: the game clone is outside the Actions checkout.
+# This caught a directory-selection bug that a checkout-local smoke missed.
+root = Path(tempfile.mkdtemp(prefix='fleet-smoke-', dir=os.environ['RUNNER_TEMP']))
+subprocess.run(['git', 'init', '-q', root], check=True)
 autonomy.REPO = root
 inputs = autonomy.worker_inputs()
 (inputs/'assignment.json').write_text('{"check":"workspace-input","value":17}')
