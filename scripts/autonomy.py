@@ -137,6 +137,14 @@ def wake_control(soon=False):
         dispatch("fleet-control.yml", {"mode": "control"})
 
 
+def controller_needs_wakeup(state, runs):
+    # Worker completion/heartbeats normally provide the clock. Once all
+    # producers stop (for example during provider backoff), unreliable cron
+    # cannot be the only recovery path. A hard provider hold stays manual.
+    producers = ("/fleet-worker.yml", "/fleet-verify.yml", "/fleet-integrate.yml", "/opencode.yml")
+    return not state["provider_hold"] and not any(r.get("path", "").endswith(producers) for r in runs.values())
+
+
 def control(shadow=False):
     worker_limit = int(os.environ.get("FLEET_V2_WORKER_LIMIT", "16"))
     if not 0 <= worker_limit <= 16:
@@ -272,7 +280,11 @@ def control(shadow=False):
         if update(admit_worker, "reserve domain dispatch " + uid):
             dispatch("fleet-worker.yml", {"unit": uid, "nonce": nonce})
             room -= 1
-    print(json.dumps(core.dashboard(read())))
+    state = read()
+    if os.environ.get("GITHUB_OUTPUT"):
+        with Path(os.environ["GITHUB_OUTPUT"]).open("a") as output:
+            output.write("rearm=" + str(controller_needs_wakeup(state, snap["runs"])).lower() + "\n")
+    print(json.dumps(core.dashboard(state)))
 
 
 def author_environment():
