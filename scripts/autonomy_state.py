@@ -97,12 +97,16 @@ def validate_plan(plan, u):
     for k in ("goal", "native_family", "acceptance", "next_step"):
         if not isinstance(result.get(k), str) or not result[k].strip():
             raise ValueError("Plan requires " + k)
+    if not isinstance(result.get("addresses", []), list):
+        raise ValueError("Plan addresses must be a list of native addresses")
     addrs = [address(a) for a in result.get("addresses", [])]
     if not addrs or not set(addrs) <= set(outstanding(u)):
         raise ValueError("Plan must select outstanding addresses owned by this unit")
     if len(addrs) != len(set(addrs)):
         raise ValueError("Duplicate native obligations")
     resources = result.get("resources", [])
+    if not isinstance(resources, list) or not all(isinstance(r, str) for r in resources):
+        raise ValueError('Plan resources must be a list of strings "path" or "path::item"')
     if not 1 <= len(resources) <= 16:
         raise ValueError("Plan requires 1..16 concrete files/items")
     for resource in resources:

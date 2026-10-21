@@ -724,9 +724,14 @@ def worker_package(u, deadline):
                     raise ValueError("Planning phase wrote source before a reservation")
                 try:
                     plan = json.loads(plan_file.read_text())
+                    # A malformed model plan (e.g. resources as objects) is plan
+                    # feedback for the next attempt, never a fatal runner error.
+                    if not isinstance(plan, dict) or not isinstance(plan.get("resources", []), list) or not all(
+                            isinstance(r, str) for r in plan.get("resources", [])):
+                        raise ValueError('Plan must be one JSON object; resources must be a list of strings "path" or "path::item"')
                     plan["resources"] = sorted(set(plan.get("resources", []) + inherited))
                     plan = core.validate_plan(plan, u)
-                except (ValueError, FileNotFoundError) as error:
+                except (ValueError, TypeError, FileNotFoundError) as error:
                     plan_error = str(error)[:300]
                     continue
                 resources = sorted(set(resources + external_resources(uid)))

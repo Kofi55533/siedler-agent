@@ -126,5 +126,19 @@ class GeneratedLockfileTests(unittest.TestCase):
                 runtime.scope_files(base, ['crates/s5clean/src/a.rs'])
 
 
+class MalformedPlanTests(unittest.TestCase):
+    def test_object_resources_are_plan_feedback_not_a_crash(self):
+        # Run 39586506205 (2026-10-21 13:13) died with "TypeError: unhashable type: 'dict'".
+        state = fixture(); u = state['units']['battle']
+        good = {'goal': 'g', 'native_family': 'f', 'acceptance': 'a', 'next_step': 'n', 'minutes': 60,
+                'addresses': [core.outstanding(u)[0]], 'resources': ['crates/s5clean/src/a.rs']}
+        core.validate_plan(good, u)
+        for bad in ([{'path': 'crates/s5clean/src/a.rs'}], 'crates/s5clean/src/a.rs', [1]):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                core.validate_plan(dict(good, resources=bad), u)
+        with self.assertRaises(ValueError):
+            core.validate_plan(dict(good, addresses={'a': 1}), u)
+
+
 if __name__ == '__main__':
     unittest.main()
