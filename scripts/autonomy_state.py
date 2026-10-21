@@ -149,8 +149,11 @@ def provider(state, pool=None):
 
 def pool_in_flight(state, pool):
     """Workers of one additional pool that are leased or reserved (dispatched,
-    not yet claimed). An admit never starts more than the pool's own limit."""
-    leased = {uid for uid, l in state["leases"].items() if l.get("pool") == pool}
+    not yet claimed). An admit never starts more than the pool's own limit.
+    A package waiting for the main-account gate (owner gate:<ticket>) keeps its
+    resource lease but occupies no runner of this pool."""
+    leased = {uid for uid, l in state["leases"].items()
+              if l.get("pool") == pool and not str(l.get("owner", "")).startswith("gate:")}
     reserved = {uid for uid, u in state["units"].items()
                 if u.get("dispatch", {}).get("pool") == pool and uid not in state["leases"]}
     return len(leased | reserved)

@@ -54,6 +54,8 @@ class PoolIsolationTests(unittest.TestCase):
         s["units"][uid]["dispatch"] = {"nonce": "n", "at": 10, "pool": POOL}
         self.assertEqual(state.pool_in_flight(s, POOL), 2)
         self.assertEqual(state.pool_in_flight(s, "other/repo"), 0)
+        s["leases"]["battle"]["owner"] = "gate:7"
+        self.assertEqual(state.pool_in_flight(s, POOL), 1)
 
 
 if __name__ == "__main__":
