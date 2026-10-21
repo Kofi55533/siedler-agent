@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import base64
 import copy
+import hashlib
 import importlib.util
 import json
 import os
@@ -1179,6 +1180,67 @@ def standard_fixtures():
     return set(names)
 
 
+GATE_DIR = Path("/opt/s5/gate")
+DATA_V2_QUERY = '.assets[]|select(.name|test("tzst"))|"\\(.name) \\(.size) \\(.updatedAt)"'
+
+
+def data_v2_listing():
+    # Byte-identical to s5-gate.sh's DV2 (same query, `sort`, trailing newlines stripped like $(...)).
+    r = command(["bash", "-c", "gh release view data-v2 -R Kofi55533/siedler-data --json assets -q \"$Q\" | sort"],
+                env={**os.environ, "Q": DATA_V2_QUERY}, timeout=120, check=False)
+    return r.stdout.rstrip("\n") if r.returncode == 0 else ""
+
+
+def seed_base_cache(pr, candidate, combined):
+    """Pre-seed s5-gate's baseline cache for the base this integration just pushed.
+
+    The verified combined candidate's PR-side live matrix (/opt/s5/gate/<pr>/pr.tsv)
+    is exactly the baseline matrix of the new clean/integration: the gate keys its
+    cache (release gate-baseline, base-<key>.tsv) by the commit's input tree without
+    docs/*.md, the data-v2 asset list, the fingerprinted script digest and the live
+    timeout, and the pushed commit has the measured tree. The key is computed by
+    s5-gate.sh itself (S5_GATE_KEY_ONLY), so no gate input or criterion changes. The
+    next gate only reads rows it would otherwise measure; a missing or corrupt asset
+    is measured as before. Best effort: never affects the integration verdict.
+    """
+    try:
+        if contract.input_tree(REPO, candidate) != contract.input_tree(REPO, combined["commit"]):
+            return "skip: pushed tree differs from the measured tree"
+        if not combined.get("data_release"):
+            return "skip: no data release"
+        standard = standard_fixtures()
+        rows = {}
+        for line in (GATE_DIR / str(pr) / "pr.tsv").read_text().splitlines():
+            fields = line.split()
+            if len(fields) < 2 or fields[0] in rows or not fields[1].isdigit() or int(fields[1]) <= 0:
+                return "skip: malformed or untyped live row"
+            rows[fields[0]] = line.strip()
+        if not standard or not standard <= set(rows):
+            return "skip: incomplete standard matrix"
+        def same_data():
+            dv2 = data_v2_listing()
+            return bool(dv2) and hashlib.sha256(dv2.encode()).hexdigest() == combined["data_release"]
+        if not same_data():
+            return "skip: data-v2 changed since the measurement"
+        env = gate_environment(candidate, candidate)
+        env.update(S5_GATE_BASELINE_ONLY="1", S5_GATE_KEY_ONLY="1", S5_GATE_BASE_REF=candidate, S5_GATE_COMMENT="0")
+        r = command(["bash", HERE / "s5-gate.sh", "seed-cache"], env=env, timeout=300, check=False)
+        last = (r.stdout.strip().splitlines() or [""])[-1].split()
+        if r.returncode or len(last) != 3 or not re.fullmatch(r"[0-9a-f]{16}", last[0]) or last[1] != candidate:
+            return "skip: no cache key"
+        if last[2] != "miss":
+            return "skip: cache " + last[2]
+        if not same_data():
+            return "skip: data-v2 changed while keying"
+        path = Path(os.environ.get("RUNNER_TEMP", "/tmp")) / f"base-{last[0]}.tsv"
+        path.write_text("".join(rows[f] + "\n" for f in sorted(standard)))
+        r = command(["gh", "release", "upload", "gate-baseline", "-R", "Kofi55533/siedler-agent", path],
+                    timeout=300, check=False)
+        return f"seeded base-{last[0]}" if r.returncode == 0 else "skip: upload failed"
+    except Exception as error:
+        return "skip: " + type(error).__name__
+
+
 def integrate(nonce):
     enabled()
     def acquire(s):
@@ -1276,6 +1338,7 @@ def integrate(nonce):
         update(lambda s: core.accept(s, tids, candidate, time.time()), "accept exact combined tree")
         private_record(f"autonomy/accepted/{candidate}.json", json.dumps({"tickets": tids, "combined": combined}))
         print(f"Accepted {len(tickets)} packages; combined full matrix green.")
+        print("Next-base replay cache: " + seed_base_cache(tickets[0]["pr"], candidate, combined))
     except Exception as error:
         if pushed:
             # Preserve the durable intent. A later controller confirms the

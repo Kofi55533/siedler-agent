@@ -4,6 +4,7 @@ Native/game gates are injected receipts in these tests. This proves orchestratio
 and Git race handling, not new game-code bit identity.
 """
 import copy
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -106,7 +107,10 @@ class AtomicIntegrationTests(unittest.TestCase):
         if list(map(str, args[:3])) == ["git", "remote", "set-url"]:
             return subprocess.CompletedProcess(args, 0, "", "")
         if self.command_hook:
-            self.command_hook(list(map(str, args)))
+            faked = self.command_hook(list(map(str, args)), **kw) if getattr(self.command_hook, "takes_kw", False) \
+                else self.command_hook(list(map(str, args)))
+            if faked is not None:
+                return faked
         return self.real_command(args, *a, **kw)
 
     def competitor(self, docs_only=False):
@@ -136,6 +140,85 @@ class AtomicIntegrationTests(unittest.TestCase):
             runtime.integrate("batch")
         self.assertEqual(gate.call_args.args[3], ["gen-extra"])
         self.assertEqual(self.tip(), self.candidate)
+
+    def seed_setup(self, rows, key_status="miss", dv2="assets v1"):
+        gate_dir = self.root / "gate"
+        (gate_dir / "1").mkdir(parents=True)
+        (gate_dir / "1" / "pr.tsv").write_text("".join(r + "\n" for r in rows))
+        self.combined["data_release"] = hashlib.sha256(b"assets v1").hexdigest()
+        for t in self.state["tickets"].values():
+            t["receipt"]["data_release"] = self.combined["data_release"]
+        calls, uploads = [], {}
+        def hook(args, **kw):
+            if args[0] == "bash" and args[1].endswith("s5-gate.sh"):
+                calls.append(kw.get("env", {}))
+                return subprocess.CompletedProcess(args, 0, f"0123456789abcdef {self.candidate} {key_status}\n", "")
+            if args[:3] == ["gh", "release", "upload"]:
+                uploads[Path(args[-1]).name] = Path(args[-1]).read_text()
+                return subprocess.CompletedProcess(args, 0, "", "")
+            return None
+        hook.takes_kw = True
+        self.command_hook = hook
+        return [patch.object(runtime, "GATE_DIR", gate_dir), patch.object(runtime, "data_v2_listing", return_value=dv2),
+                patch.dict(os.environ, {"S5_GATE_FIXTURES": "combat economy"})], calls, uploads
+
+    def run_seeded(self, patches):
+        for p in patches:
+            p.start()
+        try:
+            with patch.object(runtime, "run_gate", return_value=("verified", self.combined)) as gate:
+                runtime.integrate("batch")
+        finally:
+            for p in reversed(patches):
+                p.stop()
+        self.assertEqual(gate.call_count, 1)
+        self.assertEqual(self.tip(), self.candidate)
+        self.assertEqual([t["status"] for t in self.state["tickets"].values()], ["accepted", "accepted"])
+
+    def test_integration_seeds_next_base_replay_from_verified_candidate(self):
+        patches, calls, uploads = self.seed_setup(["economy 1000400 410", "gen-extra 77 30", "combat 315 520"])
+        self.run_seeded(patches)
+        # Key comes from s5-gate.sh itself (KEY_ONLY) for the exact pushed commit.
+        self.assertEqual(len(calls), 1)
+        self.assertEqual((calls[0]["S5_GATE_KEY_ONLY"], calls[0]["S5_GATE_BASE_REF"]), ("1", self.candidate))
+        self.assertEqual(calls[0]["S5_LIVE_TIMEOUT"], "1800")
+        # Only the standard matrix, unchanged rows (extra Frontier fixtures are never cached).
+        self.assertEqual(uploads, {"base-0123456789abcdef.tsv": "combat 315 520\neconomy 1000400 410\n"})
+
+    def assert_no_seed(self, rows, **kw):
+        patches, calls, uploads = self.seed_setup(rows, **kw)
+        self.run_seeded(patches)
+        return calls, uploads
+
+    def test_seed_skips_fail_fast_matrix(self):
+        self.assertEqual(self.assert_no_seed(["combat 315 520"]), ([], {}))
+
+    def test_seed_skips_untyped_row(self):
+        self.assertEqual(self.assert_no_seed(["combat 0 5", "economy 9 9"]), ([], {}))
+
+    def test_seed_skips_duplicated_row(self):
+        self.assertEqual(self.assert_no_seed(["combat 315 1", "combat 315 1", "economy 9 9"]), ([], {}))
+
+    def test_seed_skips_changed_data(self):
+        self.assertEqual(self.assert_no_seed(["combat 315 1", "economy 9 9"], dv2="assets v2"), ([], {}))
+
+    def test_seed_never_overwrites_an_existing_asset(self):
+        calls, uploads = self.assert_no_seed(["combat 315 1", "economy 9 9"], key_status="hit")
+        self.assertEqual((len(calls), uploads), (1, {}))
+
+    def test_seed_failure_never_changes_the_integration(self):
+        patches, _, _ = self.seed_setup(["combat 315 1", "economy 9 9"])
+        def broken(args, **kw):
+            if args[0] == "bash" and args[1].endswith("s5-gate.sh"):
+                raise subprocess.TimeoutExpired(args, 300)
+        broken.takes_kw = True
+        self.command_hook = broken
+        self.run_seeded(patches)
+
+    def test_seed_does_not_touch_the_verification_fingerprint(self):
+        # The receipt fingerprint covers gate inputs only; the seeding writer lives in autonomy.py.
+        import inspect
+        self.assertNotIn("autonomy.py", inspect.getsource(contract.script_digest))
 
     def test_standard_matrix_fallback_reads_s5_env(self):
         with patch.dict(os.environ, {"S5_GATE_FIXTURES": ""}):
