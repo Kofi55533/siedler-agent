@@ -18,7 +18,7 @@ def fixtures(body):
         for name in re.split(r"[,\s]+", m[1]):
             if not name:
                 continue
-            if not re.fullmatch(r"[a-z][a-z0-9-]*", name):
+            if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", name):
                 raise ValueError("Invalid required fixture name")
             names.add(name)
     return sorted(names)
@@ -65,7 +65,7 @@ def input_tree(repo, ref):
 
 
 def script_digest(directory):
-    names = ("s5-gate.sh", "s5-live.sh", "s5-env.sh", "s5-build.sh", "s5-fixture-install.sh",
+    names = ("s5-gate.sh", "s5-live.sh", "s5-env.sh", "s5-build.sh", "s5-fixture-install.sh", "fixture_bundle.py",
              "scoreboard/function_inventory.json",
              "subsys-xcheck.py", "gate_contract.py", "lane-claims.py", "muse-claims.txt")
     return hashlib.sha256(b"".join((Path(directory) / n).read_bytes() for n in names)).hexdigest()

@@ -152,7 +152,8 @@ def reserve(state, uid, owner, plan, at, external=()):
     return []
 
 
-def select(state, active_jobs, legacy_jobs=0, limit=CAPACITY, at=None, unavailable_units=()):
+def select(state, active_jobs, legacy_jobs=0, limit=CAPACITY, at=None, unavailable_units=(),
+           worker_limit=CAPACITY - VERIFY_SLOTS):
     """No LLM planner, fixed domain quotas or dependency on a heavy owner.
 
     Existing jobs count even when their heartbeat expires. Repairs and never
@@ -173,7 +174,10 @@ def select(state, active_jobs, legacy_jobs=0, limit=CAPACITY, at=None, unavailab
     gates = sum(t["status"] == "verifying" or bool(t.get("dispatch")) for t in state["tickets"].values())
     gates += bool(state.get("integration"))
     reserve = max(0, VERIFY_SLOTS - gates)
-    return [u["id"] for u in candidates[:max(0, room - reserve)]]
+    workers = sum(not lease["owner"].startswith("gate:") for lease in state["leases"].values())
+    workers += sum(bool(u.get("dispatch")) and u["id"] not in state["leases"] for u in state["units"].values())
+    available = min(max(0, room - reserve), max(0, worker_limit - workers))
+    return [u["id"] for u in candidates[:available]]
 
 
 def continue_domain(state, uid, owner, run, at):

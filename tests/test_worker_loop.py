@@ -13,6 +13,17 @@ from test_autonomy import fixture, plan
 
 
 class WorkerLoopTests(unittest.TestCase):
+    def test_limited_rollout_counts_both_leases_and_pending_dispatches(self):
+        state=fixture()
+        self.assertEqual(len(core.select(state,0,worker_limit=1)),1)
+        state['units']['battle']['dispatch']={'nonce':'pending'}
+        self.assertEqual(core.select(state,1,worker_limit=1),[])
+        state['units']['battle'].pop('dispatch')
+        self.assertTrue(core.claim_unit(state,'battle','worker','run',0))
+        self.assertEqual(core.select(state,1,worker_limit=1),[])
+        # A gate lease holds files, not a model-worker slot.
+        state['leases']['battle']['owner']='gate:1'
+        self.assertEqual(len(core.select(state,1,worker_limit=1)),1)
     def setUp(self):
         self.state = fixture()
         # Three obligations let one runner emit two PRs and preserve a third WIP.

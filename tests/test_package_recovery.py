@@ -82,6 +82,16 @@ class RecoveryTests(unittest.TestCase):
         self.assertEqual(result['outcome'],'evidence')
         self.assertIsNone(self.state['provider_hold'])
         self.assertEqual(self.state['leases']['battle']['run'],'test')
+    def test_rejected_checkpoint_cannot_mask_a_provider_outage(self):
+        def model(*args,**kwargs):
+            self.calls+=1
+            if self.calls==1:self.make_plan();return
+            raise runtime.ProviderError('upstream unavailable')
+        with patch.object(runtime,'run_model',side_effect=model), \
+                patch.object(runtime,'checkpoint',side_effect=ValueError('scope remains rejected')):
+            result=runtime.worker_package(self.u,runtime.time.monotonic()+3600)
+        self.assertEqual(result['outcome'],'provider_error')
+        self.assertEqual(self.calls,2)
     def test_denied_optional_operation_stays_denied_while_permitted_plan_is_used(self):
         def model(*args,**kwargs):
             self.calls+=1

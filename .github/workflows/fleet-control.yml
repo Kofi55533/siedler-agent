@@ -27,6 +27,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
           FLEET_V2_ENABLED: ${{ vars.FLEET_V2_ENABLED }}
+          FLEET_V2_WORKER_LIMIT: ${{ vars.FLEET_V2_WORKER_LIMIT || '16' }}
           MODE: ${{ inputs.mode || 'control' }}
         run: |
           if [ "$FLEET_V2_ENABLED" != true ] || [ "$GITHUB_REF_NAME" != main ]; then MODE=shadow; fi
