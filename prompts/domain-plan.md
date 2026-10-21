@@ -16,6 +16,9 @@ If work is stuck, change the cut or build its missing contract yourself. Codex/O
 do not request their approval, stop for their budget or wait for a historic board claim. Their active fleet
 reservations use the same registry as yours. Pick other domain work when a concrete resource is reserved.
 An evidence-only result is durable input for the next package, never a reason to re-audit the same getter next run.
+Distinguish proven data provenance from a port: an address-to-id table does not implement the native mutation.
+For mutating functions, plan clean/native tests from equivalent empty and populated states and a real clean
+operation/caller. Existing imported results do not replace the initializer or constructor that creates them.
 Use existing equivalence evidence to design a reference test, or move to the consumer that actually needs code.
 
 Write exactly one JSON object to the requested plan path:
