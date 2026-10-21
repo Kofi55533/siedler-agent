@@ -46,5 +46,15 @@ class PoolIsolationTests(unittest.TestCase):
         self.assertEqual(state.select(s, 0, at=12, worker_limit=1), ["ai"])
 
 
+    def test_pool_in_flight_counts_leases_and_reservations_of_that_pool_only(self):
+        s = fixture()
+        self.assertTrue(state.claim_unit(s, "battle", "o", "9", 10, POOL))
+        self.assertTrue(state.claim_unit(s, "ai", "p", "8", 10))
+        uid = next(u for u in s["units"] if u not in s["leases"])
+        s["units"][uid]["dispatch"] = {"nonce": "n", "at": 10, "pool": POOL}
+        self.assertEqual(state.pool_in_flight(s, POOL), 2)
+        self.assertEqual(state.pool_in_flight(s, "other/repo"), 0)
+
+
 if __name__ == "__main__":
     unittest.main()

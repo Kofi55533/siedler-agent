@@ -147,6 +147,15 @@ def provider(state, pool=None):
     return state.setdefault("pools", {}).setdefault(pool, {})
 
 
+def pool_in_flight(state, pool):
+    """Workers of one additional pool that are leased or reserved (dispatched,
+    not yet claimed). An admit never starts more than the pool's own limit."""
+    leased = {uid for uid, l in state["leases"].items() if l.get("pool") == pool}
+    reserved = {uid for uid, u in state["units"].items()
+                if u.get("dispatch", {}).get("pool") == pool and uid not in state["leases"]}
+    return len(leased | reserved)
+
+
 def held(state, at=None, pool=None):
     """True while a provider hold is active. A hold without `until` is manual."""
     hold = (state if pool is None else state.get("pools", {}).get(pool, {})).get("provider_hold")
