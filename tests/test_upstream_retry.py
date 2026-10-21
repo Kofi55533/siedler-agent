@@ -1,4 +1,5 @@
 """Transient upstream outages, refusals and generated lockfiles (2026-10-21 v2 fix)."""
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -22,12 +23,15 @@ class Pulse:
 
 
 class UpstreamRetryTests(unittest.TestCase):
+    def setUp(self):
+        runtime.new_package_session()
+
     def run_sequence(self, outputs, minutes=60, delays=(0, 0, 0)):
         calls = []
         with tempfile.TemporaryDirectory() as td:
             def popen(args, **kw):
                 text, code = outputs[min(len(calls), len(outputs) - 1)]
-                calls.append(args[-1])
+                calls.append(args[-1]); self.argv = getattr(self, 'argv', []) + [args]
                 kw['stdout'].write(text.encode()); kw['stdout'].flush()
                 class Process:
                     returncode = code
@@ -138,6 +142,54 @@ class MalformedPlanTests(unittest.TestCase):
                 core.validate_plan(dict(good, resources=bad), u)
         with self.assertRaises(ValueError):
             core.validate_plan(dict(good, addresses={'a': 1}), u)
+
+
+class LegacyInvocationTests(unittest.TestCase):
+    def test_one_session_per_package_and_legacy_permissions(self):
+        runtime.new_package_session()
+        seen = []
+        with tempfile.TemporaryDirectory() as td:
+            def popen(args, **kw):
+                seen.append(list(args))
+                kw['stdout'].write(b'done'); kw['stdout'].flush()
+                class Process:
+                    returncode = 0
+                    def poll(self): return 0
+                return Process()
+            with patch.dict(os.environ, {'RUNNER_TEMP': td}), patch.object(runtime.subprocess, 'Popen', side_effect=popen), \
+                 patch.object(runtime, 'private_record'):
+                for _ in range(3):
+                    runtime.run_model('step', Path(td), Pulse(), 10)
+                runtime.new_package_session()
+                runtime.run_model('next package', Path(td), Pulse(), 10)
+            config = json.loads((Path(td) / 'opencode.json').read_text())
+        self.assertNotIn('--continue', seen[0])
+        self.assertTrue(all('--continue' in a for a in seen[1:3]))
+        self.assertNotIn('--continue', seen[3])
+        self.assertTrue(all(a[2:4] == ['--dir', td] and a[4:6] == ['-m', 'opencode/deepseek-v4.1-flash-free'] for a in seen))
+        self.assertTrue(all('--auto' not in a for a in seen))
+        self.assertEqual(config['permission'], {'edit': 'allow', 'bash': 'allow', 'webfetch': 'allow',
+                                                'external_directory': 'allow'})
+
+    def test_outage_retry_continues_the_same_session(self):
+        runtime.new_package_session()
+        t = UpstreamRetryTests('test_transient_outage_is_retried_on_the_same_runner_and_then_succeeds')
+        t.setUp()
+        calls, error = t.run_sequence([(UNAVAILABLE, 1), ('done', 0)])
+        self.assertIsNone(error)
+        self.assertNotIn('--continue', t.argv[0])
+        self.assertIn('--continue', t.argv[1])
+
+    def test_config_is_excluded_from_package_scope(self):
+        with tempfile.TemporaryDirectory() as td:
+            repo = Path(td)
+            g = lambda *a: subprocess.run(['git', *a], cwd=repo, check=True, capture_output=True, text=True).stdout
+            g('init', '-q'); g('config', 'user.email', 't@t'); g('config', 'user.name', 't')
+            (repo / 'a.txt').write_text('x'); g('add', '.'); g('commit', '-qm', 'b')
+            with patch.object(runtime, 'REPO', repo):
+                runtime.worker_inputs()
+                runtime.model_config(repo)
+                self.assertEqual(runtime.git('status', '--porcelain'), '')
 
 
 if __name__ == '__main__':

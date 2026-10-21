@@ -54,6 +54,28 @@ class UpstreamUnavailable(ProviderError):
 
 UPSTREAM_RETRY_DELAYS = (60, 180, 420)
 
+# Same OpenCode permission config as the proven legacy opencode.yml ($W/opencode.json).
+# Without it OpenCode's defaults auto-reject external_directory in `opencode run`.
+LEGACY_OPENCODE_CONFIG = {"$schema": "https://opencode.ai/config.json",
+                          "permission": {"edit": "allow", "bash": "allow", "webfetch": "allow",
+                                         "external_directory": "allow"}}
+
+# Legacy runs ONE OpenCode session per job. A package's plan attempts, merge
+# repair, implementation and outage retries continue one session (--continue)
+# instead of opening a new session per phase; a new package starts a new one.
+SESSION = {"open": False}
+
+
+def new_package_session():
+    SESSION["open"] = False
+
+
+def model_config(directory):
+    path = Path(directory) / "opencode.json"
+    text = json.dumps(LEGACY_OPENCODE_CONFIG)
+    if not path.exists() or path.read_text() != text:
+        path.write_text(text)
+
 
 class ToolAccessRefusal(PermissionError):
     pass
@@ -396,7 +418,7 @@ def run_model(prompt, directory, pulse, minutes, checkpoint=None):
                 raise ProviderError("Provider unavailable after bounded retries") from None
         if pulse.lost.wait(delay):
             raise RuntimeError("Model reservation lost")
-        note = ("\n\nNote: the previous model session for this same step ended with a transient provider outage. "
+        note = ("\n\nNote: the previous model call for this same step ended with a transient provider outage. "
                 "Inspect the current workspace state and continue this step; do not redo finished work.")
 
 
@@ -410,8 +432,13 @@ def run_model_once(prompt, directory, pulse, minutes, checkpoint=None):
     start = time.monotonic()
     last_checkpoint = start
     with path.open("wb") as log:
-        process = subprocess.Popen(["opencode", "run", "--dir", str(directory), "-m", core.MODEL, prompt], cwd=directory,
+        model_config(directory)
+        args = ["opencode", "run", "--dir", str(directory), "-m", core.MODEL]
+        if SESSION["open"]:
+            args.append("--continue")
+        process = subprocess.Popen([*args, prompt], cwd=directory,
                                    env=env, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+        SESSION["open"] = True
         try:
             while process.poll() is None:
                 elapsed = time.monotonic() - start
@@ -517,7 +544,7 @@ def worker_inputs():
     # Cargo writes an untracked Cargo.lock into standalone crates such as
     # crates/s5xcheck on every test run. It is a build byproduct, never a
     # package resource; without this every checkpoint failed its scope check.
-    missing = [p for p in ("/.fleet-input/", "Cargo.lock") if p not in existing.splitlines()]
+    missing = [p for p in ("/.fleet-input/", "Cargo.lock", "/opencode.json") if p not in existing.splitlines()]
     if missing:
         exclude.parent.mkdir(parents=True, exist_ok=True)
         exclude.write_text(existing + "\n" + "\n".join(missing) + "\n")
@@ -669,6 +696,7 @@ def worker_package(u, deadline):
             raise TimeoutError("Job checkpoint boundary")
         return minutes
     result = {"outcome": "setup_error", "summary": "Worker did not complete setup"}
+    new_package_session()
     try:
         git("config", "user.name", "siedler-fleet")
         git("config", "user.email", "Kofi55533@users.noreply.github.com")
