@@ -21,9 +21,12 @@ jobs:
   control:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    outputs:
+      rearm: ${{ steps.control.outputs.rearm }}
     steps:
       - uses: actions/checkout@v4
       - name: Read-only shadow or approved controller
+        id: control
         env:
           GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
           FLEET_V2_ENABLED: ${{ vars.FLEET_V2_ENABLED }}
@@ -32,3 +35,25 @@ jobs:
         run: |
           if [ "$FLEET_V2_ENABLED" != true ] || [ "$GITHUB_REF_NAME" != main ]; then MODE=shadow; fi
           python3 scripts/autonomy.py "$MODE"
+  rearm:
+    # Idle/backoff and controller failures must recover even when cron does
+    # not fire. Productive workers normally wake the controller themselves.
+    # This timer uses a runner only while no producer can provide that wakeup,
+    # or after a failed control cycle; it never retries a refused model call.
+    needs: control
+    if: >-
+      always() && github.ref == 'refs/heads/main' && vars.FLEET_V2_ENABLED == 'true' &&
+      (github.event_name != 'workflow_dispatch' || inputs.mode == 'control') &&
+      (needs.control.outputs.rearm == 'true' || needs.control.result == 'failure')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: write
+    steps:
+      - name: Recheck after idle backoff without depending on cron
+        env:
+          GH_TOKEN: ${{ github.token }}
+          R: ${{ github.repository }}
+        run: |
+          sleep 270
+          gh workflow run fleet-control.yml -R "$R" --ref main -f mode=control

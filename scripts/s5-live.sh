@@ -22,7 +22,7 @@ export S5_REMAP=$(python -c "import verify; print(verify.remap_for('$img', 'targ
 [ "$a" = economy ] && export S5_CLEAN_MAP_DIR=$S5_V/maps/economy/maps/externalmap
 timeout ${S5_LIVE_TIMEOUT:-1800} ./target/release/s5verify live ../data/scope/schema.json "$sc" "$img" "$a" > $S5/live/$f.log 2>&1
 rc=$?
-m=$(grep -m1 -oE "^[a-z-]+: (DIVERGENT turn [0-9]+|IDENTICAL [0-9]+ ticks)|loader unavailable" $S5/live/$f.log | sed 's/^[a-z-]*: //')
+m=$(grep -m1 -oE "^[a-z0-9][a-z0-9-]*: (DIVERGENT turn [0-9]+|IDENTICAL [0-9]+ ticks)|loader unavailable" $S5/live/$f.log | sed 's/^[a-z0-9][a-z0-9-]*: //')
 [ -z "$m" ] && m=$(grep -oE 'IDENTICAL[^:(]*' $S5/live/$f.log | tail -n1)
 echo "live $f exit=$rc ${m}"
 exit $rc

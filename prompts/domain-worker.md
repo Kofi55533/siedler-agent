@@ -8,6 +8,11 @@ new behavior against original/recomp execution: branch boundaries, ordering, RNG
 multi-step transitions, including target loss, destruction and imported state where relevant. Do not use the
 ported implementation to manufacture its own expected values. Native wrappers may share one idiomatic Rust
 operation; prove that equivalence per address instead of generating one Rust function per native function.
+Both sides of a differential test must perform the same operation from equivalent initial state. For a
+registration/constructor, compare the clean and native mutations from empty, pre-populated and repeated-call
+states, including relevant contents/counts and order. Reading an already imported registry is not a test of
+the initializer that builds it. Address-to-id provenance tables and citations are durable evidence, not newly
+ported behavior; do not report them as ready proofs. Name the actual clean operation and real caller.
 
 Unexecuted code is first-class work. Add native differential tests under crates/s5xcheck/tests/<unit>.rs and
 name the target with `Differential-tests: --test <unit>`. Call the clean operation and native function on the
@@ -51,6 +56,8 @@ output into one final PR, or declare the whole run finished after a small packag
 clock and final checkpoint margin. Record useful residuals in the overview so the next package reuses them.
 
 Never inspect OpenCode's storage, sessions, auth files or provider settings. They are not game inputs.
+Read assignment.review_input when present; use its private gate/review evidence to repair the adopted package.
+Resolve the recorded failure with native proof and current measurements. Do not fetch GitHub or seek credentials.
 A denied operation stays denied. Continue only with the explicitly supplied permitted game inputs; do not
 change permissions or retry the denied operation. Keep temporary probes under assignment's .fleet-input
 workspace. Declare every source/test file in the plan before writing it; Cargo.lock files and temporary
