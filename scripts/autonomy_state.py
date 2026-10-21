@@ -308,19 +308,57 @@ def reconcile_runs(state, run_status, at, grace=1200):
 def disjoint_batch(state, maximum=4):
     tickets = sorted((t for t in state["tickets"].values() if t["status"] == "verified"),
                      key=lambda t: (t["created"], int(t["id"])))
-    batch, paths, base = [], set(), None
+    # Receipts may come from different (older) bases: the integration writer
+    # measures the whole union again on the newest base before it merges.
+    batch, paths = [], set()
     for t in tickets:
         newpaths = {r.split("::", 1)[0] for r in t["resources"]}
-        if (base and t["receipt"]["base"] != base) or paths & newpaths:
+        if paths & newpaths:
             continue
         if any(set(pair) <= {t["id"], *batch} for pair in state.get("incompatible_batches", [])):
             continue
         batch.append(t["id"])
         paths |= newpaths
-        base = t["receipt"]["base"]
         if len(batch) == maximum:
             break
     return batch
+
+
+def repin_queued_heads(state, prs, at):
+    """Follow a PR head that moved while its ticket only waits in the queue.
+
+    A queued ticket has no measurement yet, so pinning it to the PR's current
+    head loses nothing: the preflight still verifies exactly that head and the
+    integration writer still refuses any head that differs from the ticket.
+    An older queued ticket of a PR that already has a newer ticket (any state)
+    is superseded instead: the newer submission owns the unit and its lease. A head whose
+    changed files leave the ticket's reserved resources is not adopted; the
+    gate then reports the moved head as before.
+    """
+    by_number = {int(p["number"]): p for p in prs or []}
+    newest = {}
+    for t in state["tickets"].values():
+        if int(t["id"]) > int(newest.get(t["pr"], {"id": -1})["id"]):
+            newest[t["pr"]] = t
+    for t in state["tickets"].values():
+        if t["status"] != "queued" or t.get("dispatch"):
+            continue
+        if newest.get(t["pr"], t)["id"] != t["id"]:
+            t.update(status="superseded", superseded_by=newest[t["pr"]]["id"])
+            event(state, "supersede_ticket", at, ticket=t["id"], by=newest[t["pr"]]["id"], pr=t["pr"])
+            continue
+        pr = by_number.get(int(t["pr"]))
+        head = (pr or {}).get("headRefOid") or ""
+        if not pr or head == t["head"] or not re.fullmatch(r"[0-9a-f]{40}", head):
+            continue
+        if pr.get("headRefName") != t.get("branch"):
+            continue
+        allowed = {r.split("::", 1)[0] for r in t["resources"]}
+        files = pr.get("files") or []
+        if not files or any(f not in allowed for f in files):
+            continue
+        event(state, "repin_ticket", at, ticket=t["id"], pr=t["pr"], old=t["head"], new=head)
+        t.update(head=head, repinned_from=t["head"])
 
 
 def integration_ready(state, at, coalesce_seconds=180):

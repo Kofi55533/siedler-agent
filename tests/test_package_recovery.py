@@ -55,6 +55,45 @@ class RecoveryTests(unittest.TestCase):
     def assignment(self):return self.repo/'.fleet-input/domain-battle'
     def make_plan(self):
         p=plan('crates/s5clean/src/wanted.rs');(self.assignment()/'plan.json').write_text(json.dumps(p))
+    def ready_model(self, repairs_fix_after=None):
+        def model(prompt,*args,**kwargs):
+            self.calls+=1
+            if self.calls==1:self.make_plan();return
+            self.prompts.append(prompt)
+            (self.assignment()/'result.json').write_text('{"outcome":"ready","summary":"ported","proofs":[]}')
+            (self.assignment()/'pr-body.md').write_text('Fixture-request: reach it\n')
+        return model
+    def run_ready(self,gaps):
+        self.prompts=[];submitted=[]
+        def checkpoint(u,base,resources,body,ready=False):
+            if ready:submitted.append(body)
+            return {'head':'a'*40,'pr':9,'base':base}
+        with patch.object(runtime,'run_model',side_effect=self.ready_model()), \
+                patch.object(runtime,'checkpoint',side_effect=checkpoint), \
+                patch.object(runtime,'citation_gaps',side_effect=gaps) as check:
+            result=runtime.worker_package(self.u,runtime.time.monotonic()+3600)
+        return result,submitted,check
+    def test_citation_gap_is_repaired_on_the_runner_before_submission(self):
+        verdicts=[['subsystem PR cites 2 function(s) no fixture executes, but: missing x'],[]]
+        result,submitted,check=self.run_ready(verdicts)
+        self.assertEqual(result['outcome'],'ready')
+        self.assertEqual(len(submitted),1)
+        self.assertEqual(check.call_count,2)
+        self.assertIn('GATE FAIL: subsystem PR cites 2 function(s)',self.prompts[-1])
+        self.assertIn('Never delete, rename or obfuscate citations',self.prompts[-1])
+    def test_persistent_citation_gap_is_never_submitted_as_a_ticket(self):
+        gap=['subsystem PR cites 1 function(s) no fixture executes, but: missing y']
+        result,submitted,check=self.run_ready(lambda *a:gap)
+        self.assertEqual(result['outcome'],'checkpoint')
+        self.assertIn('citation precheck',result['summary'])
+        self.assertEqual(submitted,[])
+        self.assertEqual(check.call_count,3)
+        self.assertNotIn('pr',result)
+    def test_clean_citation_check_submits_without_extra_model_work(self):
+        result,submitted,check=self.run_ready(lambda *a:[])
+        self.assertEqual(result['outcome'],'ready')
+        self.assertEqual(len(submitted),1)
+        self.assertEqual(self.calls,2)
     def test_rejected_delta_is_durable_and_next_package_sees_clean_source(self):
         def model(*args,**kwargs):
             self.calls+=1

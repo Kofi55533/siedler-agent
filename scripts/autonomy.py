@@ -21,6 +21,7 @@ import sys
 import threading
 import time
 import urllib.parse
+import urllib.request
 import uuid
 
 import autonomy_state as core
@@ -210,17 +211,11 @@ def control(shadow=False):
     backlog_base = backlog.epoch(previous, latest_base, comparison)
     scripts = contract.script_digest(HERE)
     external_gates = backlog.gate_count(snap["runs"]) + backlog.pending(state, snap["runs"], at)
-    stale_bases = set()
-    for base in {t["receipt"]["base"] for t in state["tickets"].values() if t["status"] == "verified"}:
-        if base == latest_base:
-            continue
-        comparison = fs.api(f"repos/{fs.PROJECT}/compare/{base}...{latest_base}")
-        files = comparison.get("files", [])
-        # GitHub caps compare files at 300. An incomplete/rewritten comparison
-        # cannot establish that only coordination prose changed.
-        if (comparison["status"] not in {"ahead", "identical"} or len(files) >= 300 or not files
-                or any(not f["filename"].startswith("docs/") or not f["filename"].endswith(".md") for f in files)):
-            stale_bases.add(base)
+    # A verified receipt is NOT discarded when clean/integration moves. The
+    # integration writer re-measures the combined candidate on the newest base
+    # before its Git CAS, so a moved base only changes where the union is
+    # tested. Requeueing here livelocked the fleet: a full preflight (25-48
+    # min) is longer than the typical interval between unrelated merges.
     legacy_units = set()
     for run in snap["runs"].values():
         if run.get("path", "").endswith("/opencode.yml"):
@@ -251,9 +246,8 @@ def control(shadow=False):
                 # Match workflow run-name to the nonce, not to a stale title.
                 if not any(pending["nonce"] in r["display_title"] for r in snap["runs"].values()):
                     u.pop("dispatch", None)
+        core.repin_queued_heads(s, snap["prs"], at)
         for t in s["tickets"].values():
-            if t["status"] == "verified" and t["receipt"]["base"] in stale_bases:
-                t.update(status="queued", run=None, retry_after=0)
             if t["status"] == "verifying" and statuses.get(t.get("run")) == "completed":
                 t.update(status="queued", run=None)
             p = t.get("dispatch")
@@ -610,6 +604,71 @@ def checkpoint(u, base, resources, body, ready=False):
     return wip
 
 
+COVERAGE_MAP = "https://github.com/Kofi55533/siedler-agent/releases/download/coverage-cache/COVERAGE-full.md"
+
+
+def citation_gaps(base, resources, body):
+    """Run the gate's own subsystem citation rule (subsys-xcheck.py plan) on the
+    exact package a ready result would submit; return its 'missing' lines.
+
+    Same script, same inputs as s5-gate.sh: newest clean/integration, the
+    merge-base diff of the candidate head, the PR body and the public coverage
+    map (unreadable map -> empty, i.e. stricter). The gate stays the authority;
+    a failure of this precheck itself never blocks submission.
+    """
+    scratch = Path(os.environ.get("RUNNER_TEMP", "/tmp")) / "citation-precheck"
+    scratch.mkdir(parents=True, exist_ok=True)
+    try:
+        files = scope_files(base, resources)
+        if not files:
+            return []
+        command(["git", "fetch", "-q", "origin", "+refs/heads/clean/integration:refs/remotes/origin/clean/integration"],
+                env=author_environment(), check=False)
+        latest = git("rev-parse", "origin/clean/integration")
+        env = {**os.environ, "GIT_INDEX_FILE": str(scratch / "index")}
+        command(["git", "read-tree", "HEAD"], env=env)
+        command(["git", "add", "--", *files], env=env)
+        tree = command(["git", "write-tree"], env=env).stdout.strip()
+        head = command(["git", "-c", "user.name=siedler-fleet", "-c", "user.email=fleet@users.noreply.github.com",
+                        "commit-tree", tree, "-p", "HEAD", "-m", "citation precheck"]).stdout.strip()
+        mb = git("merge-base", latest, head)
+        (scratch / "pr.diff").write_text(git("diff", mb, head) + "\n")
+        (scratch / "body.txt").write_text(body)
+        try:
+            with urllib.request.urlopen(COVERAGE_MAP, timeout=60) as r:
+                (scratch / "coverage.md").write_bytes(r.read())
+        except Exception:
+            (scratch / "coverage.md").write_text("")
+        r = command([sys.executable, HERE / "subsys-xcheck.py", "plan", REPO, latest, head, scratch / "pr.diff",
+                     scratch / "body.txt", scratch / "coverage.md"], check=False)
+        if r.returncode:
+            return []
+        lines = r.stdout.splitlines()
+        if "none" in lines:
+            return []
+        missing = [x[len("missing "):] for x in lines if x.startswith("missing ")]
+        if not missing:
+            return []
+        count = sum(len(x.split()) - 1 for x in lines if x.startswith("unexecuted "))
+        # Same wording as the gate's verdict, so a repair sees the familiar text.
+        return [f"subsystem PR cites {count} function(s) no fixture executes, but: " + "; ".join(missing[:3])]
+    except Exception:
+        return []
+
+
+def citation_repair_prompt(gaps, plan_file, result_file, body_file):
+    return ("The trusted wrapper ran the independent gate's citation rule (scripts/subsys-xcheck.py) on this package "
+            "before submitting it, and it would fail:\n" + "\n".join("GATE FAIL: " + g for g in gaps) + "\n"
+            "Repair inside the reserved files only: for EVERY listed native address add a differential test in "
+            "crates/s5xcheck/tests/<unit>.rs that makes a reference call (s5xcheck::call / call_this / with_reference) "
+            "on the native function and compares it with the clean operation on the same inputs, and name that test "
+            f"target in {body_file} with a line 'Differential-tests: --test <unit>'; keep a 'Fixture:' or "
+            "'Fixture-request:' line. Never delete, rename or obfuscate citations of ported native functions to "
+            "satisfy the rule, and do not edit the s5xcheck harness (src/, Cargo.toml, build.rs). Run the focused "
+            f"tests. Plan: {plan_file}. Then rewrite {result_file}: keep outcome ready only if the tests pass, "
+            "otherwise report checkpoint with what remains.")
+
+
 def worker(uid, nonce):
     enabled()
     # Include setup time, retain fifteen minutes for checkpoint/push/handover.
@@ -813,8 +872,29 @@ def worker_package(u, deadline):
                         raise phase_error from None
                     raise
             result = json.loads(result_file.read_text())
+            body_file = scratch / "pr-body.md"
+            # Gate citation rule before a ticket exists: feed its exact verdict
+            # back to the model on this runner instead of a 3-minute gate fail
+            # and a 17-80 minute repair round trip.
+            for _ in range(2):
+                if result.get("outcome") != "ready" or not body_file.exists():
+                    break
+                gaps = citation_gaps(base, plan["resources"], body_file.read_text())
+                if not gaps:
+                    break
+                try:
+                    run_model(citation_repair_prompt(gaps, plan_file, result_file, body_file), REPO, pulse,
+                              allowance(30))
+                finally:
+                    save()
+                result = json.loads(result_file.read_text())
+            else:
+                if result.get("outcome") == "ready" and body_file.exists():
+                    gaps = citation_gaps(base, plan["resources"], body_file.read_text())
+                    if gaps:
+                        result = {"outcome": "checkpoint", "summary": "Not submitted: gate citation precheck still "
+                                  "fails after repair; " + "; ".join(gaps)[:1500]}
             if result.get("outcome") == "ready":
-                body_file = scratch / "pr-body.md"
                 if not body_file.exists():
                     raise ValueError("Ready result needs a reviewable private PR body")
                 wip = checkpoint(u, base, plan["resources"], body_file.read_text(), ready=True)
@@ -948,16 +1028,19 @@ def integrate(nonce):
     tids = [t["id"] for t in tickets]
     union_failed = False
     single_failure = None
+    base_moved = False
     pushed = False
     try:
         git("remote", "set-url", "origin", f"https://github.com/{fs.PROJECT}.git")
-        base = tickets[0]["receipt"]["base"]
+        # The combined candidate is always measured on the newest base, never
+        # on the (possibly older) base of the individual preflight receipts.
+        base = fs.api(f"repos/{fs.PROJECT}/git/ref/heads/{fs.BASE}")["object"]["sha"]
         fixtures = sorted({f for t in tickets for f in t["receipt"]["fixtures"]})
         for t in tickets:
             p = fs.api(f"repos/{fs.PROJECT}/pulls/{t['pr']}")
             if (p["state"], p["base"]["ref"], p["head"]["sha"]) != ("open", fs.BASE, t["head"]):
                 raise ValueError("Batch PR head or target changed")
-            if t["receipt"]["scripts"] != contract.script_digest(HERE) or t["receipt"]["base"] != base:
+            if t["receipt"]["scripts"] != contract.script_digest(HERE):
                 raise ValueError("Batch verification inputs differ")
             command(["git", "fetch", "-q", "origin", t["head"], base], env=author_environment())
             # Install every required private fixture on this new runner before
@@ -1004,7 +1087,8 @@ def integrate(nonce):
         candidate = combined["commit"]
         if latest != base:
             if contract.input_tree(REPO, latest) != contract.input_tree(REPO, base):
-                raise ValueError("Base code changed; requeue exact preflights")
+                base_moved = True
+                raise ValueError("Base code changed during the combined measurement; retest on the newer base")
             git("checkout", "--detach", latest)
             git("-c", "user.name=siedler-fleet", "-c", "user.email=fleet@users.noreply.github.com",
                 "merge", "--no-edit", "--no-ff", candidate)
@@ -1040,7 +1124,10 @@ def integrate(nonce):
             for tid in tids:
                 if s["tickets"][tid]["status"] != "accepted":
                     t = s["tickets"][tid]
-                    t.update(status="verified" if union_failed else "queued", retry_after=time.time() + 300)
+                    # A base that moved under the measurement is no verdict on
+                    # the package: keep its receipt so the next writer retests
+                    # the union on the newer base without another preflight.
+                    t.update(status="verified" if union_failed or base_moved else "queued", retry_after=time.time() + 300)
                     if single_failure:
                         t.update(status="repair", receipt=single_failure)
                         u = s["units"][t["unit"]]
