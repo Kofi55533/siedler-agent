@@ -317,6 +317,7 @@ class Pulse:
 
 def run_model(prompt, directory, pulse, minutes, checkpoint=None):
     env = os.environ.copy()
+    env["PWD"] = str(directory)
     for key in tuple(env):
         if key in {"GH_TOKEN", "GITHUB_TOKEN", "T", "PAT", "OPENCODE_API_KEY", "SUBSYS_TOKEN"} or key.startswith(("GIT_CONFIG_", "ACTIONS_")):
             env.pop(key, None)
@@ -324,7 +325,7 @@ def run_model(prompt, directory, pulse, minutes, checkpoint=None):
     start = time.monotonic()
     last_checkpoint = start
     with path.open("wb") as log:
-        process = subprocess.Popen(["opencode", "run", "-m", core.MODEL, prompt], cwd=directory,
+        process = subprocess.Popen(["opencode", "run", "--dir", str(directory), "-m", core.MODEL, prompt], cwd=directory,
                                    env=env, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
         try:
             while process.poll() is None:
@@ -343,6 +344,8 @@ def run_model(prompt, directory, pulse, minutes, checkpoint=None):
             text = path.read_text(errors="replace")
             private_record(f"autonomy/logs/{RUN}-{uuid.uuid4().hex[:8]}.txt", text)
             lowered = text.lower()
+            if "permission requested:" in lowered and "auto-rejecting" in lowered:
+                raise PermissionError("OpenCode tool access refused; hold without overriding permissions")
             if any(s in lowered for s in ("abusive traffic from this ip", "free models aren't available from your current network")):
                 raise PermissionError("Provider access refusal")
             if any(s in lowered for s in ("invalid api key", "insufficient quota", "rate limit exceeded",

@@ -45,3 +45,35 @@ class SetupTests(unittest.TestCase):
                 self.assertEqual((repo/'.git/info/exclude').read_text().count('/.fleet-input/'),1)
 
 if __name__=='__main__': unittest.main()
+
+class ModelLaunchTests(unittest.TestCase):
+    def test_cli_and_environment_use_the_actual_game_checkout_without_permission_override(self):
+        import threading
+        with tempfile.TemporaryDirectory() as td:
+            root=Path(td);directory=root/'game';directory.mkdir()
+            process=type('Process',(),{'returncode':0,'poll':lambda self:0})()
+            pulse=type('Pulse',(),{'lost':threading.Event()})()
+            with patch.dict(os.environ,{'RUNNER_TEMP':td,'PWD':'/different/actions/checkout','GH_TOKEN':'synthetic'}), \
+                    patch.object(runtime.subprocess,'Popen',return_value=process) as popen, \
+                    patch.object(runtime,'private_record'):
+                runtime.run_model('synthetic',directory,pulse,1)
+            args=popen.call_args
+            self.assertEqual(args.args[0][2:4],['--dir',str(directory)])
+            self.assertEqual(args.kwargs['env']['PWD'],str(directory))
+            self.assertNotIn('GH_TOKEN',args.kwargs['env'])
+            self.assertNotIn('--auto',args.args[0])
+            self.assertNotIn('OPENCODE_PERMISSION',args.kwargs['env'])
+
+    def test_tool_refusal_cannot_be_reported_as_a_successful_model_call(self):
+        import threading
+        with tempfile.TemporaryDirectory() as td:
+            process=type('Process',(),{'returncode':0,'poll':lambda self:0})()
+            pulse=type('Pulse',(),{'lost':threading.Event()})()
+            def denied(*args,**kwargs):
+                kwargs['stdout'].write(b'permission requested: external_directory; auto-rejecting')
+                kwargs['stdout'].flush()
+                return process
+            with patch.dict(os.environ,{'RUNNER_TEMP':td}), \
+                    patch.object(runtime.subprocess,'Popen',side_effect=denied), \
+                    patch.object(runtime,'private_record'),self.assertRaises(PermissionError):
+                runtime.run_model('synthetic',Path(td),pulse,1)

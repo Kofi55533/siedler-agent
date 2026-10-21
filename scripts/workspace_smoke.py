@@ -3,12 +3,15 @@ import json
 import os
 from pathlib import Path
 import threading
+import tempfile
+import subprocess
 import autonomy
 
 class Pulse:
     lost = threading.Event()
 
-root = Path(os.environ['GITHUB_WORKSPACE'])
+root = Path(tempfile.mkdtemp(prefix='fleet-separate-checkout-', dir=os.environ['RUNNER_TEMP']))
+subprocess.run(['git', 'init', '-q', str(root)], check=True)
 autonomy.REPO = root
 inputs = autonomy.worker_inputs()
 (inputs/'assignment.json').write_text('{"check":"workspace-input","value":17}')
