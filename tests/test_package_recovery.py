@@ -121,6 +121,18 @@ class RecoveryTests(unittest.TestCase):
         self.assertEqual(result['outcome'],'evidence')
         self.assertIsNone(self.state['provider_hold'])
         self.assertEqual(self.state['leases']['battle']['run'],'test')
+    def test_ready_package_rejected_at_submission_is_stuck(self):
+        def checkpoint(u,base,resources,body,ready=False):
+            if ready:raise ValueError('Write outside reserved scope: crates/s5xcheck/tests/battle.rs')
+            return None
+        self.prompts=[]
+        with patch.object(runtime,'run_model',side_effect=self.ready_model()), \
+                patch.object(runtime,'checkpoint',side_effect=checkpoint), \
+                patch.object(runtime,'citation_gaps',return_value=[]):
+            result=runtime.worker_package(self.u,runtime.time.monotonic()+3600)
+        self.assertEqual(result['outcome'],'stuck')
+        core.finish(self.state,'battle',runtime.OWNER,result,5)
+        self.assertNotIn('battle',self.state['leases'])
     def test_rejected_checkpoint_cannot_mask_a_provider_outage(self):
         def model(*args,**kwargs):
             self.calls+=1
@@ -143,3 +155,20 @@ class RecoveryTests(unittest.TestCase):
         self.assertEqual(result['outcome'],'evidence')
         self.assertIsNone(self.state['provider_hold'])
         self.assertEqual(self.state['leases']['battle']['run'],'test')
+
+
+class SubmittableResultTests(unittest.TestCase):
+    def test_rejected_ready_package_becomes_stuck_not_a_runner_crash(self):
+        r = runtime.submittable({"outcome": "ready", "summary": "ported; ValueError"})
+        self.assertEqual(r["outcome"], "stuck")
+        s = fixture(); core.claim_unit(s, "battle", "o", "1", 1)
+        core.finish(s, "battle", "o", r, 2)
+        self.assertNotIn("battle", s["leases"])
+
+    def test_submitted_ready_package_is_unchanged(self):
+        r = {"outcome": "ready", "pr": 9, "head": "a" * 40}
+        self.assertIs(runtime.submittable(r), r)
+
+    def test_unknown_outcome_label_is_stuck(self):
+        self.assertEqual(runtime.submittable({"outcome": "done"})["outcome"], "stuck")
+        self.assertEqual(runtime.submittable({"outcome": "setup_error"})["outcome"], "setup_error")

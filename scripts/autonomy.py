@@ -877,6 +877,25 @@ def package_review(u, scratch):
     u["review_input"] = str(path)
 
 
+def submittable(result):
+    """A model's result file is never trusted as a worker outcome by itself.
+
+    The wrapper rejected a 'ready' package when its submission failed (e.g.
+    'Write outside reserved scope' on 2026-10-21, runs 39625611577 and
+    39636064033): no PR head exists, so finish() raised and the whole runner
+    failed with its lease held. Such a package is a stuck attempt (source delta
+    preserved privately); an unknown outcome label is treated the same way.
+    """
+    outcome = result.get("outcome")
+    if outcome == "ready" and (not result.get("pr") or not re.fullmatch(r"[0-9a-f]{40}", str(result.get("head", "")))):
+        return {"outcome": "stuck", "summary": "Ready result was not submitted by the wrapper: "
+                + str(result.get("summary", ""))[-1500:]}
+    if outcome not in core.OUTCOMES:
+        return {"outcome": "stuck", "summary": "Unknown model outcome label; treated as stuck: "
+                + str(result.get("summary", ""))[-1500:]}
+    return result
+
+
 def worker_package(u, deadline):
     uid = u["id"]
     def allowance(requested):
@@ -1041,7 +1060,8 @@ def worker_package(u, deadline):
         result = {"outcome": "provider_error", "summary": "Provider unavailable; preserve WIP and apply measured backoff"}
     except Exception as error:
         private_record(f"autonomy/errors/{RUN}.txt", type(error).__name__ + ": " + str(error))
-        result["summary"] += "; " + type(error).__name__
+        result["summary"] = str(result.get("summary", "")) + "; " + type(error).__name__
+    result = submittable(result)
     # Preserve a rejected or interrupted source delta privately too. It cannot
     # become a PR or a gate ticket until a later reservation admits its scope.
     try:

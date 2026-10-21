@@ -99,3 +99,13 @@ class ModelLaunchTests(unittest.TestCase):
                     patch.object(runtime.subprocess,'Popen',side_effect=denied), \
                     patch.object(runtime,'private_record'),self.assertRaises(PermissionError):
                 runtime.run_model('synthetic',Path(td),pulse,1)
+
+
+class PoolRefillWorkflowTests(unittest.TestCase):
+    def test_refill_runs_only_in_a_fork_and_worker_groups_are_per_dispatch(self):
+        root = Path(__file__).resolve().parents[1] / ".github/workflows"
+        pool = (root / "fleet-pool.yml").read_text()
+        self.assertIn("github.repository != 'Kofi55533/siedler-agent'", pool)
+        self.assertIn('autonomy.py admit --pool "$GITHUB_REPOSITORY"', pool)
+        worker = (root / "fleet-worker.yml").read_text()
+        self.assertIn("group: fleet-domain-${{ inputs.unit }}-${{ inputs.nonce }}", worker)

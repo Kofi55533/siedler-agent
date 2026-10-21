@@ -123,10 +123,13 @@ Actions minutes and its own `OPENCODE_API_KEY`. Only `fleet-worker-v2` is enable
 there (all other workflows disabled, `FLEET_V2_ENABLED=true`, `PRIVATE_REPO_TOKEN`
 = a token of that account with write access to the Kofi55533 repos).
 
-- Units are reserved in the same shared state by an operator:
-  `python3 scripts/autonomy.py admit --pool Dominickofi00/siedler-agent --count N`
-  (CAS reservation with `dispatch.pool`; the main controller never schedules a pool
-  and never relaunches it).
+- Units are reserved in the same shared state by `admit`
+  (`python3 scripts/autonomy.py admit --pool Dominickofi00/siedler-agent --count N`,
+  CAS reservation with `dispatch.pool`). The fork's own `fleet-pool-refill` workflow
+  (`.github/workflows/fleet-pool.yml`: every 10 min and after each worker completion)
+  runs it with `--count ${FLEET_POOL_WORKER_LIMIT:-20}`, so the pool stays full up to its
+  limit without an operator. Enable it in the fork (`gh workflow enable fleet-pool-refill`);
+  it never runs in Kofi55533/siedler-agent. The main controller still never schedules a pool.
 - Leases carry `pool`; the controller reads that run's status from the pool's
   repository and does not count it against the 16 main worker slots.
 - Provider refusal hold and outage backoff are per pool (`state.pools[<repo>]`).

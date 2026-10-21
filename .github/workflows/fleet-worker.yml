@@ -7,8 +7,12 @@ on:
       nonce: {required: true, type: string}
 permissions:
   contents: read
+# One group per dispatch nonce: the nonce-matched CAS claim already prevents a
+# second run on a unit. A per-unit group left a fresh dispatch pending for
+# hours behind an older run that had moved on to another unit of its domain
+# (39619009054 waited 4 h behind 39604957626).
 concurrency:
-  group: fleet-domain-${{ inputs.unit }}
+  group: fleet-domain-${{ inputs.unit }}-${{ inputs.nonce }}
   cancel-in-progress: false
 jobs:
   worker:
