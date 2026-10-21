@@ -14,7 +14,16 @@ import time
 MODEL = "opencode/deepseek-v4.1-flash-free"
 SCHEMA = 2
 CAPACITY = 20
-VERIFY_SLOTS = 4
+# Main-account split (Dominic 2026-10-21, "stell mir Gates zur Verfuegung"):
+# 10 model workers + 10 gate runners. The fork pool supplies 20 more workers,
+# so packages were queueing (68 never preflighted) behind 4 gate slots. The
+# gate itself (s5-gate.sh, receipt criteria) is unchanged; only how many
+# independent preflights may run at once.
+VERIFY_SLOTS = 10
+# Legacy fixture regates (gate-baseline) keep their previous ceiling: they may
+# only use gate capacity while fewer than four gates of any kind are running,
+# so they never displace v2 preflights or the integration writer.
+LEGACY_GATE_SLOTS = 4
 # A genuine provider refusal pauses new model work for 30 min, doubling per
 # consecutive refusal (cap 8 h); a clean model step after expiry resets it.
 REFUSAL_BACKOFF = 1800
@@ -217,7 +226,7 @@ def select(state, active_jobs, legacy_jobs=0, limit=CAPACITY, at=None, unavailab
                   and u["id"] not in state["leases"] and outstanding(u)
                   and (at is None or u.get("retry_after", 0) <= at)]
     candidates.sort(key=lambda u: (u["status"] != "repair", u["last_served"], u["no_gain"], u["id"]))
-    # Keep four runner slots for gates even before the first package arrives.
+    # Keep VERIFY_SLOTS runner slots for gates even before the first package arrives.
     # Otherwise long workers can occupy every slot and starve their own PRs.
     gates = sum(t["status"] == "verifying" or bool(t.get("dispatch")) for t in state["tickets"].values())
     gates += bool(state.get("integration")) + external_gates

@@ -248,6 +248,9 @@ def control(shadow=False):
     worker_limit = int(os.environ.get("FLEET_V2_WORKER_LIMIT", "16"))
     if not 0 <= worker_limit <= 16:
         raise ValueError("Worker rollout limit must be between 0 and 16")
+    # The repository variable is a rollout throttle, never a way to take back
+    # the main account's gate runners: workers stay within CAPACITY - VERIFY_SLOTS.
+    worker_limit = min(worker_limit, core.CAPACITY - core.VERIFY_SLOTS)
     snap = snapshot()
     state = read()
     if state is None:
@@ -347,7 +350,7 @@ def control(shadow=False):
         gates = sum(t["status"] == "verifying" or bool(t.get("dispatch")) for t in state["tickets"].values())
         gates += bool(state.get("integration")) + external_gates
         candidates = backlog.select(state, snap["prs"], snap["runs"], at, backlog_base["input"], scripts,
-                                    min(max(0, 20 - len(snap["runs"])), max(0, 4 - gates)))
+                                    min(max(0, 20 - len(snap["runs"])), max(0, core.LEGACY_GATE_SLOTS - gates)))
         print(json.dumps({"mode": "shadow", "live_jobs": len(snap["runs"]),
                           "would_regate": [c["pr"] for c in candidates],
                           "would_start": core.select(state, len(snap["runs"]) + len(candidates), at=at,
@@ -359,10 +362,13 @@ def control(shadow=False):
     state = read()
     room = max(0, 20 - len(snap["runs"]))
     # Batches have a short final writer and a full combined test; independent
-    # preflights run on up to four runners. Do not occupy model slots waiting.
+    # preflights run on up to VERIFY_SLOTS runners. Do not occupy model slots
+    # waiting. The (serialized) integration writer is the only step that can
+    # merge, so running preflights or legacy regates never hold it back: it
+    # only needs a free runner. One writer at a time stays guaranteed by the
+    # single state["integration"] reservation and the workflow concurrency group.
     batch = core.integration_ready(state, at)
-    own_gates = sum(t["status"] == "verifying" or bool(t.get("dispatch")) for t in state["tickets"].values())
-    if batch and not state["integration"] and room and own_gates + external_gates < 4:
+    if batch and not state["integration"] and room:
         nonce = uuid.uuid4().hex[:12]
         def admit_batch(s):
             if s["integration"] or not all(s["tickets"][t]["status"] == "verified" for t in batch):
@@ -376,15 +382,16 @@ def control(shadow=False):
     verifying = sum(t["status"] == "verifying" or bool(t.get("dispatch")) for t in state["tickets"].values())
     verifying += bool(state.get("integration")) + external_gates
     # Verified receipts waiting for a writer (e.g. inside the coalescing
-    # window) keep one of the four gate slots free: new preflights and legacy
+    # window) keep one of the gate slots free: new preflights and legacy
     # regates must not starve the only step that can merge anything.
     held = int(bool(core.disjoint_batch(state)) and not state.get("integration"))
     for tid, t in state["tickets"].items():
-        # Do not prepare receipts against an epoch whose integration writer is
-        # already testing a union. Queue work for the next epoch instead.
-        if state.get("integration"):
-            break
-        if room <= 0 or verifying >= 4 - held:
+        # Preflights keep running while the writer tests a union. A receipt is
+        # not discarded when clean/integration moves (see above): the next
+        # writer re-measures the whole union on the then newest base. Stopping
+        # here serialized preflight and integration (~45 min each) and left
+        # 68 tickets unmeasured, so every writer found at most one receipt.
+        if room <= 0 or verifying >= core.VERIFY_SLOTS - held:
             break
         if t["status"] != "queued" or t.get("dispatch") or t.get("retry_after", 0) > at:
             continue
@@ -401,7 +408,7 @@ def control(shadow=False):
             verifying += 1
     state = read()
     for candidate in backlog.select(state, snap["prs"], snap["runs"], at, backlog_base["input"], scripts,
-                                    min(room, max(0, 4 - held - verifying))):
+                                    min(room, max(0, core.LEGACY_GATE_SLOTS - held - verifying))):
         if update(lambda s: backlog.reserve(s, candidate, at), "reserve legacy fixture regate"):
             dispatch("gate-baseline.yml", {"mode": "regate", "pr": str(candidate["pr"])})
             update(lambda s: s["backlog_attempts"][str(candidate["pr"])].update(status="dispatched"),

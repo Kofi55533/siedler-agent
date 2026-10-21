@@ -184,11 +184,16 @@ class AtomicIntegrationTests(unittest.TestCase):
         for tid in ("1", "2"):
             self.state["tickets"][tid]["receipt"]["measured_at"] = 3990
         self.state["tickets"]["2"]["status"] = "verifying"; self.state["tickets"]["2"]["run"] = "r2"
-        self.state["tickets"]["3"] = dict(copy.deepcopy(self.state["tickets"]["2"]), id="3", run="r3", pr=3)
-        self.state["tickets"]["5"] = dict(copy.deepcopy(self.state["tickets"]["2"]), id="5", run="r5", pr=5)
+        running = ["r2"]
+        for n in range(3, core.VERIFY_SLOTS + 2):
+            if n == 4:
+                continue
+            self.state["tickets"][str(n)] = dict(copy.deepcopy(self.state["tickets"]["2"]), id=str(n), run=f"r{n}", pr=n)
+            running.append(f"r{n}")
+        self.assertEqual(len(running), core.VERIFY_SLOTS - 1)
         self.state["tickets"]["4"] = dict(copy.deepcopy(self.state["tickets"]["2"]), id="4", status="queued", run=None, pr=4)
         live = {r: {"status": "in_progress", "path": ".github/workflows/fleet-verify.yml", "display_title": "preflight " + r}
-                for r in ("r2", "r3", "r5")}
+                for r in running}
         with patch.object(runtime, "snapshot", return_value={"runs": live, "prs": [], "at": 4000}), \
                 patch.object(runtime, "read", side_effect=lambda: self.state), \
                 patch.object(runtime, "dispatch") as dispatched, \
@@ -197,6 +202,71 @@ class AtomicIntegrationTests(unittest.TestCase):
         self.assertNotIn("fleet-verify.yml", [c.args[0] for c in dispatched.call_args_list])
         self.assertEqual(self.state["tickets"]["4"]["status"], "queued")
         self.assertNotIn("dispatch", self.state["tickets"]["4"])
+
+    def _control(self, runs, at=4000):
+        with patch.object(runtime, "snapshot", return_value={"runs": runs, "prs": [], "at": at}), \
+                patch.object(runtime, "read", side_effect=lambda: self.state), \
+                patch.object(runtime, "dispatch") as dispatched, \
+                patch.object(core, "select", return_value=[]):
+            runtime.control()
+        return [c.args for c in dispatched.call_args_list]
+
+    def _queued(self, ids):
+        for n in ids:
+            self.state["tickets"][str(n)] = dict(copy.deepcopy(self.state["tickets"]["1"]), id=str(n), pr=n,
+                                                 status="queued", run=None, receipt=None)
+
+    def test_preflights_keep_running_while_the_writer_tests_a_union(self):
+        # Integration 39644083477 (47 min) ran with zero preflights beside it;
+        # the next writer then found a single receipt. Preflights now fill the
+        # gate slots next to the (still single) integration run.
+        self.state["integration"] = {"nonce": "busy", "run": "w1", "tickets": ["1", "2"], "at": 3000}
+        self._queued(range(3, 20))
+        live = {"w1": {"status": "in_progress", "path": ".github/workflows/fleet-integrate.yml",
+                       "display_title": "combined integration busy"}}
+        calls = self._control(live)
+        verify = [c for c in calls if c[0] == "fleet-verify.yml"]
+        self.assertEqual(len(verify), core.VERIFY_SLOTS - 1)
+        self.assertNotIn("fleet-integrate.yml", [c[0] for c in calls])
+        self.assertEqual(self.state["integration"]["nonce"], "busy")
+
+    def test_preflights_never_exceed_the_gate_slots_or_free_runners(self):
+        self.state["integration"] = None
+        for tid in ("1", "2"):
+            self.state["tickets"][tid]["status"] = "repair"
+        self._queued(range(3, 30))
+        calls = self._control({})
+        self.assertEqual(len([c for c in calls if c[0] == "fleet-verify.yml"]), core.VERIFY_SLOTS)
+        self.state["tickets"] = {k: v for k, v in self.state["tickets"].items() if k in ("1", "2")}
+        self._queued(range(3, 30))
+        busy = {str(i): {"status": "in_progress", "path": ".github/workflows/fleet-worker.yml",
+                         "display_title": f"domain u{i} n"} for i in range(17)}
+        calls = self._control(busy)
+        self.assertEqual(len([c for c in calls if c[0] == "fleet-verify.yml"]), 3)
+
+    def test_full_gate_slots_do_not_hold_back_the_only_merging_step(self):
+        self.state["integration"] = None
+        live = {}
+        for n in range(3, core.VERIFY_SLOTS + 3):
+            self.state["tickets"][str(n)] = dict(copy.deepcopy(self.state["tickets"]["1"]), id=str(n), pr=n,
+                                                 status="verifying", run=f"r{n}")
+            live[f"r{n}"] = {"status": "in_progress", "path": ".github/workflows/fleet-verify.yml",
+                             "display_title": f"preflight {n}"}
+        calls = self._control(live, at=10 ** 6)
+        self.assertEqual([c[0] for c in calls], ["fleet-integrate.yml"])
+        self.assertEqual(self.state["integration"]["tickets"], ["1", "2"])
+
+    def test_rollout_variable_cannot_take_back_gate_runners(self):
+        seen = {}
+        def select(*args, **kwargs):
+            seen.update(kwargs)
+            return []
+        with patch.object(runtime, "snapshot", return_value={"runs": {}, "prs": [], "at": 4000}), \
+                patch.object(runtime, "read", side_effect=lambda: self.state), \
+                patch.object(runtime, "dispatch"), patch.object(core, "select", side_effect=select), \
+                patch.dict(os.environ, {"FLEET_V2_WORKER_LIMIT": "16"}):
+            runtime.control()
+        self.assertEqual(seen["worker_limit"], core.CAPACITY - core.VERIFY_SLOTS)
 
     def test_control_keeps_verified_receipt_when_base_moved(self):
         self.competitor()
