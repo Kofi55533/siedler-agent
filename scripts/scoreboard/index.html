@@ -27,6 +27,7 @@ ul{padding-left:1.1em;margin:.3em 0}li{margin:.25em 0}
 .pct{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}.pct .big{font-size:2.4em}
 .status{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px}
 .st{border-radius:12px;padding:12px 14px;color:#fff}.st .ag{font-size:.95em;opacity:.9}.st .lv{font-size:1.6em;font-weight:800;line-height:1.2}.st .dt{font-size:.85em;opacity:.95}
+.slot{display:grid;grid-template-columns:minmax(150px,1.2fr) 3fr auto;gap:8px;align-items:center;margin:4px 0}.slot .bar{margin:0;height:10px}.slot.off{opacity:.55}
 .st.g{background:#16a34a}.st.y{background:#ca8a04}.st.r{background:#dc2626}.st.x{background:#6b7280}
 svg.spark{display:block;margin-top:3px}
 </style>
@@ -84,15 +85,18 @@ fetch("data.json?t="+Date.now()).then(r=>r.json()).then(d=>{
   const so=act(d.opus);
   let sc=act(d.codex);
   if(d.codex.paused_until_utc&&now<Date.parse(d.codex.paused_until_utc))sc={c:"x",l:"pausiert",t:`Limit bis 22.10. 15:57 · letzter Push vor ${d.codex.activity?ago(d.codex.activity.utc):"–"}`};
-  const dn=d.deepseek.count;
-  const sd={c:dn>=1?"g":"r",l:dn>=1?"aktiv":"inaktiv",t:`${dn} von ${d.deepseek.target} Läufen aktiv (${["Funktionen","Fehlersuche","Testszenario","Code","Planer"].map(k=>`${(d.deepseek.kinds||{})[k]||0} ${k}`).join(", ")})${d.deepseek.queued?` · ${d.deepseek.queued} wartend`:""}`};
+  const V=d.fleet_v2,G=k=>((V&&V.groups)||[]).find(g=>g.key===k)||{used:0,running:0,waiting:0,limit:null};
+  const kindTxt=(sep,b)=>Object.entries(d.deepseek.kinds||{}).filter(([k,v])=>v>0).map(([k,v])=>b?`<b>${v}</b> ${esc(k)}`:`${v} ${esc(k)}`).join(sep)||"–";
+  const dn=V?G("worker").running:d.deepseek.count;
+  const sd={c:dn>=1?"g":"r",l:dn>=1?"aktiv":"inaktiv",t:V?`${G("worker").used}/${G("worker").limit??"?"} DeepSeek-Worker · Gate ${G("gate").used}/${G("gate").limit} · gesamt ${V.used}/${V.capacity} Slots${G("legacy").used?` · ${G("legacy").used} legacy auslaufend`:""}`:`${dn} von ${d.deepseek.target} Läufen aktiv (${kindTxt(", ")})`};
   const badge=(n,s)=>`<div class="st ${s.c}"><div class="ag">${n}</div><div class="lv">● ${s.l}</div><div class="dt">${s.t}</div></div>`;
   $("status").innerHTML=badge("🤖 Opus",so)+badge("🧠 Codex",sc)+badge("🐋 DeepSeek",sd);
   const S=d.scenarios||[],hist=d.history||[];
   const main=S.filter(s=>!s.new);
   const ident=main.filter(s=>s.identical).length;
   $("sum").innerHTML=`<div><div class="big">${ident}/${main.length}</div><div class="mute">Basis-Szenarien identisch</div></div>
-   <div><div class="big">${d.deepseek.count}/${d.deepseek.target}</div><div class="mute">DeepSeek-Läufe aktiv</div><div class="small">${["Funktionen","Fehlersuche","Testszenario","Code","Planer"].map(k=>`${(d.deepseek.kinds||{})[k]||0} ${k}`).join(" · ")}</div></div>
+   ${V?`<div><div class="big">${V.used}/${V.capacity}</div><div class="mute">Slots belegt (Fleet v2)</div><div class="small">${V.groups.filter(g=>g.key!=="legacy"||g.used).map(g=>`${esc(g.label)} ${g.used}${g.limit?"/"+g.limit:""}`).join(" · ")}</div></div>`:
+   `<div><div class="big">${d.deepseek.count}/${d.deepseek.target}</div><div class="mute">DeepSeek-Läufe aktiv</div><div class="small">${kindTxt(" · ")}</div></div>`}
    <div><div class="big">${d.deepseek.merged_24h.length}</div><div class="mute">PRs gemergt (24 h)</div></div>`;
   function stand(s){
     let st;
@@ -137,9 +141,21 @@ fetch("data.json?t="+Date.now()).then(r=>r.json()).then(d=>{
     (o.last_commit?`<div><b>Letzter Commit:</b> ${esc(o.last_commit.time)}<br><code>${esc(o.last_commit.sha)}</code> ${esc(o.last_commit.subject)}</div>`:"<div class='mute'>kein Commit mit Claude-Session gefunden</div>")+
     (o.last_board?`<div style="margin-top:8px"><b>Letzter Board-Eintrag:</b> ${esc(o.last_board.time)}<br><span class="small">${esc(o.last_board.summary)}</span></div>`:"");
   const ds=d.deepseek;
-  $("ds").innerHTML=`<h2>🐋 DeepSeek</h2><div><b>${ds.count}</b> von Ziel <b>${ds.target}</b> Läufen aktiv${ds.queued?` · ${ds.queued} wartend`:""}</div><div class="mute small">${ds.fleet_count||0} fleet-worker (beide Pools) + ${ds.legacy_count==null?ds.count:ds.legacy_count} opencode.yml · Ziel = konfigurierte Pool-Plätze</div><div class="small" style="margin-top:4px">`+
-    ["Funktionen","Fehlersuche","Testszenario","Code","Planer"].map(k=>`<b>${(ds.kinds||{})[k]||0}</b> ${k==="Funktionen"?"Funktionen nachbauen (von 29.723)":k}`).join(" · ")+`</div><ul class="small">`+
+  const slotRow=g=>{const lim=g.limit,off=g.key==="legacy"&&!g.used;const pct=lim?Math.min(100,g.used/lim*100):(g.used?100:0);
+    return `<div class="slot${off?" off":""}"><div><b>${esc(g.label)}</b>${g.key==="control"?"":""}</div><div class="bar${lim&&g.used>=lim?" full":""}"><i style="width:${pct.toFixed(0)}%"></i></div><div><b>${g.used}</b>${lim?"/"+lim:""}${g.waiting?` <span class="mute small">(${g.waiting} wartend)</span>`:""}${off?` <span class="badge na">aus</span>`:(g.key==="legacy"?` <span class="badge div">läuft aus</span>`:"")}</div></div>`;};
+  const grpName={worker:"DeepSeek-Worker",gate:"Gate",control:"Steuerung",legacy:"Legacy"};
+  const runLi=r=>`<li><span class="badge">${esc(grpName[r.group]||r.group)}</span> <span class="badge na">${esc(r.workflow)}${r.domain?" · "+esc(r.domain):""}</span> ${r.unit_title?`<b>${esc(r.unit)}</b>: ${esc(r.unit_title)}${r.started_as?` <span class="mute">(gestartet als ${esc(r.started_as)})</span>`:""}`:esc(r.title)} <span class="mute">– ${r.status==="in_progress"?"läuft seit "+dur(r.minutes):"wartet ("+esc(r.status)+") seit "+dur(r.minutes)} (<a href="${esc(r.url)}">Run</a>)</span></li>`;
+  if(V){
+    const dm=V.domain;
+    $("ds").innerHTML=`<h2>🐋 Fleet v2 – Slots jetzt</h2><div><b>${V.used}</b> von <b>${V.capacity}</b> Slots belegt (${V.running} laufen${V.used-V.running?`, ${V.used-V.running} wartend`:""})${V.enabled===false?` <span class="badge div">FLEET_V2_ENABLED=false</span>`:""}</div>`+
+      `<div style="margin-top:8px">${V.groups.map(slotRow).join("")}</div>`+
+      `<div class="mute small">DeepSeek-Worker = <code>fleet-worker-v2</code> (plant sein Domänen-Paket selbst, kein separater Planer) · Gate = <code>fleet-verify-v2</code>/<code>fleet-integrate-v2</code>/<code>gate-baseline</code> regate · Steuerung = <code>fleet-control-v2</code>, <code>scoreboard</code> u. a. (kurz) · Legacy <code>opencode.yml</code>/<code>refill</code>/Planer sind bei Fleet v2 aus.</div>`+
+      (dm?`<div class="small" style="margin-top:6px"><b>Domänen-Einheiten:</b> ${fmt(dm.units)} (${Object.entries(dm.unit_status).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`${v} ${esc(k)}`).join(" · ")}) · <b>Leases:</b> ${dm.leases} (${dm.leases_with_run} mit Lauf)${Object.keys(dm.tickets||{}).length?` · <b>Tickets:</b> ${Object.entries(dm.tickets).map(([k,v])=>`${v} ${esc(k)}`).join(" · ")}`:""}${dm.provider_hold?` · <span class="badge div">Anbieter-Sperre</span>`:""}${dm.integration?` · Integration läuft`:""}</div>`:"")+
+      `<ul class="small">${V.runs.map(runLi).join("")}</ul><div class="small"><a href="${esc(V.runs_url)}">Alle Actions-Läufe</a></div>`;
+  }else{
+  $("ds").innerHTML=`<h2>🐋 DeepSeek</h2><div><b>${ds.count}</b> von Ziel <b>${ds.target}</b> Läufen aktiv${ds.queued?` · ${ds.queued} wartend`:""}</div><div class="small" style="margin-top:4px">${kindTxt(" · ",1)}</div><ul class="small">`+
     ds.running.map(r=>`<li><span class="badge">${esc(r.kind||"")}</span> <span class="badge na">${esc(r.account||"")} · ${esc(r.source||"")}${r.task_kind?" · "+esc(r.task_kind):""}</span> ${r.issue?`<a href="${esc(r.issue_url)}">#${r.issue}</a> `:""}${esc(r.title)} <span class="mute">– läuft seit ${dur(r.minutes)} (<a href="${esc(r.run_url)}">Run</a>)</span></li>`).join("")+`</ul>`;
+  }
   const c=d.codex;
   $("codex").innerHTML=`<h2>🧠 Codex</h2><div class="badge div">${esc(c.note)}</div>`+
     (c.last_commit?`<div style="margin-top:8px"><b>Letzter Commit:</b> ${esc(c.last_commit.time)} <span class="mute small">(${esc(c.last_commit.branch)})</span><br><code>${esc(c.last_commit.sha)}</code> ${esc(c.last_commit.subject)}</div>`:"")+

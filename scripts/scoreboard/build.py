@@ -775,8 +775,18 @@ def fleet_run(r, repo, account, by_run):
             "kind": FLEET_KIND.get(t.get("kind"), "Fehlersuche" if not t else "Code")}
 
 
+_FLEET_STATE = []
+
+
+def fleet_state():
+    """agents/control fleet/state.json (legacy fleet + autonomy_v2), read once per build."""
+    if not _FLEET_STATE:
+        _FLEET_STATE.append(safe(lambda: json.loads(content(PRIV, "fleet/state.json", FLEET_BRANCH)), {}, "fleet state"))
+    return _FLEET_STATE[0]
+
+
 def fleet_pools():
-    state = safe(lambda: json.loads(content(PRIV, "fleet/state.json", FLEET_BRANCH)), {}, "fleet state")
+    state = fleet_state()
     cfg = state.get("config") or {}
     holds = cfg.get("pool_holds") or {}
     provs = state.get("providers") or {}
@@ -838,6 +848,95 @@ def fleet_pools():
     return {"pools": out, "today_since": iso(midnight), "enabled": cfg.get("enabled"),
             "model": cfg.get("model"), "queued_tasks": sum(1 for t in tasks if t.get("status") == "queued"),
             "slots": sum(int(v) for v in (cfg.get("pools") or {}).values()) if cfg.get("pools") else None} if state else None
+
+
+# ---------------- Fleet v2 slot view (siedler-agent Actions) ----------------
+# Mirrors scripts/autonomy.py: every queued/running run in siedler-agent occupies one of CAPACITY slots; DeepSeek workers
+# (fleet-worker.yml) up to FLEET_V2_WORKER_LIMIT, gate runs (fleet-verify/fleet-integrate/gate-baseline regate) up to 4.
+V2_CAPACITY = 20  # scripts/autonomy_state.py CAPACITY (the build checks out only scripts/scoreboard)
+V2_GATE = 4  # scripts/autonomy_state.py VERIFY_SLOTS
+V2_GROUPS = [  # (key, label, workflow files)
+    ("worker", "DeepSeek-Worker", ("fleet-worker.yml",)),
+    ("gate", "Gate", ("fleet-verify.yml", "fleet-integrate.yml", "gate-baseline.yml", "gate.yml")),
+    ("control", "Steuerung/Scoreboard (kurz)", ("fleet-control.yml", "scoreboard.yml", "build-cache.yml", "coverage.yml",
+                                                "stale-drafts.yml", "fleet-review.yml", "muse-gate.yml")),
+    ("legacy", "Legacy (opencode/refill/Planer)", ("opencode.yml", "refill.yml")),
+]
+V2_ACTIVE = ("queued", "in_progress", "waiting", "pending", "requested")
+
+
+def v2_group(path):
+    f = (path or "").rsplit("/", 1)[-1]
+    for key, _, files in V2_GROUPS:
+        if f in files:
+            return key
+    return "control"  # any other short helper workflow
+
+
+def fleet_v2():
+    runs = {}
+    for status in V2_ACTIVE:
+        page = 1
+        while page <= 3:
+            d = api_public(f"repos/{PUB}/actions/runs?status={status}&per_page=100&page={page}")
+            for r in d.get("workflow_runs", []):
+                runs[r["id"]] = r
+            if len(d.get("workflow_runs", [])) < 100:
+                break
+            page += 1
+    av = (fleet_state() or {}).get("autonomy_v2") or {}
+    units = av.get("units") or {}
+    leases = av.get("leases") or {}
+    lease_by_run = {str(l.get("run")): uid for uid, l in leases.items() if l.get("run")}
+    enabled = os.environ.get("FLEET_V2_ENABLED", "").strip().lower()
+    try:
+        wlimit = int(os.environ.get("FLEET_V2_WORKER_LIMIT") or 16)
+    except ValueError:
+        wlimit = 16
+    limits = {"worker": wlimit, "gate": V2_GATE, "control": None, "legacy": 0 if enabled == "true" else None}
+    groups = {k: {"key": k, "label": lbl, "used": 0, "running": 0, "waiting": 0, "limit": limits[k]} for k, lbl, _ in V2_GROUPS}
+    out = []
+    for r in sorted(runs.values(), key=lambda r: r.get("run_started_at") or r["created_at"]):
+        g = v2_group(r.get("path"))
+        run_ = r["status"] == "in_progress"
+        groups[g]["used"] += 1
+        groups[g]["running" if run_ else "waiting"] += 1
+        st = parse_ts(r.get("run_started_at") or r["created_at"])
+        title = r.get("display_title") or r.get("name") or ""
+        m = re.match(r"domain\s+(\S+)", title)
+        uid = lease_by_run.get(str(r["id"])) or (m.group(1) if m else None)
+        u = units.get(uid) if uid else None
+        out.append({"group": g, "workflow": (r.get("path") or "").rsplit("/", 1)[-1], "name": r.get("name"),
+                    "title": title[:160], "status": r["status"], "url": r["html_url"], "started": iso(st),
+                    "minutes": max(0, int((datetime.now(timezone.utc) - st).total_seconds() // 60)),
+                    "unit": uid if u else None, "unit_title": (u or {}).get("title"),
+                    "domain": (u or {}).get("domain"),
+                    "started_as": m.group(1) if m and u and m.group(1) != uid else None})  # unit split/regrouped since dispatch
+    ustat = {}
+    for u in units.values():
+        ustat[u.get("status") or "?"] = ustat.get(u.get("status") or "?", 0) + 1
+    term = {"accepted", "equivalent"}
+    verified = set()
+    for u in units.values():
+        v = u.get("verified")
+        if isinstance(v, dict):
+            verified |= {a for a, p in v.items() if isinstance(p, dict) and p.get("status") in term}
+    tickets = av.get("tickets") or {}
+    tstat = {}
+    for t in tickets.values():
+        tstat[t.get("status") or "?"] = tstat.get(t.get("status") or "?", 0) + 1
+    order = ["worker", "gate", "control", "legacy"]
+    out.sort(key=lambda r: (order.index(r["group"]), r["started"]))
+    return {
+        "enabled": (enabled == "true") if enabled else None, "capacity": V2_CAPACITY,
+        "used": len(runs), "running": sum(1 for r in runs.values() if r["status"] == "in_progress"),
+        "groups": [groups[k] for k in order], "runs": out[:60],
+        "runs_url": f"https://github.com/{PUB}/actions",
+        "domain": {"units": len(units), "unit_status": ustat, "leases": len(leases),
+                   "leases_with_run": sum(1 for l in leases.values() if l.get("run")),
+                   "tickets": tstat, "inventory": av.get("total"), "verified_functions": len(verified),
+                   "provider_hold": bool(av.get("provider_hold")), "integration": bool(av.get("integration"))} if av else None,
+    }
 
 
 # ---------------- main ----------------
@@ -1092,24 +1191,28 @@ def main():
             merged.append({"number": p["number"], "title": p["title"][:160], "merged": iso(parse_ts(p["merged_at"])),
                            "author": p["user"]["login"]})
     merged.sort(key=lambda p: p["merged"], reverse=True)
-    data["fleet"] = fleet_pools()
-    # active fleet-worker runs of both pools join the legacy opencode.yml runs in the main DeepSeek card
+    data["fleet"] = fleet_pools()  # legacy shared fleet (fleet/state.json tasks); card hidden on the page
+    data["fleet_v2"] = v2 = safe(fleet_v2, None, "fleet v2 runs")
+    # Fleet v2: DeepSeek workers are fleet-worker.yml runs in siedler-agent (each plans its own domain package; there is
+    # no separate planner). Still-running legacy opencode.yml runs are listed as "Legacy" until they finish.
     fleet_ds = []
-    for p in (data["fleet"] or {}).get("pools", []):
-        for r in p["active_runs"]:
-            fleet_ds.append({"title": r["task_title"] or "fleet-worker (Aufgabe noch nicht zugeordnet)", "run_url": r["url"],
-                             "issue": None, "issue_url": None, "kind": r["kind"], "task_kind": r["task_kind"],
-                             "started": r["started"], "minutes": r["minutes"], "source": "fleet-worker",
-                             "pool": r["pool"], "account": r["account"], "status": r["status"]})
-    fleet_queued = sum(1 for x in fleet_ds if x["status"] == "queued")
-    fleet_ds = [x for x in fleet_ds if x["status"] != "queued"]
+    for r in (v2 or {}).get("runs", []):
+        if r["group"] == "worker":
+            fleet_ds.append({"title": (f"{r['unit']}: {r['unit_title']}" if r.get("unit_title") else r["title"]),
+                             "run_url": r["url"], "issue": None, "issue_url": None, "kind": "Domäne",
+                             "task_kind": r.get("domain"), "started": r["started"], "minutes": r["minutes"],
+                             "source": "fleet-worker-v2", "pool": PUB, "account": "Kofi55533", "status": r["status"]})
+    fleet_queued = sum(1 for x in fleet_ds if x["status"] != "in_progress")
+    fleet_ds = [x for x in fleet_ds if x["status"] == "in_progress"]
+    for x in ds:
+        x["kind"] = "Legacy " + x["kind"]
     ds = sorted(ds + fleet_ds, key=lambda x: x["started"])
     kinds = {}
     for x in ds:
         kinds[x["kind"]] = kinds.get(x["kind"], 0) + 1
-    slots = (data["fleet"] or {}).get("slots")
+    wg = next((g for g in (v2 or {}).get("groups", []) if g["key"] == "worker"), None)
     data["deepseek"] = {"running": ds, "kinds": kinds, "count": len(ds), "queued": len(queued) + fleet_queued,
-                        "target": slots or 20, "target_source": "fleet config.pools" if slots else "fest",
+                        "target": (wg or {}).get("limit") or 16, "target_source": "FLEET_V2_WORKER_LIMIT",
                         "fleet_count": len(fleet_ds), "legacy_count": len(ds) - len(fleet_ds), "merged_24h": merged}
     # activity timestamps for the status badges (UTC ISO; age is computed client-side)
     def board_utc(b):
@@ -1173,7 +1276,7 @@ def main():
     print(f"api requests={STATS['requests']} (PAT {STATS['pat']}, GITHUB_TOKEN {STATS['pub']}; 304 not modified PAT {STATS['not_modified_pat']} "
           f"/ GITHUB_TOKEN {STATS['not_modified_pub']}, immutable cache hits {STATS['immutable_hits']}; counted: PAT "
           f"{STATS['pat'] - STATS['not_modified_pat']}, GITHUB_TOKEN {STATS['pub'] - STATS['not_modified_pub']})")
-    print(f"scenarios={len(rows)} live={'yes' if live else 'no'} ds_running={len(ds)} merged24h={len(merged)} fleet={[(p["account"], p["active"], p["today"]) for p in (data["fleet"] or {}).get("pools", [])]} errors={len(ERRORS)}")
+    print(f"scenarios={len(rows)} live={'yes' if live else 'no'} ds_running={len(ds)} merged24h={len(merged)} slots={[(g['key'], g['used'], g['limit']) for g in (data['fleet_v2'] or {}).get('groups', [])]} total={(data['fleet_v2'] or {}).get('used')}/{V2_CAPACITY} errors={len(ERRORS)}")
 
 
 if __name__ == "__main__":
