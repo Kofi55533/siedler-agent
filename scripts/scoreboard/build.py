@@ -321,6 +321,7 @@ def board_discover(entries):
 # head branch -> number). A board line that reports "before X -> after Y" on an UNMERGED PR's branch measured Y on that branch,
 # not on clean/integration: the scoreboard takes X (the base value) from it. (2026-10-20: bc-full jumped to 12440 from draft #594.)
 PR_STATE, PR_BY_BRANCH = {}, {}
+PR_INFO = {}  # number -> {author, state, head, title, merged} from the one paginated PR listing in main()
 PRREF = re.compile(r"(?:\bPR\s*#|\(#|\bdraft\s+#|\bDRAFT\s+(?:PR\s+)?#)(\d{2,5})\b")
 BRANCHREF = re.compile(r"\b(agent/[A-Za-z0-9._/-]+)")
 BASEWORD = re.compile(r"(?i)\bbase\s+(?:origin/)?clean/integration|\bon\s+(?:current\s+)?(?:origin/)?clean/integration|"
@@ -873,17 +874,105 @@ def v2_group(path):
     return "control"  # any other short helper workflow
 
 
-def fleet_v2():
+V2_SUB = {"fleet-verify.yml": "preflight", "fleet-integrate.yml": "integration", "gate-baseline.yml": "regate", "gate.yml": "regate"}
+# Brother account (Dominic 2026-10-21): the public fork runs its own fleet-worker-v2 pool on the same v2 queue
+# (fleet-pool-refill admits up to FLEET_POOL_WORKER_LIMIT, default 20); its leases carry pool=<fork>, its PRs are opened as
+# Dominickofi00. Public repo: read with GITHUB_TOKEN / anonymously, no extra secret.
+FORK = "Dominickofi00/siedler-agent"
+try:
+    FORK_CAPACITY = int(os.environ.get("FLEET_POOL_WORKER_LIMIT") or 20)
+except ValueError:
+    FORK_CAPACITY = 20
+ACCOUNTS = [(PUB, "Kofi55533"), (FORK, "Dominickofi00")]
+ACCOUNT_OF_REPO = {r: a for r, a in ACCOUNTS}
+
+
+def active_runs(repo):
     runs = {}
     for status in V2_ACTIVE:
         page = 1
         while page <= 3:
-            d = api_public(f"repos/{PUB}/actions/runs?status={status}&per_page=100&page={page}")
+            d = api_public(f"repos/{repo}/actions/runs?status={status}&per_page=100&page={page}")
             for r in d.get("workflow_runs", []):
                 runs[r["id"]] = r
             if len(d.get("workflow_runs", [])) < 100:
                 break
             page += 1
+    return runs
+
+
+def v2_account_view(main_runs, fork_runs, wlimit):
+    """Per-account slot use: main = workers / gate preflights / integration / regate / control; fork = workers / refill."""
+    def cnt(rs, pred):
+        sel = [r for r in rs if pred(r)]
+        return {"used": len(sel), "running": sum(1 for r in sel if r["status"] == "in_progress"),
+                "waiting": sum(1 for r in sel if r["status"] != "in_progress")}
+    wf = lambda r: (r.get("path") or "").rsplit("/", 1)[-1]
+    m, f = list(main_runs.values()), list((fork_runs or {}).values())
+    main_parts = [dict(key="worker", label="DeepSeek-Worker", limit=wlimit, **cnt(m, lambda r: v2_group(r.get("path")) == "worker"))]
+    for k, lbl in (("preflight", "Gate-Preflight"), ("integration", "Integration"), ("regate", "Regate/Baseline")):
+        main_parts.append(dict(key=k, label=lbl, limit=None, **cnt(m, lambda r, k=k: V2_SUB.get(wf(r)) == k)))
+    main_parts.append(dict(key="control", label="Steuerung (kurz)", limit=None,
+                           **cnt(m, lambda r: v2_group(r.get("path")) in ("control", "legacy"))))
+    gate = cnt(m, lambda r: v2_group(r.get("path")) == "gate")
+    accts = [dict(account="Kofi55533", repo=PUB, role="Hauptkonto", capacity=V2_CAPACITY, worker_limit=wlimit,
+                  gate_limit=V2_GATE, gate_used=gate["used"], parts=main_parts,
+                  runs_url=f"https://github.com/{PUB}/actions", **cnt(m, lambda r: True))]
+    fork_parts = [dict(key="worker", label="DeepSeek-Worker", limit=FORK_CAPACITY, **cnt(f, lambda r: wf(r) == "fleet-worker.yml")),
+                  dict(key="control", label="Pool-Refill (kurz)", limit=None, **cnt(f, lambda r: wf(r) != "fleet-worker.yml"))]
+    accts.append(dict(account="Dominickofi00", repo=FORK, role="Bruder-Konto (Fork)", capacity=FORK_CAPACITY,
+                      worker_limit=FORK_CAPACITY, gate_limit=0, gate_used=0, parts=fork_parts, readable=fork_runs is not None,
+                      runs_url=f"https://github.com/{FORK}/actions/workflows/fleet-worker.yml", **cnt(f, lambda r: True)))
+    total = {k: sum(a[k] for a in accts) for k in ("used", "running", "waiting", "capacity")}
+    total["workers"] = sum(a["parts"][0]["used"] for a in accts)
+    total["workers_running"] = sum(a["parts"][0]["running"] for a in accts)
+    total["worker_limit"] = wlimit + FORK_CAPACITY
+    return accts, total
+
+
+def v2_packages(av, prs):
+    """Packages (sim-rs PRs of v2 workers) by origin account. Account = PR author when it is one of the two accounts,
+    else the pool recorded on the unit's lease/dispatch (fork pool -> Dominickofi00), else Kofi55533."""
+    units, leases, tickets = av.get("units") or {}, av.get("leases") or {}, av.get("tickets") or {}
+    pool_of = {}
+    for uid, u in units.items():
+        if (u.get("dispatch") or {}).get("pool"):
+            pool_of[uid] = u["dispatch"]["pool"]
+    for uid, l in leases.items():
+        if l.get("pool"):
+            pool_of[uid] = l["pool"]
+    by_pr = {}
+    for t in tickets.values():
+        if t.get("pr"):
+            by_pr[int(t["pr"])] = t
+    nums = set(by_pr) | {n for n, p in prs.items() if (p.get("head") or "").startswith("agent/unit-")}
+    rows, acc = [], {a: {"open": 0, "merged": 0, "closed": 0, "total": 0, "tickets": {}} for _, a in ACCOUNTS}
+    for n in sorted(nums, reverse=True):
+        p, t = prs.get(n) or {}, by_pr.get(n) or {}
+        unit = t.get("unit") or (re.sub(r"-e\d+$", "", p["head"][len("agent/unit-"):]) if (p.get("head") or "").startswith("agent/unit-") else None)
+        author = p.get("author")
+        if author in acc:
+            account, how = author, "PR-Autor"
+        elif unit and pool_of.get(unit) in ACCOUNT_OF_REPO:
+            account, how = ACCOUNT_OF_REPO[pool_of[unit]], "Lease-Pool"
+        else:
+            account, how = "Kofi55533", "Standard"
+        state = p.get("state") or ("merged" if t.get("status") == "accepted" else "open")
+        a = acc[account]
+        a[state if state in ("open", "merged") else "closed"] += 1
+        a["total"] += 1
+        if t:
+            a["tickets"][t.get("status") or "?"] = a["tickets"].get(t.get("status") or "?", 0) + 1
+        rows.append({"number": n, "url": f"https://github.com/{PRIV}/pull/{n}", "title": (p.get("title") or "")[:140],
+                     "account": account, "identified_by": how, "author": author, "state": state, "unit": unit,
+                     "ticket": t.get("status"), "merged": p.get("merged")})
+    return {"by_account": acc, "prs": rows[:150], "count": len(rows),
+            "rule": "PR-Autor (Dominickofi00 = Worker im Fork); sonst Lease/Dispatch-Pool der Einheit in fleet/state.json"}
+
+
+def fleet_v2():
+    runs = active_runs(PUB)
+    fork_runs = safe(lambda: active_runs(FORK), None, "fork runs")
     av = (fleet_state() or {}).get("autonomy_v2") or {}
     units = av.get("units") or {}
     leases = av.get("leases") or {}
@@ -897,22 +986,27 @@ def fleet_v2():
     limits = {"worker": wlimit, "gate": V2_GATE, "control": None, "legacy": 0 if enabled == "true" else None}
     groups = {k: {"key": k, "label": lbl, "used": 0, "running": 0, "waiting": 0, "limit": limits[k]} for k, lbl, _ in V2_GROUPS}
     out = []
-    for r in sorted(runs.values(), key=lambda r: r.get("run_started_at") or r["created_at"]):
-        g = v2_group(r.get("path"))
+    every = [(r, PUB) for r in runs.values()] + [(r, FORK) for r in (fork_runs or {}).values()]
+    for r, repo in sorted(every, key=lambda x: x[0].get("run_started_at") or x[0]["created_at"]):
+        wfile = (r.get("path") or "").rsplit("/", 1)[-1]
+        g = v2_group(r.get("path")) if repo == PUB else ("worker" if wfile == "fleet-worker.yml" else "control")
         run_ = r["status"] == "in_progress"
-        groups[g]["used"] += 1
-        groups[g]["running" if run_ else "waiting"] += 1
+        if repo == PUB:
+            groups[g]["used"] += 1
+            groups[g]["running" if run_ else "waiting"] += 1
         st = parse_ts(r.get("run_started_at") or r["created_at"])
         title = r.get("display_title") or r.get("name") or ""
         m = re.match(r"domain\s+(\S+)", title)
         uid = lease_by_run.get(str(r["id"])) or (m.group(1) if m else None)
         u = units.get(uid) if uid else None
-        out.append({"group": g, "workflow": (r.get("path") or "").rsplit("/", 1)[-1], "name": r.get("name"),
+        out.append({"group": g, "workflow": wfile, "name": r.get("name"),
+                    "account": ACCOUNT_OF_REPO[repo], "repo": repo, "sub": V2_SUB.get(wfile) if repo == PUB else None,
                     "title": title[:160], "status": r["status"], "url": r["html_url"], "started": iso(st),
                     "minutes": max(0, int((datetime.now(timezone.utc) - st).total_seconds() // 60)),
                     "unit": uid if u else None, "unit_title": (u or {}).get("title"),
                     "domain": (u or {}).get("domain"),
                     "started_as": m.group(1) if m and u and m.group(1) != uid else None})  # unit split/regrouped since dispatch
+    accounts, total = v2_account_view(runs, fork_runs, wlimit)
     ustat = {}
     for u in units.values():
         ustat[u.get("status") or "?"] = ustat.get(u.get("status") or "?", 0) + 1
@@ -927,17 +1021,33 @@ def fleet_v2():
     for t in tickets.values():
         tstat[t.get("status") or "?"] = tstat.get(t.get("status") or "?", 0) + 1
     order = ["worker", "gate", "control", "legacy"]
-    out.sort(key=lambda r: (order.index(r["group"]), r["started"]))
+    out.sort(key=lambda r: (order.index(r["group"]), r["account"] != "Kofi55533", r["started"]))
+    lease_pools = {}
+    for l in leases.values():
+        if l.get("run"):
+            k = ACCOUNT_OF_REPO.get(l.get("pool") or PUB, l.get("pool"))
+            lease_pools[k] = lease_pools.get(k, 0) + 1
     return {
-        "enabled": (enabled == "true") if enabled else None, "capacity": V2_CAPACITY,
+        "enabled": (enabled == "true") if enabled else None, "capacity": V2_CAPACITY,  # used/running/capacity/groups: main account
         "used": len(runs), "running": sum(1 for r in runs.values() if r["status"] == "in_progress"),
-        "groups": [groups[k] for k in order], "runs": out[:60],
+        "groups": [groups[k] for k in order], "runs": out[:80],
+        "accounts": accounts, "total": total,
+        "packages": v2_packages(av, PR_INFO) if av else None,
         "runs_url": f"https://github.com/{PUB}/actions",
         "domain": {"units": len(units), "unit_status": ustat, "leases": len(leases),
-                   "leases_with_run": sum(1 for l in leases.values() if l.get("run")),
+                   "leases_with_run": sum(1 for l in leases.values() if l.get("run")), "leases_by_account": lease_pools,
                    "tickets": tstat, "inventory": av.get("total"), "verified_functions": len(verified),
                    "provider_hold": bool(av.get("provider_hold")) and (not av["provider_hold"].get("until") or av["provider_hold"]["until"] > datetime.now(timezone.utc).timestamp()), "integration": bool(av.get("integration"))} if av else None,
     }
+
+
+def values_as_of(rows, matrix_source):
+    """Real last update of the identical-turns value: the newest per-scenario measurement (gate merge / board entry)."""
+    newest = max((r for r in rows if r.get("measured") and r.get("when")), key=lambda r: r["when"], default=None)
+    if newest:
+        return {"as_of": newest["when"], "as_of_source": newest["source"], "as_of_scenario": newest["name"]}
+    return {"as_of": (matrix_source or {}).get("time"), "as_of_source": "Opus Live-Matrix" if matrix_source else None,
+            "as_of_scenario": None}
 
 
 # ---------------- main ----------------
@@ -974,6 +1084,9 @@ def main():
         pl = safe(lambda: api(f"repos/{PRIV}/pulls?state=all&per_page=100&page={page}"), [], "pr states")
         for pr in pl:
             PR_STATE[pr["number"]] = "merged" if pr.get("merged_at") else pr["state"]
+            PR_INFO[pr["number"]] = {"author": (pr.get("user") or {}).get("login"), "state": PR_STATE[pr["number"]],
+                                     "head": pr["head"]["ref"], "title": pr.get("title") or "",
+                                     "merged": iso(parse_ts(pr["merged_at"])) if pr.get("merged_at") else None}
             if pr["state"] == "open" or not pr.get("merged_at"):
                 PR_BY_BRANCH.setdefault(pr["head"]["ref"], pr["number"])
             else:
@@ -1114,8 +1227,11 @@ def main():
     if mm:
         cc = safe(lambda: api(f"repos/{PRIV}/commits?path=docs/clean/COVERAGE.md&sha={urllib.parse.quote(BRANCH, safe='')}&per_page=1"), [], "coverage date")
         cov_date = iso(parse_ts(cc[0]["commit"]["committer"]["date"])) if cc else None
+    # The value changes with every gate merge / newer board measurement, not only with the Opus "Live @" matrix
+    # (matrix_source.time is that board entry, 2026-10-17 18:50): as_of = newest per-scenario measurement time.
     data["percent"] = {
-        "identical_turns": {"pct": round(100 * num / den, 1) if den else None, "ok": num, "total": den, "scenarios": used},
+        "identical_turns": dict({"pct": round(100 * num / den, 1) if den else None, "ok": num, "total": den, "scenarios": used},
+                                **values_as_of(rows, data["matrix_source"])),
         "coverage": {"pct": round(100 * int(mm.group(2)) / int(mm.group(1)), 1), "cited": int(mm.group(2)),
                      "executed": int(mm.group(1)), "as_of": cov_date} if mm else None,
     }
@@ -1202,7 +1318,8 @@ def main():
             fleet_ds.append({"title": (f"{r['unit']}: {r['unit_title']}" if r.get("unit_title") else r["title"]),
                              "run_url": r["url"], "issue": None, "issue_url": None, "kind": "Domäne",
                              "task_kind": r.get("domain"), "started": r["started"], "minutes": r["minutes"],
-                             "source": "fleet-worker-v2", "pool": PUB, "account": "Kofi55533", "status": r["status"]})
+                             "source": "fleet-worker-v2", "pool": r.get("repo") or PUB, "account": r.get("account") or "Kofi55533",
+                             "status": r["status"]})
     fleet_queued = sum(1 for x in fleet_ds if x["status"] != "in_progress")
     fleet_ds = [x for x in fleet_ds if x["status"] == "in_progress"]
     for x in ds:
@@ -1212,9 +1329,14 @@ def main():
     for x in ds:
         kinds[x["kind"]] = kinds.get(x["kind"], 0) + 1
     wg = next((g for g in (v2 or {}).get("groups", []) if g["key"] == "worker"), None)
+    by_acct = {}
+    for x in fleet_ds:
+        by_acct[x["account"]] = by_acct.get(x["account"], 0) + 1
     data["deepseek"] = {"running": ds, "kinds": kinds, "count": len(ds), "queued": len(queued) + fleet_queued,
-                        "target": (wg or {}).get("limit") or 16, "target_source": "FLEET_V2_WORKER_LIMIT",
-                        "fleet_count": len(fleet_ds), "legacy_count": len(ds) - len(fleet_ds), "merged_24h": merged}
+                        "target": ((v2 or {}).get("total") or {}).get("worker_limit") or (wg or {}).get("limit") or 16,
+                        "target_source": "FLEET_V2_WORKER_LIMIT (Kofi55533) + FLEET_POOL_WORKER_LIMIT (Dominickofi00)",
+                        "fleet_count": len(fleet_ds), "fleet_by_account": by_acct,
+                        "legacy_count": len(ds) - len(fleet_ds), "merged_24h": merged}
     # activity timestamps for the status badges (UTC ISO; age is computed client-side)
     def board_utc(b):
         if not b:
@@ -1265,7 +1387,8 @@ def main():
     last = hist[-1] if hist else {}
     if (not hist or last.get("key") != key or last.get("pct_identical") != p1 or last.get("pct_coverage") != p2
             or last.get("pct_whole_logic") != p3 or last.get("maps_tested") != p5 or last.get("commands_tested") != p6):
-        hist.append({"key": key, "time": data["matrix_source"]["time"] if data["matrix_source"] else None,
+        hist.append({"key": key, "time": data["percent"]["identical_turns"].get("as_of"),
+                     "matrix_time": data["matrix_source"]["time"] if data["matrix_source"] else None,
                      "sha": data["matrix_source"]["sha"] if data["matrix_source"] else None,
                      "recorded": data["generated_berlin"], "pct_identical": p1, "pct_coverage": p2,
                      "pct_whole_logic": p3, "pct_whole_raw": p4, "maps_tested": p5, "commands_tested": p6,
@@ -1277,7 +1400,7 @@ def main():
     print(f"api requests={STATS['requests']} (PAT {STATS['pat']}, GITHUB_TOKEN {STATS['pub']}; 304 not modified PAT {STATS['not_modified_pat']} "
           f"/ GITHUB_TOKEN {STATS['not_modified_pub']}, immutable cache hits {STATS['immutable_hits']}; counted: PAT "
           f"{STATS['pat'] - STATS['not_modified_pat']}, GITHUB_TOKEN {STATS['pub'] - STATS['not_modified_pub']})")
-    print(f"scenarios={len(rows)} live={'yes' if live else 'no'} ds_running={len(ds)} merged24h={len(merged)} slots={[(g['key'], g['used'], g['limit']) for g in (data['fleet_v2'] or {}).get('groups', [])]} total={(data['fleet_v2'] or {}).get('used')}/{V2_CAPACITY} errors={len(ERRORS)}")
+    print(f"scenarios={len(rows)} live={'yes' if live else 'no'} ds_running={len(ds)} merged24h={len(merged)} slots={[(g['key'], g['used'], g['limit']) for g in (data['fleet_v2'] or {}).get('groups', [])]} main={(data['fleet_v2'] or {}).get('used')}/{V2_CAPACITY} accounts={[(a['account'], a['used'], a['capacity']) for a in (data['fleet_v2'] or {}).get('accounts', [])]} total={((data['fleet_v2'] or {}).get('total') or {}).get('used')} errors={len(ERRORS)}")
 
 
 if __name__ == "__main__":
