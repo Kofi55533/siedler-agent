@@ -379,7 +379,13 @@ def reconcile_runs(state, run_status, at, grace=1200):
             event(state, "recover_completed_run", at, unit=uid, run=lease["run"])
 
 
-def disjoint_batch(state, maximum=4):
+# Combined integration batch size (Dominic 2026-10-21 22:36): the writer measures
+# the whole union once (same full matrix, same gate), so up to 8 file-disjoint
+# verified tickets share one ~30-45 min integration instead of 4.
+BATCH_MAX = 8
+
+
+def disjoint_batch(state, maximum=BATCH_MAX):
     tickets = sorted((t for t in state["tickets"].values() if t["status"] == "verified"),
                      key=lambda t: (t["created"], int(t["id"])))
     # Receipts may come from different (older) bases: the integration writer
@@ -442,7 +448,7 @@ def integration_ready(state, at, coalesce_seconds=180):
     oldest = min(state["tickets"][t]["receipt"].get("measured_at", 0) for t in batch)
     # Give parallel preflights of the current epoch a bounded chance to join.
     # Workers continue running while this short admission delay elapses.
-    if len(batch) < 4 and at - oldest < coalesce_seconds and any(
+    if len(batch) < BATCH_MAX and at - oldest < coalesce_seconds and any(
             t["status"] == "verifying" for t in state["tickets"].values()):
         return []
     return batch
