@@ -136,7 +136,43 @@ class AtomicIntegrationTests(unittest.TestCase):
         with patch.object(runtime, "run_gate", side_effect=measured):
             runtime.integrate("batch")
         self.assertEqual(self.tip(), external[0])
-        self.assertTrue(all(t["status"] == "queued" for t in self.state["tickets"].values()))
+        # No verdict on the packages: receipts stay for a retest of the union
+        # on the newer base, but nothing was accepted on the old measurement.
+        self.assertTrue(all(t["status"] == "verified" for t in self.state["tickets"].values()))
+        self.assertIsNone(self.state["integration"])
+
+    def test_old_receipt_base_is_remeasured_on_the_newest_base(self):
+        newer = self.competitor()
+        self.g("checkout", "-q", "--detach", newer)
+        for head in self.heads:
+            self.g("merge", "-q", "--no-ff", "--no-edit", head)
+        combined = dict(self.combined, base=newer, commit=self.g("rev-parse", "HEAD"))
+        with patch.object(runtime, "run_gate", return_value=("verified", combined)) as gate:
+            runtime.integrate("batch")
+        self.assertEqual(gate.call_args.args[1], newer)
+        self.assertEqual(self.tip(), combined["commit"])
+        self.assertTrue(all(t["status"] == "accepted" for t in self.state["tickets"].values()))
+
+    def test_old_receipt_failing_on_newest_base_goes_to_repair_without_merge(self):
+        newer = self.competitor()
+        self.state["integration"]["tickets"] = ["1"]
+        with patch.object(runtime, "run_gate", return_value=("repair", {"error": "GATE FAIL: regression"})) as gate:
+            runtime.integrate("batch")
+        self.assertEqual(gate.call_args.args[1], newer)
+        self.assertEqual(self.tip(), newer)
+        self.assertEqual(self.state["tickets"]["1"]["status"], "repair")
+
+    def test_control_keeps_verified_receipt_when_base_moved(self):
+        self.competitor()
+        self.state["integration"] = None
+        with patch.object(runtime, "snapshot", return_value={"runs": {}, "prs": [], "at": 4000}), \
+                patch.object(runtime, "read", side_effect=lambda: self.state), \
+                patch.object(runtime, "dispatch") as dispatched, \
+                patch.object(core, "select", return_value=[]):
+            runtime.control()
+        self.assertTrue(all(t["status"] == "verified" for t in self.state["tickets"].values()))
+        self.assertEqual(self.state["integration"]["tickets"], ["1", "2"])
+        self.assertEqual(dispatched.call_args.args[0], "fleet-integrate.yml")
 
     def test_board_only_move_preserves_board_and_verified_input(self):
         with patch.object(runtime, "run_gate", side_effect=lambda *_: (self.competitor(True) and ("verified", self.combined))):

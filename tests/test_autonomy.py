@@ -196,12 +196,51 @@ class StateTests(unittest.TestCase):
         self.assertEqual(state.dashboard(s)["reported_reference_verified_and_integrated"], 1)
         self.assertEqual(s["units"]["battle"]["branch"], "agent/unit-battle-e02")
 
-    def test_disjoint_batch_never_mixes_base_or_files(self):
+    def test_disjoint_batch_never_mixes_files_but_spans_receipt_bases(self):
+        # The writer re-measures the union on the newest base, so receipts of
+        # different (older) bases may share one batch; files never overlap.
         s = fixture()
         for n, path, base in ((1, "a.rs", "base"), (2, "a.rs::run", "base"), (3, "b.rs", "other"), (4, "c.rs", "base")):
             s["tickets"][str(n)] = {"id": str(n), "status": "verified", "created": n,
                                      "resources": [path], "receipt": {"base": base}}
-        self.assertEqual(state.disjoint_batch(s), ["1", "4"])
+        self.assertEqual(state.disjoint_batch(s), ["1", "3", "4"])
+
+    def ticket(self, n, pr, head, status="queued", resources=("crates/s5clean/src/a.rs",)):
+        return {"id": str(n), "unit": "battle", "pr": pr, "head": head, "branch": "agent/unit-battle-e01",
+                "resources": list(resources), "status": status, "created": n, "proofs": [], "attempts": 0}
+
+    def test_queued_ticket_follows_moved_pr_head_within_its_resources(self):
+        s = fixture(); s["tickets"]["1"] = self.ticket(1, 7, "a" * 40)
+        prs = [{"number": 7, "headRefName": "agent/unit-battle-e01", "headRefOid": "b" * 40,
+                "files": ["crates/s5clean/src/a.rs"]}]
+        state.repin_queued_heads(s, prs, 5)
+        self.assertEqual(s["tickets"]["1"]["head"], "b" * 40)
+        self.assertEqual(s["tickets"]["1"]["repinned_from"], "a" * 40)
+        self.assertEqual(s["tickets"]["1"]["status"], "queued")
+
+    def test_moved_head_outside_resources_or_measuring_ticket_is_not_repinned(self):
+        s = fixture()
+        s["tickets"]["1"] = self.ticket(1, 7, "a" * 40)
+        s["tickets"]["2"] = self.ticket(2, 8, "c" * 40, status="verifying")
+        s["tickets"]["3"] = self.ticket(3, 9, "e" * 40)
+        s["tickets"]["3"]["dispatch"] = {"nonce": "n", "at": 1}
+        prs = [{"number": 7, "headRefName": "agent/unit-battle-e01", "headRefOid": "b" * 40,
+                "files": ["crates/s5clean/src/a.rs", "crates/s5clean/src/other.rs"]},
+               {"number": 8, "headRefName": "agent/unit-battle-e01", "headRefOid": "d" * 40,
+                "files": ["crates/s5clean/src/a.rs"]},
+               {"number": 9, "headRefName": "agent/unit-battle-e01", "headRefOid": "f" * 40,
+                "files": ["crates/s5clean/src/a.rs"]}]
+        state.repin_queued_heads(s, prs, 5)
+        self.assertEqual([s["tickets"][k]["head"][0] for k in "123"], ["a", "c", "e"])
+
+    def test_older_queued_ticket_of_same_pr_is_superseded(self):
+        s = fixture()
+        s["tickets"]["1"] = self.ticket(1, 7, "a" * 40)
+        s["tickets"]["2"] = self.ticket(2, 7, "b" * 40, status="repair")
+        state.repin_queued_heads(s, [{"number": 7, "headRefName": "agent/unit-battle-e01",
+                                      "headRefOid": "b" * 40, "files": ["crates/s5clean/src/a.rs"]}], 5)
+        self.assertEqual(s["tickets"]["1"]["status"], "superseded")
+        self.assertEqual(s["tickets"]["2"]["status"], "repair")
 
     def test_failed_union_is_not_repeated(self):
         s = fixture(); s["incompatible_batches"] = [["1", "2"]]
