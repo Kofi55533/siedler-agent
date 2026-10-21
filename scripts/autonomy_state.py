@@ -135,9 +135,21 @@ def event(state, kind, at, **fields):
     state["events"] = state["events"][-500:]
 
 
-def held(state, at=None):
+def provider(state, pool=None):
+    """Provider backoff record of one worker pool (one OpenCode key).
+
+    The main pool keeps its historical top-level fields. An additional pool
+    (another account's repository with its own key) has its own record, so a
+    refusal or outage on one key stops that key's workers only.
+    """
+    if pool is None:
+        return state
+    return state.setdefault("pools", {}).setdefault(pool, {})
+
+
+def held(state, at=None, pool=None):
     """True while a provider hold is active. A hold without `until` is manual."""
-    hold = state.get("provider_hold")
+    hold = (state if pool is None else state.get("pools", {}).get(pool, {})).get("provider_hold")
     if not hold:
         return False
     until = hold.get("until")
@@ -146,11 +158,15 @@ def held(state, at=None):
     return until > (time.time() if at is None else at)
 
 
-def claim_unit(state, uid, owner, run, at):
+def claim_unit(state, uid, owner, run, at, pool=None):
     u = state["units"][uid]
-    if held(state, at) or u["status"] not in {"ready", "repair"} or uid in state["leases"]:
+    if held(state, at, pool) or u["status"] not in {"ready", "repair"} or uid in state["leases"]:
         return False
     state["leases"][uid] = {"owner": owner, "run": str(run), "heartbeat": at, "resources": []}
+    if pool:
+        # Its run id lives in that pool's repository, and it does not use a
+        # main-pool worker slot.
+        state["leases"][uid]["pool"] = pool
     u.update(status="running", last_served=at)
     u["attempts"] += 1
     event(state, "claim", at, unit=uid, run=str(run))
@@ -194,13 +210,15 @@ def select(state, active_jobs, legacy_jobs=0, limit=CAPACITY, at=None, unavailab
     gates = sum(t["status"] == "verifying" or bool(t.get("dispatch")) for t in state["tickets"].values())
     gates += bool(state.get("integration")) + external_gates
     reserve = max(0, VERIFY_SLOTS - gates)
-    workers = sum(not lease["owner"].startswith("gate:") for lease in state["leases"].values())
-    workers += sum(bool(u.get("dispatch")) and u["id"] not in state["leases"] for u in state["units"].values())
+    workers = sum(not lease["owner"].startswith("gate:") and not lease.get("pool")
+                  for lease in state["leases"].values())
+    workers += sum(bool(u.get("dispatch")) and not u["dispatch"].get("pool") and u["id"] not in state["leases"]
+                   for u in state["units"].values())
     available = min(max(0, room - reserve), max(0, worker_limit - workers))
     return [u["id"] for u in candidates[:available]]
 
 
-def continue_domain(state, uid, owner, run, at):
+def continue_domain(state, uid, owner, run, at, pool=None):
     """Start another independent package without releasing this runner slot.
 
     A submitted/checkpointed cut retains its own branch, gate lease and native
@@ -208,7 +226,7 @@ def continue_domain(state, uid, owner, run, at):
     domain, so neither a slow nor failing gate strands a five-hour worker.
     """
     u = state["units"][uid]
-    if held(state, at) or state.get("provider_retry_after", 0) > at:
+    if held(state, at, pool) or provider(state, pool).get("provider_retry_after", 0) > at:
         return None
     selected = set(u.get("plan", {}).get("addresses", []))
     remaining = [a for a in outstanding(u) if a not in selected]
@@ -230,17 +248,17 @@ def continue_domain(state, uid, owner, run, at):
                   and v.get("retry_after", 0) <= at]
     candidates.sort(key=lambda v: (v["status"] != "repair", v["last_served"], v["id"]))
     for v in candidates:
-        if claim_unit(state, v["id"], owner, run, at):
+        if claim_unit(state, v["id"], owner, run, at, pool):
             event(state, "continue_domain", at, previous=uid, unit=v["id"], run=str(run))
             return copy.deepcopy(v)
     # An evidence-only attempt can re-plan its unchanged domain immediately;
     # no-gain accounting in finish() splits a repeatedly stuck assignment.
-    if u["status"] in {"ready", "repair"} and claim_unit(state, uid, owner, run, at):
+    if u["status"] in {"ready", "repair"} and claim_unit(state, uid, owner, run, at, pool):
         return copy.deepcopy(u)
     return None
 
 
-def finish(state, uid, owner, result, at):
+def finish(state, uid, owner, result, at, pool=None):
     lease = state["leases"].get(uid)
     if not lease or lease["owner"] != owner:
         raise ValueError("Stale worker result")
@@ -248,6 +266,7 @@ def finish(state, uid, owner, result, at):
     if outcome not in OUTCOMES:
         raise ValueError("Unknown worker outcome")
     u = state["units"][uid]
+    p = provider(state, pool)
     if result.get("checkpoint"):
         u["wip"] = result["checkpoint"]
     u["findings"].append({"at": at, "outcome": outcome, "summary": str(result.get("summary", ""))[:6000]})
@@ -255,13 +274,13 @@ def finish(state, uid, owner, result, at):
     if outcome not in {"provider_error", "access_refusal", "setup_error"}:
         # A completed model step proves the provider works again; the next
         # genuine outage starts at the shortest backoff, not at four hours.
-        state["provider_errors"] = 0
-        if not held(state, at):
+        p["provider_errors"] = 0
+        if not held(state, at, pool):
             # Only a clean step after the refusal hold expired resets it; a
             # session that was already running during the hold proves nothing.
-            state["provider_refusals"] = 0
-            if state.get("provider_hold") and state["provider_hold"].get("until"):
-                state["provider_hold"] = None
+            p["provider_refusals"] = 0
+            if p.get("provider_hold") and p["provider_hold"].get("until"):
+                p["provider_hold"] = None
     if outcome == "ready":
         if not result.get("pr") or not re.fullmatch(r"[0-9a-f]{40}", result.get("head", "")):
             raise ValueError("Ready package needs an immutable PR head")
@@ -281,15 +300,15 @@ def finish(state, uid, owner, result, at):
         if outcome == "access_refusal":
             # Legitimate backoff only: pause new model work, no IP rotation or
             # bypass. Consecutive refusals double the pause (30 min .. 8 h).
-            refusals = state.get("provider_refusals", 0) + 1
-            state["provider_refusals"] = refusals
+            refusals = p.get("provider_refusals", 0) + 1
+            p["provider_refusals"] = refusals
             pause = min(REFUSAL_BACKOFF_CAP, REFUSAL_BACKOFF * 2 ** min(refusals - 1, 8))
-            state["provider_hold"] = {"at": at, "kind": result.get("refusal_kind", "provider_access"),
+            p["provider_hold"] = {"at": at, "kind": result.get("refusal_kind", "provider_access"),
                                       "reason": result.get("summary", "Access refused; requires an approved configuration"),
                                       "until": at + pause, "refusals": refusals}
         if outcome == "provider_error":
-            state["provider_errors"] = state.get("provider_errors", 0) + 1
-            state["provider_retry_after"] = at + min(14400, 900 * 2 ** min(state["provider_errors"] - 1, 4))
+            p["provider_errors"] = p.get("provider_errors", 0) + 1
+            p["provider_retry_after"] = at + min(14400, 900 * 2 ** min(p["provider_errors"] - 1, 4))
         elif outcome == "setup_error":
             u["retry_after"] = at + 900
         # A WIP branch is never thrown away to resize a unit. Continue its

@@ -115,3 +115,21 @@ Watch the first new workers for at least 30 minutes: acquisition, model start, c
 provider failures. Roll back on a stalled controller or widespread job failure. Never infer game completion from
 successful Actions jobs. Track integrated reference-tested logic obligations out of 29,723 separately from live
 scenario boundaries; the dashboard labels worker-reported native proof receipts explicitly.
+
+## Additional worker pools (another account's fork and key)
+
+A fork such as `Dominickofi00/siedler-agent` can run `fleet-worker-v2` with its own
+Actions minutes and its own `OPENCODE_API_KEY`. Only `fleet-worker-v2` is enabled
+there (all other workflows disabled, `FLEET_V2_ENABLED=true`, `PRIVATE_REPO_TOKEN`
+= a token of that account with write access to the Kofi55533 repos).
+
+- Units are reserved in the same shared state by an operator:
+  `python3 scripts/autonomy.py admit --pool Dominickofi00/siedler-agent --count N`
+  (CAS reservation with `dispatch.pool`; the main controller never schedules a pool
+  and never relaunches it).
+- Leases carry `pool`; the controller reads that run's status from the pool's
+  repository and does not count it against the 16 main worker slots.
+- Provider refusal hold and outage backoff are per pool (`state.pools[<repo>]`).
+  A refusal on one key stops only that key's workers; the main key keeps its
+  historical top-level `provider_hold`.
+- Packages enter the normal main-account gate (preflight/integration) unchanged.
