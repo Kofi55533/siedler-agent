@@ -119,6 +119,8 @@ class BacklogTests(unittest.TestCase):
 
     def test_control_dispatches_the_existing_full_gate_and_shadow_never_writes(self):
         snap = {"runs": {}, "prs": [package()], "at": 100}
+        # This code epoch's baseline warm-up was already dispatched.
+        self.state["base_warm"] = {"input": "a" * 40, "at": 100, "attempts": 1}
         def update(operation, *args, **kwargs):
             return operation(self.state)
         with patch.object(runtime, "snapshot", return_value=snap), \
