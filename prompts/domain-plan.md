@@ -35,3 +35,6 @@ Select addresses only from the assignment. List all files you need, including te
 file reserves the file; file::item permits only changes inside that Rust item (imports require the plain file).
 Never list directories/globs. Never edit recomp/, oracle/, verifier/diff tooling or .github/.
 Do not commit, push, edit the board, create issues/PRs, call another model or use GitHub credentials.
+
+Do not read, grep or cat the fleet's own wrapper checkout on the runner (its scripts/, prompts/ or tests/,
+e.g. /home/runner/work/siedler-agent/siedler-agent). They are not package inputs and are never needed.

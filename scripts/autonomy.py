@@ -55,6 +55,12 @@ class UpstreamUnavailable(ProviderError):
 
 UPSTREAM_RETRY_DELAYS = (60, 180, 420)
 
+# New worker dispatches are spaced so their first OpenCode requests do not
+# arrive as one burst. The cap keeps a control cycle well inside its 10 min
+# job budget; the next cycle (cron/completions, ~5 min) admits the rest.
+WORKER_DISPATCH_SPACING = 30
+WORKER_DISPATCHES_PER_CYCLE = 8
+
 # Same OpenCode permission config as the proven legacy opencode.yml ($W/opencode.json).
 # Without it OpenCode's defaults auto-reject external_directory in `opencode run`.
 LEGACY_OPENCODE_CONFIG = {"$schema": "https://opencode.ai/config.json",
@@ -80,6 +86,54 @@ def model_config(directory):
 
 class ToolAccessRefusal(PermissionError):
     pass
+
+
+class ProviderAccessRefusal(PermissionError):
+    """OpenCode itself reported that the provider refuses this network/account.
+
+    Distinct from Python's OSError-based PermissionError (file EACCES), which
+    is a local error and must never become a fleet-wide provider hold.
+    """
+
+
+ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+REFUSALS = ("abusive traffic from this ip", "free models aren't available from your current network")
+PROVIDER_FAILURES = ("invalid api key", "insufficient quota", "rate limit exceeded",
+                     "model not found", "payment required", "authentication failed")
+
+
+def opencode_diagnostics(text):
+    """OpenCode's own error and permission lines, never tool output or file contents.
+
+    `opencode run` prints its errors as a line starting with `Error: ` (red
+    in the runner log) and tool denials as `! permission requested: ...`.
+    Tool output the model prints (grep/cat of files, e.g. this script's own
+    refusal phrases on 2026-10-21 16:41) never starts a line that way, so a
+    phrase only counts when it is on such a line.
+    """
+    errors, permissions = [], []
+    for line in text.splitlines():
+        plain = ANSI.sub("", line).rstrip().lower()
+        if plain.startswith("error: "):
+            errors.append(plain)
+        elif plain.startswith(("! permission requested:", "permission requested:")):
+            permissions.append(plain)
+    return errors, permissions
+
+
+def classify_model_output(text, returncode):
+    errors, permissions = opencode_diagnostics(text)
+    if any(s in e for e in errors for s in REFUSALS):
+        return ProviderAccessRefusal("Provider access refusal")
+    if any(s in e for e in errors for s in PROVIDER_FAILURES):
+        return ProviderError("Provider unavailable")
+    if any("upstream request failed: endpoint is unavailable" in e for e in errors):
+        return UpstreamUnavailable("Upstream endpoint transiently unavailable")
+    if any("auto-rejecting" in p for p in permissions):
+        return ToolAccessRefusal("OpenCode refused tool access; no automatic retry")
+    if returncode:
+        return RuntimeError("Model process failed")
+    return None
 
 
 class ModelDeadline(RuntimeError):
@@ -177,9 +231,12 @@ def wake_control(soon=False):
 def controller_needs_wakeup(state, runs):
     # Worker completion/heartbeats normally provide the clock. Once all
     # producers stop (for example during provider backoff), unreliable cron
-    # cannot be the only recovery path. A hard provider hold stays manual.
+    # cannot be the only recovery path. A timed refusal hold is rechecked so it
+    # can expire; only a legacy hold without expiry stays manual.
     producers = ("/fleet-worker.yml", "/fleet-verify.yml", "/fleet-integrate.yml", "/opencode.yml", "/gate-baseline.yml")
-    return not state["provider_hold"] and not any(r.get("path", "").endswith(producers) for r in runs.values())
+    hold = state.get("provider_hold")
+    manual = bool(hold) and not hold.get("until")
+    return not manual and not any(r.get("path", "").endswith(producers) for r in runs.values())
 
 
 def control(shadow=False):
@@ -326,10 +383,14 @@ def control(shadow=False):
             room -= 1
             external_gates += 1
     state = read()
+    started = 0
     for uid in core.select(state, 20 - room, at=at, unavailable_units=legacy_units, worker_limit=worker_limit,
                            external_gates=external_gates):
-        if room <= 0:
+        if room <= 0 or started >= WORKER_DISPATCHES_PER_CYCLE:
             break
+        if started:
+            # Stagger new OpenCode sessions instead of opening a burst at once.
+            time.sleep(WORKER_DISPATCH_SPACING)
         nonce = uuid.uuid4().hex[:12]
         def admit_worker(s):
             u = s["units"][uid]
@@ -340,6 +401,7 @@ def control(shadow=False):
         if update(admit_worker, "reserve domain dispatch " + uid):
             dispatch("fleet-worker.yml", {"unit": uid, "nonce": nonce})
             room -= 1
+            started += 1
     state = read()
     if os.environ.get("GITHUB_OUTPUT"):
         with Path(os.environ["GITHUB_OUTPUT"]).open("a") as output:
@@ -454,19 +516,7 @@ def run_model_once(prompt, directory, pulse, minutes, checkpoint=None):
                     last_checkpoint = time.monotonic()
                 time.sleep(5)
             text = path.read_text(errors="replace")
-            lowered = text.lower()
-            failure = None
-            if any(s in lowered for s in ("abusive traffic from this ip", "free models aren't available from your current network")):
-                failure = PermissionError("Provider access refusal")
-            elif any(s in lowered for s in ("invalid api key", "insufficient quota", "rate limit exceeded",
-                                            "model not found", "payment required", "authentication failed")):
-                failure = ProviderError("Provider unavailable")
-            elif "upstream request failed: endpoint is unavailable" in lowered:
-                failure = UpstreamUnavailable("Upstream endpoint transiently unavailable")
-            elif "permission requested:" in lowered and "auto-rejecting" in lowered:
-                failure = ToolAccessRefusal("OpenCode refused tool access; no automatic retry")
-            elif process.returncode:
-                failure = RuntimeError("Model process failed")
+            failure = classify_model_output(text, process.returncode)
             try:
                 private_record(f"autonomy/logs/{RUN}-{uuid.uuid4().hex[:8]}.txt", text)
             except Exception:
@@ -909,7 +959,7 @@ def worker_package(u, deadline):
         result = {"outcome": "stuck", "summary": "Optional tool operation denied; keep it denied, preserve work and re-plan from permitted inputs on the same runner"}
     except ModelDeadline:
         result = {"outcome": "checkpoint", "summary": "Phase budget reached; saved work and remaining runner budget stay available"}
-    except PermissionError:
+    except ProviderAccessRefusal:
         result = {"outcome": "access_refusal", "summary": "Provider refused access; hold without IP rotation or refusal bypass"}
     except ProviderError:
         result = {"outcome": "provider_error", "summary": "Provider unavailable; preserve WIP and apply measured backoff"}

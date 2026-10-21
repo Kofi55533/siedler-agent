@@ -43,7 +43,7 @@ class LaunchTests(unittest.TestCase):
     def test_provider_refusal_cannot_be_hidden_by_an_optional_tool_denial(self):
         with self.assertRaises(PermissionError) as result:
             self.launch('permission requested: external_directory; auto-rejecting\n'
-                        'Free models aren\'t available from your current network')
+                        'Error: OpenCode\'s free models aren\'t available from your current network')
         self.assertNotIsInstance(result.exception, runtime.ToolAccessRefusal)
 
     def test_upstream_unavailable_uses_provider_backoff_even_with_nonzero_exit(self):
@@ -52,7 +52,7 @@ class LaunchTests(unittest.TestCase):
 
     def test_diagnostics_outage_does_not_mask_provider_failure_or_refusal(self):
         for message,kind in [('Error: Upstream request failed: Endpoint is unavailable.',runtime.ProviderError),
-                             ("Free models aren't available from your current network",PermissionError)]:
+                             ("Error: OpenCode's free models aren't available from your current network",PermissionError)]:
             with self.subTest(kind=kind),self.assertRaises(kind):
                 self.launch(message,returncode=1,diagnostics_error=runtime.fs.ApiError(403))
 

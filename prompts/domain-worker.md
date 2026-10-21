@@ -62,3 +62,6 @@ A denied operation stays denied. Continue only with the explicitly supplied perm
 change permissions or retry the denied operation. Keep temporary probes under assignment's .fleet-input
 workspace. Declare every source/test file in the plan before writing it; Cargo.lock files and temporary
 experiments are not game-code changes to submit. A rejected source delta is saved privately for scoped repair.
+
+Do not read, grep or cat the fleet's own wrapper checkout on the runner (its scripts/, prompts/ or tests/,
+e.g. /home/runner/work/siedler-agent/siedler-agent). They are not package inputs and are never needed.
