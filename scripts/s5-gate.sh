@@ -34,6 +34,7 @@
 # S5_GATE_BASELINE_ONLY=1 (+ S5_GATE_KEY_ONLY=1 for the key only): only compute/upload the baseline of current clean/integration (warm-up, PR arg ignored).
 set -uo pipefail
 D=$(cd "$(dirname "$0")" && pwd); source "$D/s5-env.sh"
+source "$D/merge-lock.sh" || { echo "GATE FAIL: merge-lock.sh missing"; exit 1; }  # fleet-integrate-v2 base lock
 PR=$1; DRY=0; [ "${2:-}" = --dry-run ] && DRY=1
 R=Kofi55533/siedler-sim-rs; BASE=clean/integration
 G=$S5/gate/$PR; rm -rf "$G"; mkdir -p "$G"
@@ -329,6 +330,8 @@ while :; do
   if [ "${S5_GATE_BASELINE_ONLY:-0}" = 1 ]; then git checkout -q --detach "$bs"; cat "$G/report.txt"; cp "$G/base.tsv" "$S5/baseline-${bs:0:12}.tsv"; exit 0; fi
   : > "$G/receipt.tsv"
   evaluate
+  # merge lock: wait (never skip) while a fleet-integrate-v2 run is active; a base it moved is then re-measured below
+  [ $DRY = 1 ] || [ -n "${S5_GATE_PIN_BASE:-}" ] || integrate_wait || blocked "fleet-integrate-v2 run still active (merge lock: a legacy merge must not move $BASE under it)"
   nb=$(git ls-remote origin refs/heads/$BASE | cut -f1)
   [ -n "$nb" ] || blocked "cannot read $BASE head after the measurement"
   # A pinned dry-run is evidence for that exact base, even if the live fleet
@@ -354,6 +357,7 @@ lc=$(python3 "$D/lane-claims.py" "$G/board.md" "$G/files.txt" "${LCARGS[@]}" 2>/
 [ -n "$lc" ] && [ "${HB[0]:-}" = --heartbeat-unknown ] && rl_hit && defer "heartbeat fetch before merge (claim hold undecided: $lc)"
 [ -n "$lc" ] && fail "fresh lane claim on a touched file appeared during the gate (kept draft): $lc"
 if [ $DRY = 1 ]; then echo "all gates green" >> "$G/report.txt"; finish 0; fi
+integrate_active && blocked "fleet-integrate-v2 run started right before the merge (merge lock)"
 gh pr ready "$PR" -R $R >/dev/null 2>&1
 gh pr merge "$PR" -R $R --squash --match-head-commit "$hs" >/dev/null 2>&1 || apifail "gh pr merge refused"
 echo "merged into $BASE" >> "$G/report.txt"
