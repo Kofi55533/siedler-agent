@@ -1,0 +1,31 @@
+name: exp-shard-probe
+# Throwaway measurement (box, 2026-10-21): does one live fixture run faster alone than inside the 4-way parallel gate suite?
+# Decides whether sharding replays across runners can beat the longest single fixture. No gate, no merge, no comment.
+on:
+  push:
+    branches: [box/exp-shard-probe]
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.11'}
+      - name: Setup
+        env: {T: '${{ secrets.PRIVATE_REPO_TOKEN }}'}
+        run: scripts/s5-setup.sh clean/integration 1
+      - name: Probe
+        env: {GH_TOKEN: '${{ secrets.PRIVATE_REPO_TOKEN }}'}
+        run: |
+          source scripts/s5-env.sh
+          nproc; lscpu | grep -E 'Model name|^CPU\(s\)'
+          cd $S5_REPO && git fetch -q origin clean/integration && git checkout -q --detach FETCH_HEAD && git rev-parse HEAD
+          t0=$(date +%s); $GITHUB_WORKSPACE/scripts/s5-build.sh >/dev/null; echo "build secs=$(( $(date +%s)-t0 ))"
+          export S5_LIVE_TIMEOUT=1800
+          one(){ local t=$(date +%s); /usr/bin/time -f "$1 cpu%=%P user=%U wall=%e" $GITHUB_WORKSPACE/scripts/s5-live.sh "$1" 2>&1 | grep -E "^live |cpu%=" | tr '\n' ' '; echo " secs=$(( $(date +%s)-t ))"; }
+          export -f one
+          echo "== alone"; one late-ai
+          echo "== 4 heavy in parallel"; printf '%s\n' late-ai late-economy bc-full camp-crawford | xargs -P 4 -I{} bash -c 'one {}'
