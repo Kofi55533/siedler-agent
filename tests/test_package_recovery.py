@@ -18,6 +18,16 @@ class Pulse:
     def __exit__(self,*args): pass
 
 class RecoveryTests(unittest.TestCase):
+    def test_split_children_keep_findings_and_private_recovery_input(self):
+        state=fixture();u=state['units']['battle']
+        u['findings']=[{'outcome':'stuck','summary':'preserve native transition finding'}]
+        u['recovery_patch']='autonomy/recovery/private.patch'
+        core.split(state,'battle',1)
+        for child in ('battle-a','battle-b'):
+            self.assertEqual(state['units'][child]['recovery_patch'],u['recovery_patch'])
+            self.assertEqual(state['units'][child]['findings'],u['findings'])
+            self.assertIsNot(state['units'][child]['findings'],u['findings'])
+
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory();self.repo=Path(self.temp.name)
         self.g('init','-q');self.g('config','user.name','test');self.g('config','user.email','test@test.invalid')
