@@ -385,13 +385,57 @@ def reconcile_runs(state, run_status, at, grace=1200):
 BATCH_MAX = 8
 
 
+def pending_split(state):
+    """The next half of a bisected failed union whose members are still verified.
+
+    A member that left "verified" (re-preflight after a non-verdict error) keeps
+    its place and rejoins its half once verified again; accepted/repaired members
+    are pruned (prune_splits).
+    """
+    for half in state.get("integration_splits", []):
+        members = [tid for tid in half if state["tickets"].get(tid, {}).get("status") == "verified"]
+        if members:
+            return members
+    return []
+
+
+def prune_splits(state):
+    live = {"verified", "queued", "verifying"}
+    splits = [[tid for tid in half if state["tickets"].get(tid, {}).get("status") in live]
+              for half in state.get("integration_splits", [])]
+    state["integration_splits"] = [half for half in splits if half]
+
+
+def bisect(state, tids, at):
+    """A measured union failure: retest its halves instead of blaming every pair.
+
+    Halves run first, one integration at a time, each on the then newest base
+    (which already contains every half accepted before it). A failing half of
+    two or more is split again; a failing single ticket is the culprit and goes
+    to repair through the writer's single-ticket path. Green halves merge.
+    """
+    failed = set(tids)
+    prune_splits(state)
+    rest = [[tid for tid in half if tid not in failed] for half in state["integration_splits"]]
+    half = (len(tids) + 1) // 2
+    halves = [list(tids[:half]), list(tids[half:])] if len(tids) > 1 else []
+    state["integration_splits"] = [h for h in halves + rest if h]
+    event(state, "bisect", at, failed=list(tids), halves=halves)
+
+
 def disjoint_batch(state, maximum=BATCH_MAX):
+    split = pending_split(state)
+    if split:
+        return split[:maximum]
+    queued_halves = {tid for half in state.get("integration_splits", []) for tid in half}
     tickets = sorted((t for t in state["tickets"].values() if t["status"] == "verified"),
                      key=lambda t: (t["created"], int(t["id"])))
     # Receipts may come from different (older) bases: the integration writer
     # measures the whole union again on the newest base before it merges.
     batch, paths = [], set()
     for t in tickets:
+        if t["id"] in queued_halves:
+            continue
         newpaths = {r.split("::", 1)[0] for r in t["resources"]}
         if paths & newpaths:
             continue
@@ -442,6 +486,9 @@ def repin_queued_heads(state, prs, at):
 
 
 def integration_ready(state, at, coalesce_seconds=180):
+    split = pending_split(state)
+    if split:
+        return split  # a bisect half never waits for new receipts
     batch = disjoint_batch(state)
     if not batch:
         return []
@@ -473,6 +520,7 @@ def accept(state, tids, commit, at):
         u.update(status="ready", wip=None, no_gain=0)
         state["leases"].pop(u["id"], None)
     state["integration"] = None
+    prune_splits(state)
     event(state, "accept", at, tickets=tids, commit=commit)
 
 
@@ -514,5 +562,6 @@ def dashboard(state):
     return {"inventory": state["total"], "reported_reference_verified_and_integrated": len(unique),
             "remaining": state["total"] - len(unique), "leases": len(state["leases"]),
             "units": len(state["units"]), "provider_hold": held(state),
+            "bisect_halves": len(state.get("integration_splits", [])),
             "tickets": {s: sum(t["status"] == s for t in state["tickets"].values())
                         for s in ("queued", "verifying", "verified", "accepted", "repair")}}

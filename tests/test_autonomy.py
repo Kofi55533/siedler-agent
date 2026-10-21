@@ -266,6 +266,52 @@ class StateTests(unittest.TestCase):
         s["tickets"]["13"] = {"id": "13", "status": "verifying"}
         self.assertEqual(len(state.integration_ready(s, 1)), 8)
 
+    def test_failed_union_is_bisected_and_only_the_culprit_is_blamed(self):
+        s = fixture()
+        for n in range(1, 9):
+            s["tickets"][str(n)] = {"id": str(n), "status": "verified", "created": n,
+                                     "resources": [f"f{n}.rs"], "receipt": {"base": "b", "measured_at": 0}}
+        runs = []
+        while batch := state.integration_ready(s, 10 ** 6):
+            runs.append(batch)
+            if "5" not in batch:          # the union is green: the writer accepts it
+                for tid in batch:
+                    s["tickets"][tid]["status"] = "accepted"
+                state.prune_splits(s)
+            elif len(batch) > 1:          # measured union failure (writer's retry path)
+                state.bisect(s, batch, 1)
+            else:                         # single-ticket failure: repair, as before
+                s["tickets"][batch[0]]["status"] = "repair"
+                state.prune_splits(s)
+        self.assertEqual(runs, [[str(n) for n in range(1, 9)], ["1", "2", "3", "4"], ["5", "6", "7", "8"],
+                                ["5", "6"], ["5"], ["6"], ["7", "8"]])
+        self.assertEqual([t for t, v in s["tickets"].items() if v["status"] == "repair"], ["5"])
+        self.assertNotIn("incompatible_batches", s)
+        self.assertEqual(s["integration_splits"], [])
+
+    def test_pending_half_runs_before_new_receipts_and_keeps_requeued_members(self):
+        s = fixture()
+        for n in range(1, 6):
+            s["tickets"][str(n)] = {"id": str(n), "status": "verified", "created": n,
+                                     "resources": [f"f{n}.rs"], "receipt": {"base": "b", "measured_at": 0}}
+        state.bisect(s, ["1", "2", "3", "4"], 1)
+        self.assertEqual(s["integration_splits"], [["1", "2"], ["3", "4"]])
+        # A newer receipt (5) never joins a half; the half needs no coalescing wait.
+        s["tickets"]["6"] = {"id": "6", "status": "verifying"}
+        self.assertEqual(state.integration_ready(s, 1), ["1", "2"])
+        # Members sent back to preflight (non-verdict error) keep their half.
+        for tid in ("1", "2"):
+            s["tickets"][tid]["status"] = "queued"
+        self.assertEqual(state.disjoint_batch(s), ["3", "4"])
+        for tid in ("3", "4"):
+            s["tickets"][tid]["status"] = "queued"
+        self.assertEqual(state.disjoint_batch(s), ["5"])
+        s["tickets"]["1"]["status"] = "verified"
+        self.assertEqual(state.disjoint_batch(s), ["1"])
+        s["tickets"]["2"]["status"] = "superseded"; s["tickets"]["1"]["status"] = "accepted"
+        state.prune_splits(s)
+        self.assertEqual(s["integration_splits"], [["3", "4"]])
+
     def test_failed_union_is_not_repeated(self):
         s = fixture(); s["incompatible_batches"] = [["1", "2"]]
         for n in (1, 2):
