@@ -292,12 +292,16 @@ def control(shadow=False):
     state = read()
     verifying = sum(t["status"] == "verifying" or bool(t.get("dispatch")) for t in state["tickets"].values())
     verifying += bool(state.get("integration")) + external_gates
+    # Verified receipts waiting for a writer (e.g. inside the coalescing
+    # window) keep one of the four gate slots free: new preflights and legacy
+    # regates must not starve the only step that can merge anything.
+    held = int(bool(core.disjoint_batch(state)) and not state.get("integration"))
     for tid, t in state["tickets"].items():
         # Do not prepare receipts against an epoch whose integration writer is
         # already testing a union. Queue work for the next epoch instead.
         if state.get("integration"):
             break
-        if room <= 0 or verifying >= 4:
+        if room <= 0 or verifying >= 4 - held:
             break
         if t["status"] != "queued" or t.get("dispatch") or t.get("retry_after", 0) > at:
             continue
@@ -314,7 +318,7 @@ def control(shadow=False):
             verifying += 1
     state = read()
     for candidate in backlog.select(state, snap["prs"], snap["runs"], at, backlog_base["input"], scripts,
-                                    min(room, max(0, 4 - verifying))):
+                                    min(room, max(0, 4 - held - verifying))):
         if update(lambda s: backlog.reserve(s, candidate, at), "reserve legacy fixture regate"):
             dispatch("gate-baseline.yml", {"mode": "regate", "pr": str(candidate["pr"])})
             update(lambda s: s["backlog_attempts"][str(candidate["pr"])].update(status="dispatched"),
