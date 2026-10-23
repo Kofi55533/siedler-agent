@@ -9,7 +9,9 @@ on:
   schedule:
     - cron: '*/5 * * * *'
   workflow_run:
-    workflows: [fleet-worker-v2, fleet-verify-v2, fleet-integrate-v2, opencode, gate-baseline]
+    # the xc runs keep this controller (and with it the scoreboard + xc-watchdog dispatch below) awake now that the
+    # old fleet's runs are gone; xc-watchdog -> this -> xc-watchdog (>= 15 min apart) is a heartbeat when cron starves
+    workflows: [fleet-worker-v2, fleet-verify-v2, fleet-integrate-v2, opencode, gate-baseline, xc-worker, xc-census, xc-watchdog]
     types: [completed]
 permissions:
   contents: read
