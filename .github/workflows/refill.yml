@@ -23,9 +23,9 @@ name: refill
 # siedler-sim-rs GraphQL query and issues/comments that must be authored by Kofi55533 to trigger opencode.yml (task launch
 # comment, planner issue + comment, subsystem issue create). When either token is (nearly) out of calls the cycle ends cleanly
 # (exit 0, nothing launched or decided) instead of failing or deciding on empty answers.
+# RETIRED 2026-10-23 (Opus, on the owner's instruction): the planner/opencode task loop is replaced by the per-call
+# differential loop (xc-census, xc-worker, xc-watchdog; scripts/xc). No schedule any more; a manual run does nothing.
 on:
-  schedule:
-    - cron: '*/5 * * * *'
   workflow_dispatch:
     inputs:
       target:
@@ -45,7 +45,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   refill:
-    if: vars.FLEET_V2_ENABLED != 'true'
+    if: false
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:

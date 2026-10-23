@@ -50,6 +50,11 @@ jobs:
           if [ -z "$last" ] || [ $(( $(date +%s) - $(date -d "$last" +%s) )) -ge 840 ]; then
             gh api -X POST "repos/$R/actions/workflows/scoreboard.yml/dispatches" -f ref=main || true
           fi
+          # the xc loop's watchdog: its own */20 cron fires late here too
+          last=$(gh api "repos/$R/actions/workflows/xc-watchdog.yml/runs?per_page=1" --jq '.workflow_runs[0].created_at // ""' || true)
+          if [ -z "$last" ] || [ $(( $(date +%s) - $(date -d "$last" +%s) )) -ge 900 ]; then
+            gh api -X POST "repos/$R/actions/workflows/xc-watchdog.yml/dispatches" -f ref=main || true
+          fi
   rearm:
     # Idle/backoff and controller failures must recover even when cron does
     # not fire. Productive workers normally wake the controller themselves.

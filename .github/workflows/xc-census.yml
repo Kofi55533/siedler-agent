@@ -1,0 +1,152 @@
+name: xc-census
+# Per-call differential census of siedler-sim-rs clean/integration (scripts/xc, crates/s5xcheck capture tests): every
+# recorded scenario plays on the recompiled original; at sampled real calls of ExecuteTask (0x57BF33) the clean port
+# runs on the same imported state and both results are compared. The merged work list (task kind x scenario, with the
+# measured diffs) goes to the private release xc-worklist of siedler-data; this public repo only sees counts.
+# After the census: regressions against the previous work list are attributed to an xc merge and reverted
+# (scripts/xc/attribute.sh), then a worker wave is dispatched for the failing kinds.
+on:
+  workflow_dispatch:
+    inputs:
+      workers: { description: 'dispatch a worker wave afterwards', default: 'true' }
+  schedule:
+    - cron: '23 */6 * * *'
+permissions:
+  contents: read
+  issues: write
+concurrency:
+  group: xc-census
+  cancel-in-progress: false
+env:
+  XC_PROJECT: ${{ vars.XC_PROJECT || 'Kofi55533/siedler-sim-rs' }}
+  XC_DATA: ${{ vars.XC_DATA || 'Kofi55533/siedler-data' }}
+  XC_AGENT: ${{ vars.XC_AGENT || 'Kofi55533/siedler-agent' }}
+  SHARDS: '8'
+jobs:
+  pin:
+    # every shard measures the same commit, even when clean/integration moves during the census
+    if: github.repository == 'Kofi55533/siedler-agent'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      sha: ${{ steps.p.outputs.sha }}
+    steps:
+      - id: p
+        env: { GH_TOKEN: '${{ secrets.PRIVATE_REPO_TOKEN }}' }
+        run: echo "sha=$(gh api repos/$XC_PROJECT/commits/clean/integration --jq .sha)" >> "$GITHUB_OUTPUT"
+  shard:
+    needs: pin
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - name: Setup (quiet)
+        env: { T: '${{ secrets.PRIVATE_REPO_TOKEN }}', GIT_LFS_SKIP_SMUDGE: '1' }
+        run: scripts/s5-setup.sh clean/integration 1
+      - name: Census shard ${{ matrix.shard }} (counts only)
+        run: |
+          source scripts/s5-env.sh
+          SHA=${{ needs.pin.outputs.sha }}
+          git -C $S5_REPO cat-file -e "$SHA^{commit}" 2>/dev/null || git -C $S5_REPO fetch -q --depth 1 origin "$SHA"
+          git -C $S5_REPO checkout -q --detach "$SHA" && echo "$SHA" > $RUNNER_TEMP/sha.txt
+          scripts/xc/census.sh ${{ matrix.shard }} $SHARDS $RUNNER_TEMP/census
+      - name: Upload the shard to the private release (game state never leaves private storage)
+        env: { GH_TOKEN: '${{ secrets.PRIVATE_REPO_TOKEN }}' }
+        run: |
+          cd $RUNNER_TEMP && cp sha.txt census/ && tar -cf - census | zstd -q -19 > shard-${{ github.run_id }}-${{ matrix.shard }}.tzst
+          gh release view xc-census -R $XC_DATA > /dev/null 2>&1 || gh release create xc-census -R $XC_DATA -t xc-census -n "census shards (transient)" > /dev/null 2>&1 || true
+          gh release upload xc-census -R $XC_DATA --clobber shard-${{ github.run_id }}-${{ matrix.shard }}.tzst > /dev/null
+          echo "uploaded $(stat -c %s shard-*.tzst) bytes"
+  merge:
+    needs: shard
+    if: always() && github.repository == 'Kofi55533/siedler-agent' && needs.shard.result != 'skipped'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      regressions: ${{ steps.m.outputs.regressions }}
+      old: ${{ steps.m.outputs.old }}
+      sha: ${{ steps.m.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Merge shards, compare with the previous work list, publish
+        id: m
+        env: { GH_TOKEN: '${{ secrets.PRIVATE_REPO_TOKEN }}' }
+        run: |
+          cd $RUNNER_TEMP; mkdir -p dl all prev
+          gh release download xc-census -R $XC_DATA -D dl -p "shard-${{ github.run_id }}-*.tzst"
+          n=$(ls dl | wc -l); echo "$n/$SHARDS shards"
+          for f in dl/*.tzst; do zstd -dcq "$f" | tar -xf - -C dl && mv dl/census/*.json all/ && mv dl/census/sha.txt sha.txt; rm -rf dl/census; done
+          [ "$n" -gt 0 ] || { echo "no shard results"; exit 1; }
+          SHA=$(cat sha.txt)
+          python3 $GITHUB_WORKSPACE/scripts/xc/xc.py merge all "$SHA" worklist.json
+          old=""; regs="[]"
+          if gh release download xc-worklist -R $XC_DATA -D prev -p worklist.json > /dev/null 2>&1; then
+            old=$(python3 -c 'import json;print(json.load(open("prev/worklist.json"))["sha"])')
+            [ "$old" != "$SHA" ] && regs=$(python3 $GITHUB_WORKSPACE/scripts/xc/xc.py regressions prev/worklist.json worklist.json)
+          fi
+          echo "previous ${old:0:8}: $(python3 -c 'import json,sys;print(len(json.loads(sys.argv[1])))' "$regs") regressions"
+          # a partial census (failed shards) is published too and marked; regressions only compare scenarios both lists hold
+          [ "$n" = "$SHARDS" ] || python3 -c 'import json;d=json.load(open("worklist.json"));d["partial"]=True;json.dump(d,open("worklist.json","w"))'
+          gh release view xc-worklist -R $XC_DATA > /dev/null 2>&1 || gh release create xc-worklist -R $XC_DATA -t xc-worklist -n "per-call differential work list" > /dev/null
+          gh release upload xc-worklist -R $XC_DATA --clobber worklist.json > /dev/null
+          for f in dl/*.tzst; do gh release delete-asset xc-census -R $XC_DATA -y "$(basename "$f")" > /dev/null 2>&1 || true; done
+          echo "regressions=$(jq -c . <<<"$regs")" >> "$GITHUB_OUTPUT"; echo "old=$old" >> "$GITHUB_OUTPUT"; echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          python3 - >> "$GITHUB_STEP_SUMMARY" <<'P'
+          import json
+          d = json.load(open("worklist.json")); s = d["summary"]
+          print(f"### census {d['sha'][:8]}: {s['failing_kinds']}/{s['kinds']} task kinds differ, {s['failing']}/{s['samples']} sampled calls\n")
+          print("| kind | failing scenarios | sampled calls differing |\n|---|---|---|")
+          for k, v in sorted(d["kinds"].items(), key=lambda kv: -kv[1]["failing"]):
+              print(f"| {k} | {sum(1 for x in v['scenarios'].values() if x['failing'])}/{len(v['scenarios'])} | {v['failing']}/{v['samples']} |")
+          P
+  attribute:
+    needs: merge
+    if: needs.merge.result == 'success' && needs.merge.outputs.regressions != '[]' && needs.merge.outputs.regressions != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    outputs:
+      reverted: ${{ steps.a.outputs.reverted }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - name: Setup (quiet)
+        env: { T: '${{ secrets.PRIVATE_REPO_TOKEN }}', GIT_LFS_SKIP_SMUDGE: '1' }
+        run: scripts/s5-setup.sh clean/integration 1
+      - name: Attribute and revert (counts and short shas only)
+        id: a
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          REGS: ${{ needs.merge.outputs.regressions }}
+        run: |
+          echo "$REGS" > $RUNNER_TEMP/regs.json
+          git config --global user.name siedler-agent; git config --global user.email Kofi55533@users.noreply.github.com
+          source scripts/s5-env.sh; SHA=${{ needs.merge.outputs.sha }}
+          git -C $S5_REPO fetch -q --depth 1 origin "$SHA"; git -C $S5_REPO checkout -q --detach "$SHA"
+          scripts/xc/attribute.sh "${{ needs.merge.outputs.old }}" $RUNNER_TEMP/regs.json | tee $RUNNER_TEMP/attr.txt
+          echo "reverted=$(grep -c '^reverted ' $RUNNER_TEMP/attr.txt)" >> "$GITHUB_OUTPUT"
+  next:
+    needs: [merge, attribute]
+    if: always() && needs.merge.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Next step (re-census after a revert, else a worker wave)
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          R: ${{ github.repository }}
+          WORKERS: ${{ inputs.workers || 'true' }}
+        run: |
+          if [ "${{ needs.attribute.outputs.reverted || '0' }}" != 0 ]; then
+            gh api -X POST "repos/$R/actions/workflows/xc-census.yml/dispatches" -f ref=main -f "inputs[workers]=$WORKERS"
+            echo "reverted: re-census"
+          elif [ "$WORKERS" = true ]; then
+            gh api -X POST "repos/$R/actions/workflows/xc-worker.yml/dispatches" -f ref=main
+            echo "worker wave dispatched"
+          fi
