@@ -14,6 +14,7 @@ PROJECT=${XC_PROJECT:-Kofi55533/siedler-sim-rs}; AGENT=${XC_AGENT:-Kofi55533/sie
 MODEL=${XC_MODEL:-opencode/deepseek-v4.1-flash-free}; ROUNDS=${XC_ROUNDS:-3}; ROUND_MIN=${XC_ROUND_MIN:-40}
 log(){ echo "[$(date -u +%H:%M:%S)] $*"; }
 sum(){ [ -n "${GITHUB_STEP_SUMMARY:-}" ] && echo "$*" >> "$GITHUB_STEP_SUMMARY"; log "$*"; }
+wl_sha(){ python3 -c "import json,sys;print(json.load(open(sys.argv[1]))['sha'])" "$WL"; }
 # the pick job claimed the kind; every exit but a recorded attempt (1) or a merge hands it back
 MERGED=0
 trap 'rc=$?; [ "$rc" != 1 ] && [ $MERGED = 0 ] && python3 "$D/xc.py" issue "$KIND" unclaim' EXIT
@@ -34,7 +35,10 @@ xc_build || exit 2
 xc_scenarios | awk -v s=" $(cat "$XC/scenarios-all.txt") " 'index(s, " "$1" ")' | xc_runs "$XC/base/only" "$KIND"
 xc_scenarios | awk -v s=" $(cat "$XC/scenarios-failing.txt") " 'index(s, " "$1" ")' | xc_runs "$XC/base/full"
 python3 "$D/xc.py" check "$XC/base" "$XC/base" "$KIND" > "$XC/base.verdict"
-if grep -q 'VERDICT PASS' "$XC/base.verdict"; then sum "$KIND: already identical on ${BASE:0:8}"; exit 0; fi
+# nothing left for this census (fixed by another merge, or an old worker closed the issue): no re-pick until it re-measures
+if grep -q 'VERDICT PASS' "$XC/base.verdict"; then
+  sum "$KIND: already identical on ${BASE:0:8}"; MERGED=1; python3 "$D/xc.py" issue "$KIND" merged "$(wl_sha)"; exit 0
+fi
 grep -q 'no sampled call' "$XC/base.verdict" && { sum "$KIND: no sampled call at base (runs crashed?)"; exit 2; }
 
 mkdir -p "$W"; ln -sfn "$S5_REPO" "$W/siedler-sim-rs"
@@ -78,7 +82,6 @@ $(grep -v '^VERDICT' "$XC/verify-$round.txt" | head -40)
 Fix this (run $W/check to see the remaining differences) and finish when the check is clean and nothing else regressed."
 done
 
-wl_sha(){ python3 -c "import json,sys;print(json.load(open(sys.argv[1]))['sha'])" "$WL"; }
 record_attempt(){ python3 "$D/xc.py" issue "$KIND" attempt "$(wl_sha)"; }
 if [ $ok = 0 ]; then sum "$KIND: no passing change after $ROUNDS rounds"; record_attempt; exit 1; fi
 
