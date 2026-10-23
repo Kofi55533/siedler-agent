@@ -1,0 +1,19 @@
+name: xc-pool
+# The whole worker pool of another account: copy this one file to .github/workflows/ of a repo of that account,
+# with the secrets PRIVATE_REPO_TOKEN (read siedler-sim-rs/-data/-forschung, write siedler-sim-rs PRs and
+# siedler-agent issues) and OPENCODE_API_KEY. It runs the current xc-worker of Kofi55533/siedler-agent main, so it
+# never needs updating. Each run fills only this repo's free slots (repository variable XC_WORKERS, default 20).
+# Pause: repository variable XC_DISABLED=true.
+on:
+  schedule:
+    - cron: '7,27,47 * * * *'
+  workflow_dispatch:
+jobs:
+  wave:
+    if: vars.XC_DISABLED != 'true'
+    uses: Kofi55533/siedler-agent/.github/workflows/xc-worker.yml@main
+    with:
+      n: ${{ vars.XC_WORKERS || '20' }}
+    secrets:
+      PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+      OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY || secrets.HUU }}
