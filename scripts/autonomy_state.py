@@ -511,7 +511,15 @@ def accept(state, tids, commit, at):
         # Count only individually reported proof obligations; citations alone
         # and an overview's Status: complete never exhaust the inventory.
         for proof in t["proofs"]:
-            a = address(proof["address"])
+            # Proofs are worker-reported model output. One without a valid
+            # address counts nothing but must never fail acceptance: after the
+            # integration push, a raise here aborted every control cycle.
+            if not isinstance(proof, dict):
+                continue
+            try:
+                a = address(proof.get("address"))
+            except ValueError:
+                continue
             if a not in u["addresses"] or not proof.get("reference_test") or not proof.get("clean_entry"):
                 continue
             u["verified"][a] = {**proof, "status": "accepted", "commit": commit}
