@@ -38,8 +38,11 @@ def active(rs):
 
 
 def dispatch(workflow, **inputs):
+    # this repo's own workflow token: in a fork pool the PAT belongs to the main account and cannot dispatch there
+    env = dict(os.environ, GH_TOKEN=os.environ.get("DISPATCH_TOKEN") or os.environ["GH_TOKEN"])
     r = subprocess.run(["gh", "api", "-X", "POST", f"repos/{R}/actions/workflows/{workflow}/dispatches", "-f", "ref=main",
-                        *[a for k, v in inputs.items() for a in ("-f", f"inputs[{k}]={v}")]], capture_output=True, text=True)
+                        *[a for k, v in inputs.items() for a in ("-f", f"inputs[{k}]={v}")]], capture_output=True, text=True,
+                       env=env)
     print(f"dispatch {workflow}: {'ok' if r.returncode == 0 else 'failed'}")
 
 
