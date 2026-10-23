@@ -860,6 +860,65 @@ def citation_gaps(base, resources, body):
         return []
 
 
+NO_FIXTURE = re.compile(r"(?i)^(?:(?:none|n/?a|nothing)\b|-+$|\(none\))")
+LIVE_LINE = re.compile(r"(?i)before[^0-9]{0,40}[0-9]+.{0,80}(->|\u2192)[^0-9]{0,40}[0-9]+")
+
+
+def normalize_body(body):
+    """Mechanical, meaning-preserving fixes of 'Frontier-fixture:' lines.
+
+    A declaration adds a fixture to the gate's live matrix. 'none' adds nothing,
+    and a standard matrix fixture is measured anyway, so naming one only made
+    the gate demand live lines or reject the prose after it: those names (and a
+    line left empty) are dropped. Markdown around names is removed. Any other
+    line stays as the model wrote it.
+    """
+    standard = standard_fixtures()
+    out = []
+    for line in body.splitlines():
+        m = re.match(r"(?i)^\s*frontier-fixture:\s*(.*?)\s*$", line)
+        if not m:
+            out.append(line)
+            continue
+        value = m[1].replace("`", "").replace("*", "").strip()
+        if not value or NO_FIXTURE.match(value):
+            continue
+        names = [x for x in re.split(r"[,\s]+", value.split("(")[0]) if x]
+        if names and all(x in standard for x in names):
+            continue
+        if "(" not in value:
+            value = ", ".join(x for x in names if x not in standard)
+        out.append("Frontier-fixture: " + value)
+    return "\n".join(out) + ("\n" if body.endswith("\n") else "")
+
+
+def body_gaps(body):
+    """The gate's static PR-body rules (s5-gate.sh, before the live suite), on the
+    body the wrapper would submit. Same wording as the gate's verdicts."""
+    try:
+        names = contract.fixtures(body)
+    except ValueError:
+        bad = [x.strip() for x in body.splitlines() if re.match(r"(?i)^\s*frontier-fixture:", x)]
+        return ["invalid required fixture declaration: a 'Frontier-fixture:' line holds only fixture names "
+                "([a-z0-9-], comma separated) and is omitted when no extra fixture is required; found: "
+                + " | ".join(bad)[:400]]
+    # grep -E in the gate matches per line.
+    if names and not any(LIVE_LINE.search(x) for x in body.splitlines()):
+        return ["frontier PR without live before/after turn numbers in the PR body (add 'live <fixture>: before "
+                "turn X -> after turn Y', measured with s5-live.sh)"]
+    return []
+
+
+def precheck_repair_prompt(gaps, plan_file, result_file, body_file):
+    if any(g.startswith("subsystem PR cites") for g in gaps):
+        return citation_repair_prompt(gaps, plan_file, result_file, body_file)
+    return ("The trusted wrapper ran the independent gate's static PR-body rules on this package before "
+            "submitting it, and they would fail:\n" + "\n".join("GATE FAIL: " + g for g in gaps) + "\n"
+            f"Fix {body_file} only (measure with $S5_SCRIPTS/s5-live.sh where numbers are missing; never invent "
+            f"them). Plan: {plan_file}. Then rewrite {result_file}: keep outcome ready only if the body is "
+            "complete, otherwise report checkpoint with what remains.")
+
+
 def citation_repair_prompt(gaps, plan_file, result_file, body_file):
     return ("The trusted wrapper ran the independent gate's citation rule (scripts/subsys-xcheck.py) on this package "
             "before submitting it, and it would fail:\n" + "\n".join("GATE FAIL: " + g for g in gaps) + "\n"
@@ -1103,23 +1162,27 @@ def worker_package(u, deadline):
             # Gate citation rule before a ticket exists: feed its exact verdict
             # back to the model on this runner instead of a 3-minute gate fail
             # and a 17-80 minute repair round trip.
+            def gaps_now():
+                body_file.write_text(normalize_body(body_file.read_text()))
+                body = body_file.read_text()
+                return body_gaps(body) + citation_gaps(base, plan["resources"], body)
             for _ in range(2):
                 if result.get("outcome") != "ready" or not body_file.exists():
                     break
-                gaps = citation_gaps(base, plan["resources"], body_file.read_text())
+                gaps = gaps_now()
                 if not gaps:
                     break
                 try:
-                    run_model(citation_repair_prompt(gaps, plan_file, result_file, body_file), REPO, pulse,
+                    run_model(precheck_repair_prompt(gaps, plan_file, result_file, body_file), REPO, pulse,
                               allowance(30))
                 finally:
                     save()
                 result = json.loads(result_file.read_text())
             else:
                 if result.get("outcome") == "ready" and body_file.exists():
-                    gaps = citation_gaps(base, plan["resources"], body_file.read_text())
+                    gaps = gaps_now()
                     if gaps:
-                        result = {"outcome": "checkpoint", "summary": "Not submitted: gate citation precheck still "
+                        result = {"outcome": "checkpoint", "summary": "Not submitted: gate precheck still "
                                   "fails after repair; " + "; ".join(gaps)[:1500]}
             if result.get("outcome") == "ready":
                 if not body_file.exists():
