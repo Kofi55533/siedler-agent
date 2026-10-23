@@ -595,7 +595,17 @@ def discover_new(branches_list, pulls_open, releases):
                 continue
             if ref != BRANCH and ci_sha.get(path) == files[path]["sha"]:
                 continue  # unchanged copy of the clean/integration file: not this branch's contribution
-            j = safe(lambda: json.loads(blob(PRIV, files[path]["sha"])), None, f"json {path}")
+            if ref != BRANCH and path in ci_sha:
+                # a stale branch copy of a shared index (e.g. one fixed on clean/integration later): not a data error
+                try:
+                    j = json.loads(blob(PRIV, files[path]["sha"]))
+                except ValueError:
+                    continue
+                except Exception as e:
+                    ERRORS.append(f"json {path}: {type(e).__name__} {getattr(e, 'code', '')}".strip())
+                    continue
+            else:
+                j = safe(lambda: json.loads(blob(PRIV, files[path]["sha"])), None, f"json {path}")
             if not isinstance(j, dict):
                 continue
             iss = issues | set(AGENT_ISSUE.findall(json.dumps({k: v for k, v in j.items() if k != "fixtures"})[:4000]))
