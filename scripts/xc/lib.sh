@@ -7,8 +7,10 @@ XC=$S5/xc; mkdir -p "$XC"
 XC_JOBS=${XC_JOBS:-3}                      # parallel capture processes (each ~0.7 GB RSS, one core)
 XC_TURNS=${XC_TURNS:-120}                  # compared turns per scenario
 XC_MAX=${XC_MAX:-4} XC_STRIDE=${XC_STRIDE:-5}
-# per-scenario run limit: a full 120-turn run takes under 3 min (2026-10-23 census: whole shards in 85-172 s), so a
-# run still going after 10 min hangs; the old 40 min limit held the whole census on one hanging scenario
+# limit per capture run (one point of one scenario): a full 120-turn ExecuteTask run takes under 3 min (2026-10-23
+# census: whole shards in 85-172 s) and the ticks run plays the scenario once per class, so a run still going after
+# 15 min hangs; the old 40 min limit held the whole census on one hanging scenario
+XC_TIMEOUT=${XC_TIMEOUT:-900}
 
 # scenarios: "name image skip turns" lines. bc replays its recorded commands (commands.bin beside the image); every
 # other image runs autonomously (AI players, armies, campaign scripts), which is still the original behaviour.
@@ -25,6 +27,7 @@ xc_build(){
     [ -f crates/s5xcheck/Cargo.lock ] || cp recomp/Cargo.lock crates/s5xcheck/Cargo.lock
     CARGO_TARGET_DIR=${XC_TARGET:-$S5_REPO/recomp/target} cargo test --release --no-run -j "${CARGO_BUILD_JOBS:-3}" \
       --manifest-path crates/s5xcheck/Cargo.toml --test capture-execute-task --test capture-entity-tick \
+      $([ -f crates/s5xcheck/tests/capture-ticks.rs ] && echo --test capture-ticks) \
       --message-format=json 2> "$XC/build.log" \
     | python3 -c 'import sys,json
 for l in sys.stdin:
@@ -34,15 +37,40 @@ for l in sys.stdin:
 }
 xc_bin(){ awk -v n="$1" '$1==n{print $2}' "$XC/bins.txt"; }
 
-# xc_run <scenario line fields: name image skip turns> <out.json> [only-kinds]: one ExecuteTask capture run
+# capture points: the test binaries of the census and the kinds each one measures. capture-ticks groups the entity
+# ticks (building, settler, animal) by type as TICK_<CLASS>_<type>; every other kind is an ExecuteTask task kind.
+xc_points(){ echo capture-execute-task; [ -n "$(xc_bin capture-ticks)" ] && echo capture-ticks; }
+xc_point(){ case $1 in TICK_*) echo capture-ticks ;; *) echo capture-execute-task ;; esac; }
+
+# xc_run <scenario line fields: name image skip turns> <out.json> [only-kinds]: the capture runs of one scenario (every
+# point, or only the points of the given kinds), merged into one document (the groups of the points are disjoint)
 xc_run(){
-  local name=$1 img=$2 skip=$3 turns=$4 out=$5 only=${6:-}
-  rm -f "$out"
-  ( cd "$S5_REPO" && export S5_XCHECK_IMAGE=$img S5_CAPTURE_SKIP=$skip S5_CAPTURE_TURNS=$turns S5_CAPTURE_MAX=$XC_MAX \
-      S5_CAPTURE_STRIDE=$XC_STRIDE S5_CAPTURE_JSON=$out && { [ -z "$only" ] || export S5_CAPTURE_ONLY=$only; } &&
-    timeout -k 30 "${XC_TIMEOUT:-600}" "$(xc_bin capture-execute-task)" --nocapture --test-threads=1 ) \
-    < /dev/null > "$XC/run-$name${only:+-only}.log" 2>&1
-  echo $? > "$XC/rc-$name${only:+-only}"
+  local name=$1 img=$2 skip=$3 turns=$4 out=$5 only=${6:-} tag=$name${6:+-only} bin rc=0 r
+  rm -f "$out" "$out".*.part
+  local bins; if [ -n "$only" ]; then bins=$(tr ',' '\n' <<<"$only" | while read -r k; do xc_point "$k"; done | sort -u)
+  else bins=$(xc_points); fi
+  : > "$XC/run-$tag.log"
+  for bin in $bins; do
+    ( cd "$S5_REPO" && export S5_XCHECK_IMAGE=$img S5_CAPTURE_SKIP=$skip S5_CAPTURE_TURNS=$turns S5_CAPTURE_MAX=$XC_MAX \
+        S5_CAPTURE_STRIDE=$XC_STRIDE S5_CAPTURE_JSON=$out.$bin.part && { [ -z "$only" ] || export S5_CAPTURE_ONLY=$only; } &&
+      timeout -k 30 "$XC_TIMEOUT" "$(xc_bin "$bin")" --nocapture --test-threads=1 ) \
+      < /dev/null >> "$XC/run-$tag.log" 2>&1
+    r=$?; [ -s "$out.$bin.part" ] || rc=$r   # a failing comparison exits 101 with its document written
+  done
+  echo "$rc" > "$XC/rc-$tag"
+  python3 - "$out" $(for bin in $bins; do echo "$out.$bin.part"; done) <<'M'
+import json, sys
+from pathlib import Path
+docs = [json.loads(Path(p).read_text()) for p in sys.argv[2:] if Path(p).is_file() and Path(p).stat().st_size]
+if docs:
+    out = {"function": ",".join(d["function"] for d in docs), "turns": docs[0]["turns"],
+           "entries": sum(d["entries"] for d in docs), "import_errors": [e for d in docs for e in d["import_errors"]],
+           "groups": {k: v for d in docs for k, v in d["groups"].items()},
+           # a point without its document (crash, timeout) is named, so a missing kind is not read as fixed
+           "missing_points": [Path(p).suffixes[-2][1:] for p in sys.argv[2:] if not (Path(p).is_file() and Path(p).stat().st_size)]}
+    Path(sys.argv[1]).write_text(json.dumps(out))
+M
+  rm -f "$out".*.part
   [ -s "$out" ]
 }
 

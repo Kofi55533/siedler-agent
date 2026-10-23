@@ -1057,7 +1057,8 @@ def fleet_v2():
 
 
 # ---------------- xc per-call differential (scripts/xc, since 2026-10-23) ----------------
-# The census (xc-census.yml) measures every task kind at the original's real calls; workers are the fix jobs of
+# The census (xc-census.yml) measures every task kind (ExecuteTask) and the entity ticks per type (TICK_<CLASS>_<type>)
+# at the original's real calls; workers are the fix jobs of
 # xc-worker.yml runs, one job per failing kind, in the main repo and in pool repos of other accounts that call the same
 # reusable workflow. A slot is a job, not a run. Kinds are tracked by open `[xc] KIND` issues (label xc-kind) in PUB.
 XC_POOLS = [(PUB, "Kofi55533", "XC_WORKERS", 10), ("Dominickofi00/siedler-agent", "Dominickofi00", "XC_POOL_WORKERS", 20)]
@@ -1079,10 +1080,15 @@ def xc_worklist():
     with urllib.request.urlopen(req, timeout=120) as r:
         doc = json.loads(r.read())
     kinds = doc.get("kinds") or {}
-    named = {k: v for k, v in kinds.items() if not k.startswith("task type ")}
+    named = {k: v for k, v in kinds.items() if not k.startswith("task type ") and "_type" not in k}
+    points = {}  # per capture point: measured / differing kinds
+    for k, v in named.items():
+        pt = points.setdefault("ticks" if k.startswith("TICK_") else "tasks", {"kinds": 0, "failing": 0})
+        pt["kinds"] += 1
+        pt["failing"] += bool(v.get("failing"))
     scen = {n: {"name": n, "turns": v.get("turns"), "calls": v.get("entries"), "samples": 0, "failing": 0, "kinds_failing": 0}
             for n, v in (doc.get("scenarios") or {}).items()}
-    for v in kinds.values():  # per scenario: sampled ExecuteTask calls compared / differing (counts only)
+    for v in kinds.values():  # per scenario: sampled calls compared / differing (counts only)
         for n, x in (v.get("scenarios") or {}).items():
             sc = scen.setdefault(n, {"name": n, "turns": None, "calls": None, "samples": 0, "failing": 0, "kinds_failing": 0})
             sc["samples"] += x.get("samples", 0)
@@ -1092,7 +1098,7 @@ def xc_worklist():
     samples, failing = sm.get("samples", 0), sm.get("failing", 0)
     return {"sha": (doc.get("sha") or "")[:12], "updated": asset.get("updated_at"), "kinds": len(named),
             "failing": sum(1 for v in named.values() if v.get("failing")), "unnamed": len(kinds) - len(named),
-            "partial": bool(doc.get("partial")),
+            "partial": bool(doc.get("partial")), "points": points,
             "calls": {"samples": samples, "identical": samples - failing,
                       "pct": round(100 * (samples - failing) / samples, 1) if samples else None},
             "scenarios": sorted(scen.values(), key=lambda x: (-x["failing"], x["name"]))}, named

@@ -10,9 +10,10 @@ echo "shard $I/$N: $(wc -l < "$XC/shard.txt") scenarios on $(git -C "$S5_REPO" r
 t0=$(date +%s); xc_runs "$OUT" < "$XC/shard.txt"
 while read -r name _; do
   [ -s "$OUT/$name.json" ] && python3 -c "import json,sys;d=json.load(open(sys.argv[1]));g=d['groups'].values()
-print(f\"{sys.argv[2]}: {d['entries']} calls, {len(d['groups'])} kinds, {sum(x['failing'] for x in g)}/{sum(x['samples'] for x in g)} differ, {len(d['import_errors'])} import errors\")" "$OUT/$name.json" "$name" \
-  || { rc=$(cat "$XC/rc-$name" 2>/dev/null); echo "$name: no result (exit ${rc:-?}$([ "$rc" = 124 ] && echo ", timeout"))"
-       # the run log may name game state: it goes only into the private shard upload, never to this log
-       mkdir -p "$OUT/_logs" && tail -n 80 "$XC/run-$name.log" > "$OUT/_logs/$name.log" 2>/dev/null; }
+print(f\"{sys.argv[2]}: {d['entries']} calls, {len(d['groups'])} kinds, {sum(x['failing'] for x in g)}/{sum(x['samples'] for x in g)} differ, {len(d['import_errors'])} import errors\"+(f\", points without result: {','.join(d['missing_points'])}\" if d.get('missing_points') else ''))" "$OUT/$name.json" "$name" \
+  || echo "$name: no result (exit $(cat "$XC/rc-$name" 2>/dev/null)$(grep -qx 124 "$XC/rc-$name" 2>/dev/null && echo ", timeout"))"
+  # a point without result (crash, timeout): the run log may name game state, so it goes only into the private shard
+  # upload, never to this log
+  grep -qx 0 "$XC/rc-$name" 2>/dev/null || { mkdir -p "$OUT/_logs" && tail -n 120 "$XC/run-$name.log" > "$OUT/_logs/$name.log" 2>/dev/null; }
 done < "$XC/shard.txt"
 echo "shard secs=$(( $(date +%s) - t0 ))"

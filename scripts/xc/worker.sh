@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# worker.sh <kind>: one task kind of the per-call differential, from measurement to merge.
+# worker.sh <kind>: one kind of the per-call differential (an ExecuteTask task kind, or an entity tick of one type
+# TICK_<CLASS>_<type>), from measurement to merge.
 #   needs: s5-setup.sh done, $XC/worklist.json (census), $XC_NATIVE (functions.jsonl + code.jsonl), $W (model
 #   workspace), GH_TOKEN (PAT; never passed to the model), opencode installed with its auth.
 # 1. measure the kind on the current clean/integration (all scenarios where it runs) -> nothing to do if identical
@@ -51,11 +52,15 @@ chmod +x "$W/check"
 cat > "$W/opencode.json" <<'J'
 {"$schema":"https://opencode.ai/config.json","permission":{"edit":"allow","bash":"allow","webfetch":"deny","external_directory":"allow"}}
 J
-PROMPT="You are porting one task handler of the original game Die Siedler: Das Erbe der Koenige into its clean, hand-written
+case $KIND in
+  TICK_*) WHAT="the ordinary per-turn tick of entity type ${KIND#TICK_*_} (TICK_<class>_<type>)"; POINT="the entity tick (crates/s5xcheck/tests/capture-ticks.rs)" ;;
+  *) WHAT="task kind $KIND"; POINT="ExecuteTask 0x57BF33" ;;
+esac
+PROMPT="You are porting one piece of behaviour of the original game Die Siedler: Das Erbe der Koenige into its clean, hand-written
 Rust reimplementation, so that it behaves exactly like the original at the original's own calls.
 Workspace: $W. The Rust repo is $W/siedler-sim-rs (crate crates/s5clean). Read $W/TASK.md first: it holds the measured
-differences between the original and the clean port at real calls of task kind $KIND (\`-\` original, \`+\` clean), the
-original's decompiled handlers and callees, and where the clean code handles the kind today.
+differences between the original and the clean port at real calls of $WHAT (\`-\` original, \`+\` clean), the
+original's decompiled functions and callees, and where the clean code handles the kind today.
 Goal: \`$W/check\` reports 0 differing calls for $KIND (it builds and runs the comparison, several minutes; \`$W/check all\`
 runs every scenario where the kind appears). Work loop: read the difference, find the native logic that produces the
 original's value (decompilation in TASK.md; more functions: grep the address in $XC_NATIVE/functions.jsonl, read the
@@ -91,7 +96,7 @@ git add -A -- crates/s5clean docs
 summary=$(grep -E 'identical|scope ok' "$XC/verify-$round.txt" | head -3)
 git -c user.name=siedler-agent -c user.email=Kofi55533@users.noreply.github.com commit -q -m "xc: $KIND identical to the original at its real calls
 
-Measured by the per-call differential (crates/s5xcheck capture, ExecuteTask 0x57BF33) in the
+Measured by the per-call differential (crates/s5xcheck capture, $POINT) in the
 recorded scenarios; verified by siedler-agent scripts/xc/verify.sh (scope, kind, no other kind
 regressed, s5clean tests, building tick).
 $summary" || exit 2
@@ -100,7 +105,7 @@ for try in 1 2; do
   pr=$(gh api "repos/$PROJECT/pulls?state=open&head=${PROJECT%%/*}:$BR" --jq '.[0].number // empty')
   [ -z "$pr" ] && pr=$(gh api "repos/$PROJECT/pulls" -f head="$BR" -f base=clean/integration \
       -f title="xc: $KIND identical to the original at its real calls" \
-      -f body="Per-call differential (ExecuteTask 0x57BF33, task kind \`$KIND\`), verified by the pipeline:
+      -f body="Per-call differential ($POINT, kind \`$KIND\`), verified by the pipeline:
 \`\`\`
 $(grep -vE '^VERDICT' "$XC/verify-$round.txt" | head -20)
 \`\`\`" --jq .number)

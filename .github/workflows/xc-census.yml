@@ -1,7 +1,8 @@
 name: xc-census
 # Per-call differential census of siedler-sim-rs clean/integration (scripts/xc, crates/s5xcheck capture tests): every
-# recorded scenario plays on the recompiled original; at sampled real calls of ExecuteTask (0x57BF33) the clean port
-# runs on the same imported state and both results are compared. The merged work list (task kind x scenario, with the
+# recorded scenario plays on the recompiled original; at sampled real calls of ExecuteTask (0x57BF33, grouped by task
+# kind) and of the entity ticks (building/settler/animal, grouped by type) the clean port runs on the same imported
+# state and both results are compared. The merged work list (kind x scenario, with the
 # measured diffs) goes to the private release xc-worklist of siedler-data; this public repo only sees counts.
 # After the census: regressions against the previous work list are attributed to an xc merge and reverted
 # (scripts/xc/attribute.sh), then a worker wave is dispatched for the failing kinds.
@@ -104,7 +105,7 @@ jobs:
           python3 - >> "$GITHUB_STEP_SUMMARY" <<'P'
           import json
           d = json.load(open("worklist.json")); s = d["summary"]
-          print(f"### census {d['sha'][:8]}: {s['failing_kinds']}/{s['kinds']} task kinds differ, {s['failing']}/{s['samples']} sampled calls\n")
+          print(f"### census {d['sha'][:8]}: {s['failing_kinds']}/{s['kinds']} kinds differ, {s['failing']}/{s['samples']} sampled calls\n")
           print("| kind | failing scenarios | sampled calls differing |\n|---|---|---|")
           for k, v in sorted(d["kinds"].items(), key=lambda kv: -kv[1]["failing"]):
               print(f"| {k} | {sum(1 for x in v['scenarios'].values() if x['failing'])}/{len(v['scenarios'])} | {v['failing']}/{v['samples']} |")

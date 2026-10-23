@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Context pack for one worker: context.py <kind> <base-dir> <native-source-dir> <repo> <out.md>
 
-Everything a model needs to fix one task kind, gathered by the script so the model does not search for it:
-the measured differences at the original's real calls (base-dir/only/*.json), the native handlers of the kind
-(data/engine/task_handlers.json) with their decompilation and that of their direct callees (code.jsonl, read by
-offset through functions.jsonl), and where the clean code handles the kind today.
+Everything a model needs to fix one kind, gathered by the script so the model does not search for it:
+the measured differences at the original's real calls (base-dir/only/*.json), the native functions of the kind
+(a task kind: its handlers in data/engine/task_handlers.json; an entity tick TICK_<CLASS>_<type>: the class's tick)
+with their decompilation and that of their direct callees (code.jsonl, read by offset through functions.jsonl), and
+where the clean code handles the kind today.
 """
 import json
 import re
@@ -13,6 +14,9 @@ import sys
 from pathlib import Path
 
 BUDGET = 60_000  # characters of decompiled code in the pack
+# the entity ticks of the census (crates/s5xcheck/tests/capture-ticks.rs): kind prefix -> (class, native tick)
+TICKS = {"TICK_BUILDING_": ("GGL::CBuilding", "0x004AF630"), "TICK_SETTLER_": ("GGL::CSettler", "0x004A6A1B"),
+         "TICK_ANIMAL_": ("GGL::CAnimal", "0x00511DF9")}
 
 
 def index(src):
@@ -35,16 +39,26 @@ def code(src, funcs, addr):
 
 def main(kind, base, src, repo, out):
     base, src, repo = Path(base), Path(src), Path(repo)
-    th = json.loads((repo / "data/engine/task_handlers.json").read_text())
-    handlers = th["handlers"].get(kind, {})
-    number = th["enum"].get(kind)
+    tick = next(((p, c) for p, c in TICKS.items() if kind.startswith(p)), None)
     funcs = index(src)
-    md = [f"# Task kind {kind} (native task type {number})", ""]
-
-    md += ["## Measured differences at the original's real calls", "",
-           "Each sample: the original's `ExecuteTask` (0x57BF33) on an entity whose current task is this kind, against",
-           "`World::execute_current_task` on the same imported state. `-` lines are the original (reference), `+` lines",
-           "are the clean port; the path names the field of `World`.", ""]
+    if tick:
+        prefix, (cls, addr) = tick
+        handlers, search = {cls: addr}, [kind.removeprefix(prefix)]
+        md = [f"# Entity tick of type {kind.removeprefix(prefix)} ({cls}::Tick {addr})", "",
+              "## Measured differences at the original's real calls", "",
+              f"Each sample: the original's `{cls}::Tick` ({addr}, entity virtual +0x38, called once per turn by the",
+              "entity manager 0x576117) on an entity of this type, against `World::tick_entity_with_id` on the same",
+              "imported state. `-` lines are the original (reference), `+` lines are the clean port; the path names the",
+              "field of `World`. A settler's or animal's tick runs its current task (ExecuteTask 0x57BF33): a difference",
+              "inside a task handler belongs to that handler (crates/s5clean/src/entity/tasks.rs).", ""]
+    else:
+        th = json.loads((repo / "data/engine/task_handlers.json").read_text())
+        handlers, search = th["handlers"].get(kind, {}), [kind]
+        md = [f"# Task kind {kind} (native task type {th['enum'].get(kind)})", "",
+              "## Measured differences at the original's real calls", "",
+              "Each sample: the original's `ExecuteTask` (0x57BF33) on an entity whose current task is this kind,",
+              "against `World::execute_current_task` on the same imported state. `-` lines are the original",
+              "(reference), `+` lines are the clean port; the path names the field of `World`.", ""]
     shown = 0
     for f in sorted((base / "only").glob("*.json")):
         g = json.loads(f.read_text())["groups"].get(kind)
@@ -56,7 +70,7 @@ def main(kind, base, src, repo, out):
             md += ["", f"### {f.stem} turn {ex['turn']}: {ex['label']}", "```diff", ("\n".join(ex["diff"]) if isinstance(ex["diff"], list) else ex["diff"]).strip()[:4000], "```"]
         md.append("")
 
-    md += ["## Native handlers of this kind (class -> address)", ""]
+    md += ["## Native functions of this kind (class -> address)", ""]
     md += [f"- `{cls}`: `{addr or 'unknown (inline in the dispatcher)'}`" for cls, addr in sorted(handlers.items())] or ["- none listed"]
     md.append("")
     used, seen = 0, set()
@@ -81,11 +95,12 @@ def main(kind, base, src, repo, out):
         used += len(c)
 
     md += ["## Where the clean code handles it today", ""]
-    pats = [kind] + [a.lower().replace("0x00", "0x") for a in handlers.values() if a]
-    hits = subprocess.run(["grep", "-rnE", "|".join(re.escape(p) for p in pats), "crates/s5clean/src"],
+    pats = search + [a.lower().replace("0x00", "0x") for a in handlers.values() if a]
+    hits = subprocess.run(["grep", "-rniE", "|".join(re.escape(p) for p in pats), "crates/s5clean/src"],
                           cwd=repo, capture_output=True, text=True).stdout.splitlines()
     md += [f"- `{h[:200]}`" for h in hits[:40]] or ["- nothing: the kind is not ported yet "
-                                                     "(task dispatch: crates/s5clean/src/entity/tasks.rs)"]
+                                                     "(task dispatch: crates/s5clean/src/entity/tasks.rs, entity "
+                                                     "ticks: crates/s5clean/src/world/entities.rs tick_entity)"]
     Path(out).write_text("\n".join(md) + "\n")
     print(f"context {kind}: {len(handlers)} handlers, {len(seen)} functions, {shown} examples, {len(hits)} clean hits")
 
