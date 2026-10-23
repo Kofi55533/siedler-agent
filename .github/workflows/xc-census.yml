@@ -81,7 +81,9 @@ jobs:
           cd $RUNNER_TEMP; mkdir -p dl all prev
           gh release download xc-census -R $XC_DATA -D dl -p "shard-${{ github.run_id }}-*.tzst"
           n=$(ls dl | wc -l); echo "$n/$SHARDS shards"
-          for f in dl/*.tzst; do zstd -dcq "$f" | tar -xf - -C dl && mv dl/census/*.json all/ && mv dl/census/sha.txt sha.txt; rm -rf dl/census; done
+          mkdir -p logs
+          for f in dl/*.tzst; do zstd -dcq "$f" | tar -xf - -C dl && mv dl/census/*.json all/ && mv dl/census/sha.txt sha.txt; mv dl/census/_logs/* logs/ 2>/dev/null; rm -rf dl/census; done
+          echo "$(ls logs | wc -l) scenarios without result"
           [ "$n" -gt 0 ] || { echo "no shard results"; exit 1; }
           SHA=$(cat sha.txt)
           python3 $GITHUB_WORKSPACE/scripts/xc/xc.py merge all "$SHA" worklist.json
@@ -95,6 +97,8 @@ jobs:
           [ "$n" = "$SHARDS" ] || python3 -c 'import json;d=json.load(open("worklist.json"));d["partial"]=True;json.dump(d,open("worklist.json","w"))'
           gh release view xc-worklist -R $XC_DATA > /dev/null 2>&1 || gh release create xc-worklist -R $XC_DATA -t xc-worklist -n "per-call differential work list" > /dev/null
           gh release upload xc-worklist -R $XC_DATA --clobber worklist.json > /dev/null
+          # why scenarios gave no result (run log tails, private like the work list itself)
+          tar -cf - logs | zstd -q -19 > census-logs.tzst && gh release upload xc-worklist -R $XC_DATA --clobber census-logs.tzst > /dev/null
           for f in dl/*.tzst; do gh release delete-asset xc-census -R $XC_DATA -y "$(basename "$f")" > /dev/null 2>&1 || true; done
           echo "regressions=$(jq -c . <<<"$regs")" >> "$GITHUB_OUTPUT"; echo "old=$old" >> "$GITHUB_OUTPUT"; echo "sha=$SHA" >> "$GITHUB_OUTPUT"
           python3 - >> "$GITHUB_STEP_SUMMARY" <<'P'

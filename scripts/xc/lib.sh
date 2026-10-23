@@ -7,6 +7,8 @@ XC=$S5/xc; mkdir -p "$XC"
 XC_JOBS=${XC_JOBS:-3}                      # parallel capture processes (each ~0.7 GB RSS, one core)
 XC_TURNS=${XC_TURNS:-120}                  # compared turns per scenario
 XC_MAX=${XC_MAX:-4} XC_STRIDE=${XC_STRIDE:-5}
+# per-scenario run limit: a full 120-turn run takes under 3 min (2026-10-23 census: whole shards in 85-172 s), so a
+# run still going after 10 min hangs; the old 40 min limit held the whole census on one hanging scenario
 
 # scenarios: "name image skip turns" lines. bc replays its recorded commands (commands.bin beside the image); every
 # other image runs autonomously (AI players, armies, campaign scripts), which is still the original behaviour.
@@ -38,8 +40,9 @@ xc_run(){
   rm -f "$out"
   ( cd "$S5_REPO" && export S5_XCHECK_IMAGE=$img S5_CAPTURE_SKIP=$skip S5_CAPTURE_TURNS=$turns S5_CAPTURE_MAX=$XC_MAX \
       S5_CAPTURE_STRIDE=$XC_STRIDE S5_CAPTURE_JSON=$out && { [ -z "$only" ] || export S5_CAPTURE_ONLY=$only; } &&
-    timeout -k 30 "${XC_TIMEOUT:-2400}" "$(xc_bin capture-execute-task)" --nocapture --test-threads=1 ) \
+    timeout -k 30 "${XC_TIMEOUT:-600}" "$(xc_bin capture-execute-task)" --nocapture --test-threads=1 ) \
     < /dev/null > "$XC/run-$name${only:+-only}.log" 2>&1
+  echo $? > "$XC/rc-$name${only:+-only}"
   [ -s "$out" ]
 }
 
