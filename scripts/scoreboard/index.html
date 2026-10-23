@@ -124,18 +124,23 @@ details{margin-top:8px}summary{cursor:pointer;color:var(--ink2);font-size:.88rem
 </section>
 
 <section class="charts">
-  <div class="card chart"><h2>Identische Züge</h2><div class="sub">Anteil aller Szenario-Züge, die exakt wie im Original laufen.</div><div id="ch1"></div></div>
+  <div class="card chart"><h2 id="ch1h">Identische Züge</h2><div class="sub" id="ch1s">Anteil aller Szenario-Züge, die exakt wie im Original laufen.</div><div id="ch1"></div></div>
   <div class="card chart"><h2>Integrierte PRs pro Tag</h2><div class="sub">Merges in <code>clean/integration</code>, letzte 7 Tage.</div><div id="ch2"></div></div>
 </section>
 
 <section class="card"><h2>Zuletzt integriert</h2><ul class="list" id="recent"></ul></section>
 
-<section class="card"><h2>Basis-Szenarien</h2>
+<section class="card" id="xcsc" hidden><h2>Szenarien in der Messung <span class="mute small" id="xcsum"></span></h2>
+  <div class="sub">Jedes aufgezeichnete Spiel wird mit dem Original verglichen, Aufruf für Aufruf (Stichproben jeder Aufgaben-Art). <b>Identisch</b> = jede verglichene Stichprobe stimmt.</div>
+  <table><thead><tr><th>Szenario</th><th>Stand</th><th class="prog">Gleiche Aufrufe</th><th class="hide-m">Verglichen</th></tr></thead><tbody id="xcrows"></tbody></table>
+</section>
+
+<section class="card"><h2>Basis-Szenarien <span class="mute small" id="baseold"></span></h2>
   <div class="sub">Aufgezeichnete Spiele und Testkarten. <b>Identisch</b> = jeder Zug stimmt. Sonst zeigt der Balken, bis zu welchem Zug alles stimmt.</div>
   <table><thead><tr><th>Szenario</th><th>Stand</th><th class="prog">Bis Zug</th><th class="hide-m">Gemessen</th></tr></thead><tbody id="base"></tbody></table>
 </section>
 
-<section class="card"><h2>Generierte Szenarien <span class="mute small" id="gensum"></span></h2>
+<section class="card"><h2>Generierte Szenarien <span class="mute small" id="gensum"></span> <span class="mute small" id="genold"></span></h2>
   <div class="sub">Kleine, automatisch erzeugte Testfälle (je eine Situation). Zuerst die mit Abweichung.</div>
   <div class="meter" id="genbar" style="height:10px;margin:8px 0"></div>
   <details id="gendet"><summary>Liste anzeigen</summary><table><thead><tr><th>Szenario</th><th>Stand</th><th class="hide-m">Gemessen</th></tr></thead><tbody id="gen"></tbody></table></details>
@@ -225,6 +230,11 @@ fetch("data.json?t="+NOW).then(r=>r.json()).then(d=>{
     {l:"Identische Züge",v:`${it.pct!=null?it.pct.toLocaleString("de-DE"):"–"} %`,h:`${fmt(it.ok)} von ${fmt(it.total)} Zügen · gemessen ${ago(berlin(it.as_of))}`},
     {l:"Integriert, letzte 24 h",v:`${ig.last_24h??"–"}<small> PRs</small>`,h:`24 h davor: ${ig.prev_24h??"–"} · letzter Merge ${ago(Date.parse(ig.last))}`},
   ];
+  const XW=(pl.xc||{}).worklist,XS=(XW||{}).scenarios||[],XC=(XW||{}).calls||{};
+  if(XW){ // the census replaces the retired gate matrix as the measurement
+    kp[1]={l:"Szenarien ohne Abweichung",v:`${XS.filter(x=>!x.failing).length}<small> / ${XS.length}</small>`,h:`alte Gate-Messung: ${sc.base_identical??"–"} von ${sc.base_total??"–"} Basis-Szenarien`};
+    kp[2]={l:"Gleiche Aufrufe",v:`${XC.pct!=null?XC.pct.toLocaleString("de-DE"):"–"} %`,h:`${fmt(XC.identical)} von ${fmt(XC.samples)} verglichenen Aufrufen · gemessen ${ago(Date.parse(XW.updated))}`};
+  }
   $("kpis").innerHTML=kp.map(k=>`<div class="kpi"><div class="l">${k.l}</div><div class="v num">${k.v}</div><div class="h">${k.h}</div></div>`).join("");
 
   // whole game
@@ -277,7 +287,9 @@ fetch("data.json?t="+NOW).then(r=>r.json()).then(d=>{
      <div class="meter"><i style="width:${100*c.count/rmax}%;background:var(--s1)"></i></div><div class="f">${esc(c.fix)}</div></div>`).join(""):`<div class="mute small">Nichts in Nacharbeit.</div>`;
 
   // charts
-  const hp=(d.history||[]).filter(x=>x.pct_identical!=null&&x.recorded).map(x=>({t:berlin(x.recorded),v:x.pct_identical,label:esc(x.recorded)})).filter(p=>!isNaN(p.t));
+  const hk=XW?"xc_pct":"pct_identical";
+  if(XW){$("ch1h").textContent="Gleiche Aufrufe";$("ch1s").textContent="Anteil der verglichenen Aufrufe aller Szenarien, die exakt wie im Original laufen (je Messung).";}
+  const hp=(d.history||[]).filter(x=>x[hk]!=null&&x.recorded).map(x=>({t:berlin(x.recorded),v:x[hk],label:esc(x.recorded)})).filter(p=>!isNaN(p.t));
   const f1=(v,dd)=>v.toLocaleString("de-DE",{maximumFractionDigits:dd||0})+" %";
   $("ch1").innerHTML=lineChart(hp,{fmtY:f1});wireCross($("ch1"),hp,100);
   $("ch2").innerHTML=barChart(ig.per_day||[]);
@@ -285,6 +297,16 @@ fetch("data.json?t="+NOW).then(r=>r.json()).then(d=>{
   $("recent").innerHTML=(ig.recent||[]).length?ig.recent.map(m=>`<li><span>${m.pr?`<a href="${esc(m.url)}">#${m.pr}</a> `:""}${(m.title?esc(stripSub(m.title)):`<span class="mute">Einzel-Merge über das Gate</span>`)}</span><span class="r">${ago(Date.parse(m.time))}</span></li>`).join(""):`<li class="mute">In den letzten 14 Tagen nichts integriert.</li>`;
 
   // scenarios
+  if(XW){
+    $("xcsc").hidden=false;
+    $("xcsum").textContent=`· ${XS.filter(x=>!x.failing).length} von ${XS.length} identisch · Stand ${XW.sha}${XW.partial?" (unvollständig)":""}`;
+    $("xcrows").innerHTML=XS.map(x=>{const f=x.samples?(x.samples-x.failing)/x.samples:0;return`<tr><td class="nm">${esc(x.name)}</td>
+      <td>${!x.samples?`<span class="st"><span class="dot info"></span>nichts verglichen</span>`:x.failing?`<span class="st"><span class="dot warning"></span>weicht ab</span> <span class="small mute">${x.kinds_failing} Art${x.kinds_failing==1?"":"en"}</span>`:`<span class="st"><span class="dot good"></span>Identisch</span>`}</td>
+      <td class="prog"><div class="meter" data-tip="${esc(x.name)}: ${x.samples-x.failing} von ${x.samples} Aufrufen gleich"><i style="width:${100*f}%;background:${x.failing?"var(--s1)":"var(--good)"}"></i></div>
+        <div class="small mute num">${fmt(x.samples-x.failing)} von ${fmt(x.samples)}</div></td>
+      <td class="hide-m small mute num">${fmt(x.turns)} Züge<br>${fmt(x.calls)} Aufrufe</td></tr>`}).join("");
+    $("baseold").textContent=$("genold").textContent="· alte Gate-Messung, wird nicht mehr aktualisiert";
+  }
   const SC=d.scenarios||[];
   const state=s=>!s.measured?`<span class="st"><span class="dot info"></span>nicht gemessen</span>`:s.identical?`<span class="st"><span class="dot good"></span>Identisch</span>`:`<span class="st"><span class="dot warning"></span>weicht ab</span>`;
   const frac=s=>s.identical?1:(s.turn!=null&&s.total)?Math.max(0,Math.min(1,(s.turn-((s.start!=null&&s.turn>=s.start)?s.start:0))/s.total)):0;
