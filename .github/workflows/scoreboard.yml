@@ -26,7 +26,13 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-        with: { sparse-checkout: scripts/scoreboard }
+        with:
+          # autonomy_state.py + scope_classes.json: the controller's own counts (scope classes, ticket states) for the overview
+          sparse-checkout: |
+            /scripts/scoreboard/
+            /scripts/autonomy_state.py
+            /scripts/scope_classes.json
+          sparse-checkout-cone-mode: false
       - name: Fetch previous history (gh-pages)
         run: |
           mkdir -p "$RUNNER_TEMP/out"
