@@ -3,7 +3,9 @@
 
   xc.py merge <dir> <sha> <out>       per-scenario capture JSONs -> worklist.json (kinds x scenarios)
   xc.py regressions <old> <new>       (kind, scenario) pairs that compared clean in <old> and fail in <new> (JSON list)
-  xc.py pick <worklist> <n> [--claim] up to n failing kinds no open PR, claim or exhausted attempt covers (JSON list)
+  xc.py pick <worklist> <n> [--claim] [--limit=L]
+                                      up to n failing kinds no open PR, claim or exhausted attempt covers (JSON list);
+                                      --limit: at most L live claims of this pool (GITHUB_REPOSITORY) in all
   xc.py scenarios <worklist> <kind>   names of the scenarios where <kind> was sampled, failing ones first
   xc.py failing <worklist> <kind>     names of the scenarios where <kind> fails
   xc.py check <base> <new> <kind>     a worker's verdict: <kind> clean everywhere, nothing else newly failing
@@ -24,6 +26,7 @@ CLAIM_H = 7   # a claim (a worker picked the kind) blocks other picks this long;
 PROJECT = os.environ.get("XC_PROJECT", "Kofi55533/siedler-sim-rs")
 # the tracking issues live in the main pipeline repo for every pool (forks pick from the same work list)
 AGENT = os.environ.get("XC_AGENT", "Kofi55533/siedler-agent")
+POOL = os.environ.get("GITHUB_REPOSITORY", "local")  # the repo whose runners do the work (main or a pool)
 
 
 def load(path):
@@ -90,9 +93,10 @@ def tried(body, sha):
     return int(f.get("attempts", "0")) if f.get("census") == sha[:12] else 0
 
 
-def claimed(body, now):
-    f = fields(body)
-    return "claimed" in f and now - int(f["claimed"].split()[0]) < CLAIM_H * 3600
+def claimed(body, now, pool=None):
+    """a live claim (of any pool, or of <pool> only)"""
+    c = fields(body).get("claimed", "").split()
+    return bool(c) and now - int(c[0]) < CLAIM_H * 3600 and (pool is None or c[2:3] == [pool])
 
 
 def tracking():
@@ -111,7 +115,7 @@ def issue(kind, op, sha=None):
     num, body = tracking().get(kind, (None, ""))
     f = fields(body)
     if op == "claim":
-        f["claimed"] = f"{int(time.time())} {os.environ.get('GITHUB_RUN_ID', 'local')}"
+        f["claimed"] = f"{int(time.time())} {os.environ.get('GITHUB_RUN_ID', 'local')} {POOL}"
     elif op == "unclaim":
         f.pop("claimed", None)
     elif op == "attempt":
@@ -126,7 +130,7 @@ def issue(kind, op, sha=None):
         gh(f"repos/{AGENT}/issues", "-f", f"title=[xc] {kind}", "-f", "body=" + render(f), "-f", "labels[]=xc-kind")
 
 
-def pick(worklist, n, claim=False):
+def pick(worklist, n, claim=False, limit=None):
     doc = load(worklist)
     taken = set()
     for page in range(1, 6):
@@ -135,6 +139,8 @@ def pick(worklist, n, claim=False):
         if len(prs) < 100:
             break
     issues, now = tracking(), time.time()
+    if limit is not None:  # this pool's slots: its live claims are its running worker jobs
+        n = min(n, limit - sum(1 for _, body in issues.values() if claimed(body, now, POOL)))
     ranked = []
     for kind, k in doc["kinds"].items():
         if not k["failing"] or kind.startswith("task type ") or branch(kind) in taken:
@@ -146,7 +152,7 @@ def pick(worklist, n, claim=False):
         failing_scenarios = sum(1 for v in k["scenarios"].values() if v["failing"])
         ranked.append((-failing_scenarios, -k["failing"], kind))
     ranked.sort()
-    kinds = [kind for _, _, kind in ranked[:n]]
+    kinds = [kind for _, _, kind in ranked[:max(n, 0)]]
     if claim:
         for kind in kinds:
             issue(kind, "claim")
@@ -201,7 +207,8 @@ def main(argv):
     elif cmd == "regressions":
         regressions(argv[2], argv[3])
     elif cmd == "pick":
-        pick(argv[2], int(argv[3]), claim="--claim" in argv)
+        lim = [int(a.split("=")[1]) for a in argv if a.startswith("--limit=")]
+        pick(argv[2], int(argv[3]), claim="--claim" in argv, limit=lim[0] if lim else None)
     elif cmd == "scenarios":
         scenarios(argv[2], argv[3])
     elif cmd == "failing":

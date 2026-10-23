@@ -5,11 +5,21 @@ name: xc-worker
 # The pick job claims the kinds (tracking issues "[xc] KIND", label xc-kind, in XC_AGENT) so overlapping waves and
 # other pools (forks of this repo with their own OPENCODE_API_KEY) never work on the same kind.
 # Model output stays on the runner (private game state); the log shows counts and verdict lines only.
+# Other accounts add Actions slots without a copy of this code: their repo calls this workflow on a schedule
+# (pool/xc-pool.yml is the whole file), so every pool always runs the current main. The pick claims at most
+# XC_WORKERS kinds per pool in all, so overlapping waves of one pool never exceed its slots.
 on:
   workflow_dispatch:
     inputs:
       n: { description: 'max workers in this wave', default: '20' }
       kinds: { description: 'comma-separated task kinds (empty: pick from the work list)', default: '' }
+  workflow_call:
+    inputs:
+      n: { type: string, default: '20' }
+      kinds: { type: string, default: '' }
+    secrets:
+      PRIVATE_REPO_TOKEN: { required: true }
+      OPENCODE_API_KEY: { required: true }
 permissions:
   contents: read
   issues: write
@@ -26,11 +36,13 @@ jobs:
       kinds: ${{ steps.p.outputs.kinds }}
     steps:
       - uses: actions/checkout@v4
+        with: { repository: '${{ env.XC_AGENT }}', ref: main, sparse-checkout: scripts/xc }
       - name: Pick and claim failing kinds
         id: p
         env:
           GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
           N: ${{ inputs.n || vars.XC_WORKERS || '20' }}
+          L: ${{ vars.XC_WORKERS || '20' }}
           KINDS: ${{ inputs.kinds }}
         run: |
           gh release download xc-worklist -R $XC_DATA -D $RUNNER_TEMP -p worklist.json
@@ -38,7 +50,7 @@ jobs:
             k=$(python3 -c 'import json,sys;print(json.dumps([x.strip() for x in sys.argv[1].split(",") if x.strip()]))' "$KINDS")
             for x in $(jq -r '.[]' <<<"$k"); do python3 scripts/xc/xc.py issue "$x" claim; done
           else
-            k=$(python3 scripts/xc/xc.py pick $RUNNER_TEMP/worklist.json "$N" --claim)
+            k=$(python3 scripts/xc/xc.py pick $RUNNER_TEMP/worklist.json "$N" --claim --limit="$L")
           fi
           echo "kinds=$k" >> "$GITHUB_OUTPUT"; echo "picked: $k" | tee -a "$GITHUB_STEP_SUMMARY"
   fix:
@@ -53,6 +65,7 @@ jobs:
         kind: ${{ fromJSON(needs.pick.outputs.kinds) }}
     steps:
       - uses: actions/checkout@v4
+        with: { repository: '${{ env.XC_AGENT }}', ref: main }
       - uses: actions/setup-python@v5
         with: { python-version: '3.11' }
       - name: Setup game data, toolchain, build cache, native decompilation (quiet)
