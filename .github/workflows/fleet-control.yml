@@ -33,7 +33,9 @@ jobs:
           FLEET_V2_WORKER_LIMIT: ${{ vars.FLEET_V2_WORKER_LIMIT || '16' }}
           MODE: ${{ inputs.mode || 'control' }}
         run: |
-          if [ "$FLEET_V2_ENABLED" != true ] || [ "$GITHUB_REF_NAME" != main ]; then MODE=shadow; fi
+          # 2026-10-23: the package/gate pipeline is retired (one function per task, verified against the oracle
+          # by the worker itself, replaces it). The controller stays read-only until the new loop takes over.
+          MODE=shadow
           python3 scripts/autonomy.py "$MODE"
       - name: Keep the scoreboard fresh
         # scoreboard.yml's own */15 cron fires only every few hours on this busy repo (2026-10-23: one run in 3 h) and
