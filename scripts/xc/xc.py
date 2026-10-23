@@ -38,20 +38,27 @@ def branch(kind):
     return "xc/" + kind.lower().replace("_", "-")
 
 
+def point(kind):
+    """the capture point (test binary) that measures a kind: the entity ticks per type, else ExecuteTask's task kinds"""
+    return "capture-ticks" if kind.startswith("TICK_") else "capture-execute-task"
+
+
 def merge(directory, sha, out):
-    kinds, scenarios = {}, {}
+    kinds, scenarios, functions = {}, {}, set()
     for f in sorted(Path(directory).glob("*.json")):
         doc = load(f)
         name = f.stem
-        scenarios[name] = {"turns": doc["turns"], "entries": doc["entries"], "import_errors": len(doc["import_errors"])}
+        functions.update(doc["function"].split(","))
+        scenarios[name] = {"turns": doc["turns"], "entries": doc["entries"], "import_errors": len(doc["import_errors"]),
+                           "missing_points": doc.get("missing_points", [])}
         for kind, g in doc["groups"].items():
-            k = kinds.setdefault(kind, {"entries": 0, "samples": 0, "failing": 0, "scenarios": {}})
+            k = kinds.setdefault(kind, {"point": point(kind), "entries": 0, "samples": 0, "failing": 0, "scenarios": {}})
             k["entries"] += g["entries"]
             k["samples"] += g["samples"]
             k["failing"] += g["failing"]
             k["scenarios"][name] = {"entries": g["entries"], "samples": g["samples"], "failing": g["failing"],
                                     "examples": g["examples"]}
-    doc = {"sha": sha, "function": "0x57BF33", "scenarios": scenarios, "kinds": kinds,
+    doc = {"sha": sha, "function": ",".join(sorted(functions)), "scenarios": scenarios, "kinds": kinds,
            "summary": {"kinds": len(kinds), "failing_kinds": sum(1 for k in kinds.values() if k["failing"]),
                        "samples": sum(k["samples"] for k in kinds.values()),
                        "failing": sum(k["failing"] for k in kinds.values())}}
@@ -146,7 +153,8 @@ def pick(worklist, n, claim=False, limit=None):
         n = min(n, limit - sum(1 for _, body in issues.values() if claimed(body, now, POOL)))
     ranked = []
     for kind, k in doc["kinds"].items():
-        if not k["failing"] or kind.startswith("task type ") or branch(kind) in taken:
+        # unnamed groups (a task type or entity type the data does not name) are no work unit
+        if not k["failing"] or kind.startswith("task type ") or "_type" in kind or branch(kind) in taken:
             continue
         body = issues.get(kind, (None, ""))[1]
         # the attempt counter restarts with every census sha (new base, new examples)
@@ -154,9 +162,11 @@ def pick(worklist, n, claim=False, limit=None):
         if merged or claimed(body, now) or tried(body, doc["sha"]) >= ATTEMPTS:
             continue
         failing_scenarios = sum(1 for v in k["scenarios"].values() if v["failing"])
-        ranked.append((-failing_scenarios, -k["failing"], kind))
+        # task kinds first: a settler's or animal's tick runs its current task, so a task handler that differs shows
+        # in the ticks of every type running it; fixing the handler is the narrower job and clears those as well
+        ranked.append((point(kind) != "capture-execute-task", -failing_scenarios, -k["failing"], kind))
     ranked.sort()
-    kinds = [kind for _, _, kind in ranked[:max(n, 0)]]
+    kinds = [r[-1] for r in ranked[:max(n, 0)]]
     if claim:
         for kind in kinds:
             issue(kind, "claim")
@@ -194,6 +204,11 @@ def check(base, new, kind):
             if other != kind and g["failing"] and other in bg and bg[other]["samples"] and not bg[other]["failing"]:
                 ok = False
                 lines.append(f"regression: {other} now differs in {f.stem} ({g['failing']}/{g['samples']})")
+        # the groups come from the original's side, so one that vanished means its capture run crashed
+        gone = [other for other in bg if bg[other]["samples"] and other not in ng]
+        if gone:
+            ok = False
+            lines.append(f"full run of {f.stem}: {len(gone)} kinds without result after the change (crash?), e.g. {gone[0]}")
     for f in sorted(Path(base, "full").glob("*.json")):
         if not Path(new, "full", f.name).exists():
             ok = False

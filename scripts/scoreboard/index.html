@@ -266,9 +266,10 @@ fetch("data.json?t="+NOW).then(r=>r.json()).then(d=>{
   const X=pl.xc;
   if(X){ // per-call differential (since 2026-10-23): census -> one fix job per failing task kind -> auto-merge when identical
     const k=X.kinds||{},wl=X.worklist||{},c=X.census||{};
-    $("flowsub").textContent="Die Messung (Census) vergleicht jede Aufgaben-Art an den echten Aufrufen des Originals → ein Worker repariert eine abweichende Art → ist sie danach überall identisch, wird sie automatisch gemerged.";
+    $("flowsub").textContent="Die Messung (Census) vergleicht jede Aufgaben-Art und den Tick jedes Gebäude-, Siedler- und Tiertyps an den echten Aufrufen des Originals → ein Worker repariert eine abweichende Art → ist sie danach überall identisch, wird sie automatisch gemerged.";
+    const pt=wl.points||{},ptx=(n,l)=>pt[n]?`${fmt(pt[n].failing)} ${l}`:"";
     $("flow").innerHTML=[
-      {n:wl.failing,l:`Aufgaben-Arten weichen ab<br><span class="mute">${wl.kinds!=null?`von ${fmt(wl.kinds)} gemessenen · ${fmt(k.open)} noch zu vergeben`:"Arbeitsliste nicht lesbar"}</span>`},
+      {n:wl.failing,l:`Arten weichen ab<br><span class="mute">${wl.kinds!=null?`von ${fmt(wl.kinds)} gemessenen${pt.ticks?` (${[ptx("tasks","Aufgaben"),ptx("ticks","Typ-Ticks")].filter(Boolean).join(", ")})`:""} · ${fmt(k.open)} noch zu vergeben`:"Arbeitsliste nicht lesbar"}</span>`},
       {n:X.running,l:`Worker arbeiten gerade<br><span class="mute">${fmt(X.waiting)} warten auf einen Platz</span>`},
       {n:k.merged,l:`repariert und gemerged<br><span class="mute">seit Start der Messung</span>`},
       {n:k.exhausted,l:`3× nicht geschafft<br><span class="mute">warten auf die nächste Messung</span>`},
