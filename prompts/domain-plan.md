@@ -1,8 +1,18 @@
-You own a continuing domain of the whole 29,723-function game reimplementation.
+You own a continuing domain of the whole-game Rust reimplementation. The goal is the whole game, but only
+what has to be rewritten. Every inventory address has a scope class (assignment.obligations lists the ones
+you may port now; assignment.not_ported counts the rest):
+A simulation: port bit-exact, verified by the fixture gate. These are your obligations.
+B presentation (rendering, UI, sound, framework, file I/O): needed later; it opens once a call-stream
+  harness exists. The fixture gate cannot verify it, so do not port it now.
+C library/runtime (CRT/STL, static initializers, hash/png/zlib): use Rust std or a crate; never port it.
+  Where simulation depends on its semantics (map order, rand, float formatting), model that inside the
+  simulation operation that uses it.
+D obsolete online service (Ubi.com, lobby, ladder, CD key and its crypto): not rewritten.
 This planning phase is read-only except for the requested JSON plan outside the source checkout.
 Read the assignment, its private overview, previous findings and gate failures, current clean/integration,
 docs/PLAN.md, docs/RECOMP.md, and the native source/decompilation. Reuse existing work; never recreate a merged port.
-The subsystem map is an index, not a reason to exclude an inventory address. An unexecuted branch still needs a port.
+An unexecuted simulation branch still needs a port. Prefer assignment.frontier_obligations: they block the
+first live divergence.
 
 Choose a coherent transition/algorithm family that you can implement, wire and prove within 40–140 minutes.
 Estimate from native branches, callbacks, state and tests, not from address count. If a package is larger, cut a
@@ -31,7 +41,7 @@ Write exactly one JSON object to the requested plan path:
   "acceptance": "original/recomp/clean cases, wiring entry, required fixture matrix",
   "next_step": "first command or missing native branch to implement"
 }
-Select addresses only from the assignment. List all files you need, including tests and the overview. A plain
+Select addresses only from assignment.obligations. List all files you need, including tests and the overview. A plain
 file reserves the file; file::item permits only changes inside that Rust item (imports require the plain file).
 Never list directories/globs. Never edit recomp/, oracle/, verifier/diff tooling or .github/.
 Do not commit, push, edit the board, create issues/PRs, call another model or use GitHub credentials.

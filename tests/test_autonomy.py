@@ -251,6 +251,41 @@ class StateTests(unittest.TestCase):
         state.accept(s, [], "a" * 40, 1000 + 4 * 3600)
         self.assertIsNone(state.stalled(s, 1000 + 4 * 3600 + 1))
 
+    def scoped(self):
+        # battle: 400000 frontier simulation, 400001 online service; ai: library + simulation.
+        return patch.object(state, "SCOPE", {"class": {"400001": "D", "400002": "C", "400003": "A"},
+                                             "frontier": frozenset({"400000"})})
+
+    def test_only_simulation_obligations_are_dispatched_and_planned(self):
+        with self.scoped():
+            s = fixture()
+            self.assertEqual(state.dispatchable(s["units"]["battle"]), ["400000"])
+            with self.assertRaises(ValueError):
+                state.validate_plan(plan(addr="400001"), s["units"]["battle"])
+            state.validate_plan(plan(addr="400000"), s["units"]["battle"])
+            s["units"]["ai"]["verified"]["400003"] = {"status": "accepted"}
+            self.assertEqual(state.lane(s["units"]["ai"]), "C")
+            self.assertNotIn("ai", state.select(s, 0))
+
+    def test_frontier_units_and_tickets_go_first(self):
+        with self.scoped():
+            s = fixture()
+            s["units"]["ai"]["last_served"] = -1
+            self.assertEqual(state.select(s, 0)[0], "battle")
+            s["tickets"]["1"] = {"id": "1", "unit": "ai", "status": "queued", "created": 1}
+            s["tickets"]["2"] = {"id": "2", "unit": "battle", "status": "queued", "created": 2}
+            s["tickets"]["3"] = {"id": "3", "unit": "battle", "status": "verifying", "created": 0}
+            self.assertEqual(state.gate_order(s), ["2", "1"])
+            progress = state.dashboard(s)["scope"]
+            self.assertEqual((progress["A"]["obligations"], progress["D"]["obligations"]), (4, 1))
+            self.assertFalse(progress["D"]["ported_now"])
+
+    def test_shipped_scope_file_covers_the_inventory_exactly(self):
+        inventory = json.loads((Path(state.__file__).parent / "scoreboard/function_inventory.json").read_text())
+        logic = {state.address(f.split("+")[0]) for f in inventory["functions"] if f.endswith("L")}
+        self.assertEqual(set(state.SCOPE["class"]), logic)
+        self.assertTrue(state.SCOPE["frontier"] <= {a for a, k in state.SCOPE["class"].items() if k == "A"})
+
     def test_disjoint_batch_never_mixes_files_but_spans_receipt_bases(self):
         # The writer re-measures the union on the newest base, so receipts of
         # different (older) bases may share one batch; files never overlap.

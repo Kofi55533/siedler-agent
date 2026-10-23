@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import copy
 import fnmatch
+import json
+from pathlib import Path
 import re
 import time
 
@@ -101,6 +103,68 @@ def outstanding(u):
     return [a for a in u["addresses"] if u["verified"].get(a, {}).get("status") not in TERMINAL]
 
 
+# Scope classes (scripts/scope_classes.json, scripts/scope/make_scope_classes.py):
+# A simulation, B presentation/platform, C library/runtime, D obsolete online
+# service. The goal is the whole game in Rust, but only what must be rewritten:
+# C becomes Rust std/crates with boundary tests and D is not rewritten, so
+# neither is ever dispatched as a port. B is needed but the fixture gate cannot
+# verify it (it only compares simulation state); it opens as a port lane once
+# its call-stream harness (same Direct3D/Miles calls) exists. Until then a B
+# "port" passes the gate without proving anything and costs a gate slot.
+PORT_LANES = frozenset({"A"})
+
+
+def load_scope(path=Path(__file__).with_name("scope_classes.json")):
+    try:
+        data = json.loads(path.read_text())
+    except FileNotFoundError:
+        return {"class": {}, "frontier": frozenset()}
+    return {"class": {a: k for k, members in data["addresses"].items() for a in members},
+            "frontier": frozenset(data["frontier"])}
+
+
+SCOPE = load_scope()
+
+
+def scope_of(a):
+    # An address the class file does not know (new inventory) stays simulation:
+    # being unclassified never removes an obligation.
+    return SCOPE["class"].get(a, "A")
+
+
+def dispatchable(u):
+    return [a for a in outstanding(u) if scope_of(a) in PORT_LANES]
+
+
+def lane(u):
+    """frontier < A < B < C < D < done: the unit's most urgent open obligation."""
+    open_ = outstanding(u)
+    if any(a in SCOPE["frontier"] and scope_of(a) in PORT_LANES for a in open_):
+        return "frontier"
+    classes = {scope_of(a) for a in open_}
+    return next((k for k in "ABCD" if k in classes), "done")
+
+
+LANE_RANK = {"frontier": 0, "A": 1, "B": 2, "C": 3, "D": 4, "done": 5}
+
+
+def port_key(u):
+    # Repairs first (an open PR is closest to integration), then frontier
+    # blockers, then fair rotation.
+    return (u["status"] != "repair", LANE_RANK[lane(u)], u["last_served"], u["no_gain"], u["id"])
+
+
+def gate_order(state):
+    """Queued tickets, simulation first: a gate slot is the scarcest resource.
+
+    FIFO measured the oldest package first whatever it ported, so library and
+    online-service ports held slots while frontier packages waited a day.
+    """
+    queued = [t for t in state["tickets"].values() if t["status"] == "queued"]
+    unit = lambda t: state["units"].get(t["unit"], {"addresses": [], "verified": {}})
+    return [t["id"] for t in sorted(queued, key=lambda t: (LANE_RANK[lane(unit(t))], t["created"], int(t["id"])))]
+
+
 def resource_overlap(left, right):
     """A plain file reserves the file; file::item reserves that exact item.
 
@@ -120,8 +184,9 @@ def validate_plan(plan, u):
     if not isinstance(result.get("addresses", []), list):
         raise ValueError("Plan addresses must be a list of native addresses")
     addrs = [address(a) for a in result.get("addresses", [])]
-    if not addrs or not set(addrs) <= set(outstanding(u)):
-        raise ValueError("Plan must select outstanding addresses owned by this unit")
+    if not addrs or not set(addrs) <= set(dispatchable(u)):
+        raise ValueError("Plan must select addresses from this unit's assignment obligations "
+                         "(outstanding simulation addresses; library/obsolete/presentation are not ported)")
     if len(addrs) != len(set(addrs)):
         raise ValueError("Duplicate native obligations")
     resources = result.get("resources", [])
@@ -229,9 +294,9 @@ def select(state, active_jobs, legacy_jobs=0, limit=CAPACITY, at=None, unavailab
     candidates = [u for u in state["units"].values()
                   if u["status"] in {"ready", "repair"} and not u.get("dispatch")
                   and u["id"] not in unavailable_units
-                  and u["id"] not in state["leases"] and outstanding(u)
+                  and u["id"] not in state["leases"] and dispatchable(u)
                   and (at is None or u.get("retry_after", 0) <= at)]
-    candidates.sort(key=lambda u: (u["status"] != "repair", u["last_served"], u["no_gain"], u["id"]))
+    candidates.sort(key=port_key)
     # Keep VERIFY_SLOTS runner slots for gates even before the first package arrives.
     # Otherwise long workers can occupy every slot and starve their own PRs.
     gates = sum(t["status"] == "verifying" or bool(t.get("dispatch")) for t in state["tickets"].values())
@@ -271,9 +336,9 @@ def continue_domain(state, uid, owner, run, at, pool=None):
     candidates = [v for v in state["units"].values()
                   if v["domain"] == u["domain"] and v["id"] != uid
                   and v["status"] in {"ready", "repair"} and not v.get("dispatch")
-                  and v["id"] not in state["leases"] and outstanding(v)
+                  and v["id"] not in state["leases"] and dispatchable(v)
                   and v.get("retry_after", 0) <= at]
-    candidates.sort(key=lambda v: (v["status"] != "repair", v["last_served"], v["id"]))
+    candidates.sort(key=port_key)
     for v in candidates:
         if claim_unit(state, v["id"], owner, run, at, pool):
             event(state, "continue_domain", at, previous=uid, unit=v["id"], run=str(run))
@@ -612,6 +677,18 @@ def check_files(paths, resources):
     return sorted(p for p in paths if p not in allowed or p.startswith(HARD_PATHS))
 
 
+def scope_progress(state, done):
+    """Per scope class: obligations, integrated, and whether they are ported now."""
+    total = {k: 0 for k in "ABCD"}
+    for u in state["units"].values():
+        if u["status"] != "split":
+            for a in u["addresses"]:
+                total[scope_of(a)] += 1
+    integrated = {k: sum(scope_of(a) == k for a in done) for k in "ABCD"}
+    return {k: {"obligations": total[k], "integrated": integrated[k], "ported_now": k in PORT_LANES}
+            for k in "ABCD"}
+
+
 def dashboard(state):
     unique = {a for u in state["units"].values() for a, p in u["verified"].items()
               if p.get("status") in TERMINAL}
@@ -619,5 +696,6 @@ def dashboard(state):
             "remaining": state["total"] - len(unique), "leases": len(state["leases"]),
             "units": len(state["units"]), "provider_hold": held(state),
             "bisect_halves": len(state.get("integration_splits", [])),
+            "scope": scope_progress(state, unique),
             "tickets": {s: sum(t["status"] == s for t in state["tickets"].values())
                         for s in ("queued", "verifying", "verified", "accepted", "repair")}}

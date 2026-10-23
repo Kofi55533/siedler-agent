@@ -14,6 +14,9 @@ states, including relevant contents/counts and order. Reading an already importe
 the initializer that builds it. Address-to-id provenance tables and citations are durable evidence, not newly
 ported behavior; do not report them as ready proofs. Name the actual clean operation and real caller.
 
+Port only simulation (scope class A) behavior; assignment.obligations lists it. Library code (CRT/STL,
+static init, hash/png/zlib) becomes Rust std or a crate, online-service code (Ubi.com, lobby, CD key) is
+not rewritten, and presentation code waits for its call-stream harness. Never submit those as ports.
 Unexecuted code is first-class work. Add native differential tests under crates/s5xcheck/tests/<unit>.rs and
 name the target with `Differential-tests: --test <unit>`. Call the clean operation and native function on the
 same inputs and compare outputs/state effects. Include positive, negative and boundary branches. Do not edit

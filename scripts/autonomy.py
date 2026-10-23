@@ -408,7 +408,8 @@ def control(shadow=False):
             verifying += 1
             external_gates += 1
         state = read()
-    for tid, t in state["tickets"].items():
+    for tid in core.gate_order(state):
+        t = state["tickets"][tid]
         # Preflights keep running while the writer tests a union. A receipt is
         # not discarded when clean/integration moves (see above): the next
         # writer re-measures the whole union on the then newest base. Stopping
@@ -536,8 +537,8 @@ def admit(pool, count):
             break
         candidates = [u for u in state["units"].values()
                       if u["status"] in {"ready", "repair"} and not u.get("dispatch") and u["id"] not in legacy
-                      and u["id"] not in state["leases"] and core.outstanding(u) and u.get("retry_after", 0) <= at]
-        candidates.sort(key=lambda u: (u["status"] != "repair", u["last_served"], u["no_gain"], u["id"]))
+                      and u["id"] not in state["leases"] and core.dispatchable(u) and u.get("retry_after", 0) <= at]
+        candidates.sort(key=core.port_key)
         if not candidates:
             break
         uid, nonce = candidates[0]["id"], uuid.uuid4().hex[:12]
@@ -1006,9 +1007,13 @@ def worker_package(u, deadline):
             context = scratch / "previous-overview.md"
             context.write_text(overview)
             u["previous_overview_input"] = str(context)
-        (scratch / "assignment.json").write_text(json.dumps(u, indent=2))
         plan_file, result_file = scratch / "plan.json", scratch / "result.json"
         u["native_source_input"] = os.environ["S5_NATIVE_SOURCE"]
+        # The plan may only select `obligations`; `addresses` also lists the
+        # unit's library/obsolete/presentation members (context, not work).
+        u["obligations"] = core.dispatchable(u)
+        u["frontier_obligations"] = [a for a in u["obligations"] if a in core.SCOPE["frontier"]]
+        u["not_ported"] = {k: sum(core.scope_of(a) == k for a in core.outstanding(u)) for k in "BCD"}
         (scratch / "assignment.json").write_text(json.dumps(u, indent=2))
         for path in (plan_file, result_file, scratch / "pr-body.md"):
             path.unlink(missing_ok=True)
