@@ -82,8 +82,9 @@ jobs:
           cd $RUNNER_TEMP; mkdir -p dl all prev
           gh release download xc-census -R $XC_DATA -D dl -p "shard-${{ github.run_id }}-*.tzst"
           n=$(ls dl | wc -l); echo "$n/$SHARDS shards"
+          # a shard where every scenario gave a result has no _logs entries (the glob stays unmatched)
           mkdir -p logs
-          for f in dl/*.tzst; do zstd -dcq "$f" | tar -xf - -C dl && mv dl/census/*.json all/ && mv dl/census/sha.txt sha.txt; mv dl/census/_logs/* logs/ 2>/dev/null; rm -rf dl/census; done
+          for f in dl/*.tzst; do zstd -dcq "$f" | tar -xf - -C dl && mv dl/census/*.json all/ && mv dl/census/sha.txt sha.txt; { mv dl/census/_logs/* logs/ 2>/dev/null || true; }; rm -rf dl/census; done
           echo "$(ls logs | wc -l) scenarios without result"
           [ "$n" -gt 0 ] || { echo "no shard results"; exit 1; }
           SHA=$(cat sha.txt)
