@@ -41,8 +41,9 @@ jobs:
         id: p
         env:
           GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
-          N: ${{ inputs.n || vars.XC_WORKERS || '20' }}
-          L: ${{ vars.XC_WORKERS || '20' }}
+          N: ${{ inputs.n || '20' }}
+          # the main account keeps 10 of its 20 concurrent jobs free for the census (8 shards) and the watchdog
+          L: ${{ vars.XC_WORKERS || (github.repository == 'Kofi55533/siedler-agent' && '10' || '20') }}
           KINDS: ${{ inputs.kinds }}
         run: |
           gh release download xc-worklist -R $XC_DATA -D $RUNNER_TEMP -p worklist.json

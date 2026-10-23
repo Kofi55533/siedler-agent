@@ -10,7 +10,8 @@
   xc.py failing <worklist> <kind>     names of the scenarios where <kind> fails
   xc.py check <base> <new> <kind>     a worker's verdict: <kind> clean everywhere, nothing else newly failing
   xc.py branch <kind>                 the fix branch of a kind
-  xc.py issue <kind> <op> [sha]       tracking issue of a kind: claim | unclaim | attempt <census sha> | close
+  xc.py issue <kind> <op> [sha]       tracking issue of a kind: claim | unclaim | attempt <census sha> |
+                                      merged <census sha> | close
 
 The JSON files hold game state (diff lines); they stay on the runner or in the private release, never in a log.
 """
@@ -79,7 +80,7 @@ def gh(*args):
 
 
 def fields(body):
-    """tracking issue body: "census <sha12>", "attempts <n>", "claimed <epoch> <run>" lines"""
+    """tracking issue body: "census <sha12>", "attempts <n>", "claimed <epoch> <run> <pool>", "merged <sha12>" lines"""
     return dict(line.split(" ", 1) for line in (body or "").splitlines() if " " in line)
 
 
@@ -120,6 +121,8 @@ def issue(kind, op, sha=None):
         f.pop("claimed", None)
     elif op == "attempt":
         f = {"census": sha[:12], "attempts": str(tried(body, sha) + 1)}
+    elif op == "merged":  # the issue stays open: the work list measured on <sha> still lists the kind as failing
+        f = {"merged": sha[:12]}
     elif op == "close":
         if num:
             gh("-X", "PATCH", f"repos/{AGENT}/issues/{num}", "-f", "state=closed", "-f", "body=" + render({}))
@@ -147,7 +150,8 @@ def pick(worklist, n, claim=False, limit=None):
             continue
         body = issues.get(kind, (None, ""))[1]
         # the attempt counter restarts with every census sha (new base, new examples)
-        if claimed(body, now) or tried(body, doc["sha"]) >= ATTEMPTS:
+        merged = fields(body).get("merged") == doc["sha"][:12]  # fixed since this census; the next one re-measures
+        if merged or claimed(body, now) or tried(body, doc["sha"]) >= ATTEMPTS:
             continue
         failing_scenarios = sum(1 for v in k["scenarios"].values() if v["failing"])
         ranked.append((-failing_scenarios, -k["failing"], kind))
