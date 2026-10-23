@@ -11,6 +11,11 @@ on:
 jobs:
   wave:
     if: vars.XC_DISABLED != 'true'
+    # a called workflow gets at most the caller's token permissions; a repo with the read-only default otherwise
+    # refuses to start xc-worker.yml (startup_failure, 2026-10-23)
+    permissions:
+      contents: read
+      issues: write
     uses: Kofi55533/siedler-agent/.github/workflows/xc-worker.yml@main
     with:
       n: ${{ vars.XC_WORKERS || '20' }}
