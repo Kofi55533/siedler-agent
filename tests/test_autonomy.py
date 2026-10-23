@@ -219,6 +219,38 @@ class StateTests(unittest.TestCase):
         self.assertIsNone(s["integration"])
         self.assertEqual(state.dashboard(s)["reported_reference_verified_and_integrated"], 1)
 
+    def test_ready_result_keeps_only_well_formed_unit_proofs(self):
+        proofs, dropped = state.clean_proofs([
+            "cargo test -> 75 passed", {"claim": "no address"}, {"address": "not-hex"},
+            {"address": "400002", "reference_test": "other unit"},
+            {"address": "0x400001", "reference_test": ["a::b", "c::d"], "clean_entry": "World::tick",
+             "nested": {"dropped": True}, "note": "x" * 900}], ["400000", "400001"])
+        self.assertEqual(dropped, 4)
+        self.assertEqual(proofs, [{"address": "400001", "reference_test": "a::b; c::d",
+                                   "clean_entry": "World::tick", "note": "x" * 600}])
+        self.assertEqual(state.clean_proofs("75 passed", ["400000"]), ([], 1))
+        self.assertEqual(state.clean_proofs(None, ["400000"]), ([], 0))
+
+    def test_finish_stores_cleaned_proofs_and_records_the_drop(self):
+        s = fixture(); state.claim_unit(s, "battle", "one", 1, 1)
+        state.reserve(s, "battle", "one", plan(), 2)
+        state.finish(s, "battle", "one", {"outcome": "ready", "pr": 1, "head": "a" * 40, "proofs": [
+            "free text", {"address": "400000", "reference_test": "suite::native", "clean_entry": "World::tick"}]}, 3)
+        ticket = next(iter(s["tickets"].values()))
+        self.assertEqual([p["address"] for p in ticket["proofs"]], ["400000"])
+        self.assertTrue(any(e["kind"] == "dropped_proofs" and e["count"] == 1 for e in s["events"]))
+
+    def test_stall_is_reported_only_with_pending_gates_and_no_recent_accept(self):
+        s = fixture()
+        self.assertIsNone(state.stalled(s, 10 ** 6))
+        s["tickets"]["1"] = {"status": "queued"}
+        s["last_accept_at"] = 1000
+        self.assertIsNone(state.stalled(s, 1000 + state.STALL_SECONDS - 1))
+        stall = state.stalled(s, 1000 + 4 * 3600)
+        self.assertEqual((stall["pending"], stall["hours"], stall["integration"]), (1, 4.0, False))
+        state.accept(s, [], "a" * 40, 1000 + 4 * 3600)
+        self.assertIsNone(state.stalled(s, 1000 + 4 * 3600 + 1))
+
     def test_disjoint_batch_never_mixes_files_but_spans_receipt_bases(self):
         # The writer re-measures the union on the newest base, so receipts of
         # different (older) bases may share one batch; files never overlap.
@@ -377,6 +409,27 @@ class ReceiptTests(unittest.TestCase):
 
 
 class RuntimeInterlockTests(unittest.TestCase):
+    def test_stall_issue_opens_once_and_closes_on_recovery(self):
+        calls, open_issues = [], []
+
+        def api(path, method="GET", data=None):
+            calls.append((method, path, data))
+            return open_issues if method == "GET" else {}
+
+        stall = {"hours": 5.0, "pending": 3, "integration": False}
+        with patch.object(runtime.fs, "api", api):
+            runtime.alert_stall(stall, ["legacy fixture regates"])
+            self.assertEqual([c[0] for c in calls], ["GET", "POST"])
+            self.assertEqual(calls[1][2]["title"], runtime.STALL_TITLE)
+            self.assertIn("legacy fixture regates", calls[1][2]["body"])
+            open_issues.append({"number": 9, "title": runtime.STALL_TITLE})
+            calls.clear(); runtime.alert_stall(stall, [])
+            self.assertEqual([c[0] for c in calls], ["GET"])
+            calls.clear(); runtime.alert_stall(None, [])
+            self.assertEqual([(c[0], c[1]) for c in calls[1:]],
+                             [("POST", f"repos/{runtime.POOL}/issues/9/comments"),
+                              ("PATCH", f"repos/{runtime.POOL}/issues/9")])
+
     def test_branch_cannot_mutate_even_when_enable_variable_is_set(self):
         with patch.dict(os.environ, {"FLEET_V2_ENABLED": "true"}), patch.object(runtime, "REF", "codex/review"):
             with self.assertRaises(RuntimeError):
