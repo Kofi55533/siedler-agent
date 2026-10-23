@@ -114,12 +114,12 @@ details{margin-top:8px}summary{cursor:pointer;color:var(--ink2);font-size:.88rem
 </section>
 
 <section class="card"><h2>Fließband der Worker</h2>
-  <div class="sub">Ein Worker liefert ein Paket als PR → das Gate prüft es gegen das Original → geprüfte Pakete werden gemeinsam integriert.</div>
+  <div class="sub" id="flowsub">Ein Worker liefert ein Paket als PR → das Gate prüft es gegen das Original → geprüfte Pakete werden gemeinsam integriert.</div>
   <div class="flow" id="flow"></div>
   <div class="small mute" id="flownote"></div>
   <div class="two">
     <div><h2 style="font-size:.92rem">Auslastung</h2><div id="cap"></div></div>
-    <div><h2 style="font-size:.92rem">Warum Pakete zurückgehen <span class="mute small" id="repn"></span></h2><div id="causes"></div></div>
+    <div><h2 style="font-size:.92rem"><span id="causeh">Warum Pakete zurückgehen</span> <span class="mute small" id="repn"></span></h2><div id="causes"></div></div>
   </div>
 </section>
 
@@ -253,9 +253,27 @@ fetch("data.json?t="+NOW).then(r=>r.json()).then(d=>{
   $("cap").innerHTML=capRow("DeepSeek-Worker",pl.workers,pl.worker_limit)+capRow("Gate-Prüfplätze",pl.gate,pl.gate_limit)
     +((d.fleet_v2||{}).accounts||[]).map(a=>capRow(`<span class="mute">Konto ${esc(a.account)}</span>`,a.used,a.capacity,"var(--neutral)")).join("")
     +`<div class="small mute" style="margin-top:6px">Volle Balken sind gut: alle Plätze arbeiten. Konten zählen alle Läufe inkl. kurzer Steuerläufe.</div>`;
-  const rc=pl.repair_causes||[],rmax=Math.max(1,...rc.map(c=>c.count));
-  $("repn").textContent=T.repair?`(${T.repair})`:"";
-  $("causes").innerHTML=rc.length?rc.slice(0,6).map(c=>`<div class="cause"><div class="t"><span>${esc(c.label)}</span><span class="num">${c.count}</span></div>
+  const X=pl.xc;
+  if(X){ // per-call differential (since 2026-10-23): census -> one fix job per failing task kind -> auto-merge when identical
+    const k=X.kinds||{},wl=X.worklist||{},c=X.census||{};
+    $("flowsub").textContent="Die Messung (Census) vergleicht jede Aufgaben-Art an den echten Aufrufen des Originals → ein Worker repariert eine abweichende Art → ist sie danach überall identisch, wird sie automatisch gemerged.";
+    $("flow").innerHTML=[
+      {n:wl.failing,l:`Aufgaben-Arten weichen ab<br><span class="mute">${wl.kinds!=null?`von ${fmt(wl.kinds)} gemessenen · ${fmt(k.open)} noch zu vergeben`:"Arbeitsliste nicht lesbar"}</span>`},
+      {n:X.running,l:`Worker arbeiten gerade<br><span class="mute">${fmt(X.waiting)} warten auf einen Platz</span>`},
+      {n:k.merged,l:`repariert und gemerged<br><span class="mute">seit Start der Messung</span>`},
+      {n:k.exhausted,l:`3× nicht geschafft<br><span class="mute">warten auf die nächste Messung</span>`},
+    ].map(s=>`<div class="step"><div class="n num">${fmt(s.n)}</div><div class="l">${s.l}</div></div>`).join("");
+    $("flownote").innerHTML=(c.running?"Messung läuft gerade. ":"")+(c.last?`Letzte Messung ${ago(Date.parse(c.last))}${c.conclusion&&c.conclusion!=="success"?" (fehlgeschlagen)":""}${wl.sha?`, Stand <code>${esc(wl.sha)}</code>`:""}. <a href="${esc(c.url)}">Messung ansehen</a>`:"Noch keine Messung.");
+    const v2t=(d.fleet_v2||{}).total||{};
+    $("cap").innerHTML=(X.pools||[]).map(p=>capRow(`xc-Worker <span class="mute">${esc(p.account)}</span>`,p.running,p.limit)).join("")
+      +(v2t.workers?capRow(`<span class="mute">Alte Flotte (läuft aus)</span>`,v2t.workers,v2t.workers,"var(--neutral)"):"")
+      +`<div class="small mute" style="margin-top:6px">Jedes Konto hat 20 gleichzeitige Plätze. Kofi55533 hält 10 für die Messung frei. Die alte Flotte belegt Plätze, bis ihre Läufe enden; neue startet sie nicht mehr.</div>`;
+    $("causeh").textContent="Worker gerade dran";$("repn").textContent=X.jobs&&X.jobs.length?`(${X.jobs.length})`:"";
+    $("causes").innerHTML=(X.jobs||[]).length?`<ul class="list">${X.jobs.slice(0,12).map(j=>`<li><span><a href="${esc(j.url)}">${esc(j.kind)}</a> <span class="mute small">${esc(j.account)}</span></span><span class="r">${j.status==="in_progress"?`${j.minutes} min`:"wartet"}</span></li>`).join("")}</ul>`:`<div class="mute small">Gerade kein Worker aktiv.</div>`;
+  }
+  const rc=X?[]:pl.repair_causes||[],rmax=Math.max(1,...rc.map(c=>c.count));
+  if(!X)$("repn").textContent=T.repair?`(${T.repair})`:"";
+  if(!X)$("causes").innerHTML=rc.length?rc.slice(0,6).map(c=>`<div class="cause"><div class="t"><span>${esc(c.label)}</span><span class="num">${c.count}</span></div>
      <div class="meter"><i style="width:${100*c.count/rmax}%;background:var(--s1)"></i></div><div class="f">${esc(c.fix)}</div></div>`).join(""):`<div class="mute small">Nichts in Nacharbeit.</div>`;
 
   // charts
@@ -282,7 +300,8 @@ fetch("data.json?t="+NOW).then(r=>r.json()).then(d=>{
   $("gen").innerHTML=G.map(s=>`<tr><td class="nm">${esc(s.name)}</td><td>${state(s)}${!s.identical&&s.turn!=null?` <span class="small mute num">ab Zug ${fmt(s.turn)} von ${fmt((s.start||0)+(s.total||0))}</span>`:""}</td><td class="hide-m small mute">${ago(berlin(s.when))}</td></tr>`).join("");
 
   // jobs
-  const R=(d.fleet_v2||{}).runs||[],grp={worker:"DeepSeek-Worker",gate:"Gate",control:"Steuerung",legacy:"Legacy"};
+  const R=((X||{}).jobs||[]).map(j=>({group:"xc",url:j.url,title:j.kind,account:j.account,status:j.status,minutes:j.minutes})).concat((d.fleet_v2||{}).runs||[]);
+  const grp={xc:"xc-Worker",worker:X?"Alte Flotte (läuft aus)":"DeepSeek-Worker",gate:"Gate",control:"Steuerung",legacy:"Legacy"};
   const by={};R.forEach(r=>(by[r.group]=by[r.group]||[]).push(r));
   $("jobsum").textContent=Object.entries(by).map(([k,v])=>`${v.length} ${grp[k]||k}`).join(" · ")||"Keine Läufe aktiv.";
   $("jobs").innerHTML=Object.entries(by).map(([k,v])=>`<h2 style="font-size:.9rem;margin-top:12px">${esc(grp[k]||k)} (${v.length})</h2><ul class="list">${v.map(r=>`<li><span><a href="${esc(r.url)}">${esc(r.unit_title||r.title)}</a> <span class="mute small">${esc(r.account)}${r.sub?" · "+esc(r.sub):""}</span></span><span class="r">${r.status==="in_progress"?`${r.minutes} min`:"wartet"}</span></li>`).join("")}</ul>`).join("");

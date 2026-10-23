@@ -147,7 +147,7 @@ def cache_save():
 def api(path, raw=False, auth=True):
     url = path if path.startswith("http") else "https://api.github.com/" + path.lstrip("/")
     is_api = url.startswith("https://api.github.com/")
-    priv = PRIV in url  # API path or raw download_url (raw.githubusercontent.com/<PRIV>/...): needs the PAT
+    priv = PRIV in url or XC_DATA in url  # API path or raw download_url (raw.githubusercontent.com/<PRIV>/...): needs the PAT
     tok = TOKEN if priv else TOKEN_PUB
     if is_api and RATE["limited"]:
         raise RateLimited(RATE["what"])  # stop spending calls after the first rate-limit answer
@@ -887,8 +887,13 @@ ACCOUNTS = [(PUB, "Kofi55533"), (FORK, "Dominickofi00")]
 ACCOUNT_OF_REPO = {r: a for r, a in ACCOUNTS}
 
 
+_ACTIVE = {}  # repo -> its queued/running runs, read once per build
+
+
 def active_runs(repo):
-    runs = {}
+    if repo in _ACTIVE:
+        return _ACTIVE[repo]
+    runs = _ACTIVE[repo] = {}
     for status in V2_ACTIVE:
         page = 1
         while page <= 3:
@@ -1041,6 +1046,96 @@ def fleet_v2():
     }
 
 
+# ---------------- xc per-call differential (scripts/xc, since 2026-10-23) ----------------
+# The census (xc-census.yml) measures every task kind at the original's real calls; workers are the fix jobs of
+# xc-worker.yml runs, one job per failing kind, in the main repo and in pool repos of other accounts that call the same
+# reusable workflow. A slot is a job, not a run. Kinds are tracked by open `[xc] KIND` issues (label xc-kind) in PUB.
+XC_POOLS = [(PUB, "Kofi55533", "XC_WORKERS", 10), ("Dominickofi00/opencode-runner", "Dominickofi00", "XC_POOL_WORKERS", 20)]
+XC_RUNS = ("xc-worker.yml", "xc-pool.yml")
+XC_DATA = "Kofi55533/siedler-data"
+XC_CLAIM_H, XC_ATTEMPTS = 7, 3  # scripts/xc/xc.py CLAIM_H, ATTEMPTS
+
+
+def xc_fields(body):
+    return dict(line.split(" ", 1) for line in (body or "").splitlines() if " " in line)
+
+
+def xc_worklist():
+    """Counts of the private work list (siedler-data release xc-worklist); the file itself holds game state."""
+    rel = api(f"repos/{XC_DATA}/releases/tags/xc-worklist")
+    asset = next(a for a in rel["assets"] if a["name"] == "worklist.json")
+    req = urllib.request.Request(asset["url"], headers={"Accept": "application/octet-stream", "Authorization": "Bearer " + TOKEN,
+                                                        "User-Agent": "siedler-scoreboard"})
+    with urllib.request.urlopen(req, timeout=120) as r:
+        doc = json.loads(r.read())
+    kinds = doc.get("kinds") or {}
+    named = {k: v for k, v in kinds.items() if not k.startswith("task type ")}
+    return {"sha": (doc.get("sha") or "")[:12], "updated": asset.get("updated_at"), "kinds": len(named),
+            "failing": sum(1 for v in named.values() if v.get("failing")), "unnamed": len(kinds) - len(named)}, named
+
+
+def xc_pipeline(main_runs):
+    now = NOW.timestamp()
+    pools, jobs = [], []
+    for repo, account, var, default in XC_POOLS:
+        runs = main_runs if repo == PUB else safe(lambda repo=repo: active_runs(repo), None, f"xc pool {repo}")
+        try:
+            limit = int(os.environ.get(var) or default)
+        except ValueError:
+            limit = default
+        p = {"account": account, "repo": repo, "limit": limit, "running": 0, "waiting": 0, "readable": runs is not None,
+             "runs_url": f"https://github.com/{repo}/actions"}
+        for r in (runs or {}).values():
+            if (r.get("path") or "").rsplit("/", 1)[-1] not in XC_RUNS:
+                continue
+            for j in api(f"repos/{repo}/actions/runs/{r['id']}/jobs?per_page=100").get("jobs", []):
+                m = re.search(r"\bfix \((.+)\)$", j.get("name") or "")
+                if not m or j["status"] == "completed":
+                    continue
+                run_ = j["status"] == "in_progress"
+                p["running" if run_ else "waiting"] += 1
+                st = parse_ts(j.get("started_at") or r["created_at"])
+                jobs.append({"kind": m.group(1), "account": account, "status": j["status"], "url": j.get("html_url") or r["html_url"],
+                             "started": iso(st), "minutes": max(0, int((NOW - st).total_seconds() // 60)) if run_ else None})
+        pools.append(p)
+    issues = []
+    for page in range(1, 6):
+        got = api(f"repos/{PUB}/issues?state=open&labels=xc-kind&per_page=100&page={page}")
+        issues += got
+        if len(got) < 100:
+            break
+    try:
+        wl, named = xc_worklist()
+    except Exception as e:  # a missing grant must not read as a rate limit (403 skips the publish)
+        wl, named = None, {}
+        ERRORS.append(f"xc worklist: {type(e).__name__}")
+    sha = (wl or {}).get("sha")
+    track = {i["title"].removeprefix("[xc] "): xc_fields(i.get("body")) for i in issues}
+    claimed = merged = exhausted = 0
+    for f in track.values():
+        c = f.get("claimed", "").split()
+        claimed += bool(c) and now - int(c[0]) < XC_CLAIM_H * 3600
+        merged += "merged" in f
+        exhausted += bool(sha) and f.get("census") == sha and int(f.get("attempts", "0")) >= XC_ATTEMPTS
+    open_ = None
+    if wl:  # failing kinds a worker may still pick (pick(): not merged since this census, not exhausted)
+        open_ = sum(1 for k, v in named.items() if v.get("failing")
+                    and track.get(k, {}).get("merged") != sha
+                    and not (track.get(k, {}).get("census") == sha and int(track.get(k, {}).get("attempts", "0")) >= XC_ATTEMPTS))
+    census = None
+    cr = (api(f"repos/{PUB}/actions/workflows/xc-census.yml/runs?per_page=5").get("workflow_runs") or [])
+    if cr:
+        done = next((r for r in cr if r["status"] == "completed" and r["conclusion"] != "cancelled"), None)  # superseded
+        census = {"running": any(r["status"] != "completed" for r in cr),
+                  "last": utc(parse_ts(done["updated_at"])) if done else None,
+                  "conclusion": done and done["conclusion"], "url": (done or cr[0])["html_url"]}
+    jobs.sort(key=lambda j: (j["status"] != "in_progress", j["account"] != "Kofi55533", j["started"]))
+    return {"pools": pools, "jobs": jobs, "worklist": wl, "census": census,
+            "kinds": {"tracked": len(track), "in_work": claimed, "merged": merged, "exhausted": exhausted, "open": open_},
+            "running": sum(p["running"] for p in pools), "waiting": sum(p["waiting"] for p in pools),
+            "limit": sum(p["limit"] for p in pools)}
+
+
 def values_as_of(rows, matrix_source):
     """Real last update of the identical-turns value: the newest per-scenario measurement (gate merge / board entry)."""
     newest = max((r for r in rows if r.get("measured") and r.get("when")), key=lambda r: r["when"], default=None)
@@ -1083,6 +1178,9 @@ def utc(ts):
     return t.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+SQUASH = re.compile(r"\(#(\d+)\)$")
+
+
 def integration_commits(days=14):
     """PR merges on clean/integration (2-parent commits), newest first, with the merged PR when it is known."""
     since = (NOW - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -1091,9 +1189,14 @@ def integration_commits(days=14):
     for page in range(1, 6):
         cs = api(f"repos/{PRIV}/commits?sha={urllib.parse.quote(BRANCH, safe='')}&since={since}&per_page=100&page={page}")
         for c in cs:
-            if len(c.get("parents") or []) != 2:
+            squash = SQUASH.search(c["commit"]["message"].split("\n", 1)[0])  # xc workers squash-merge (one parent)
+            if len(c.get("parents") or []) != 2 and not squash:
                 continue
-            n, p = by_head.get(c["parents"][1]["sha"], (None, {}))
+            if squash:
+                n = int(squash.group(1))
+                p = PR_INFO.get(n) or {"title": c["commit"]["message"].split("\n", 1)[0]}
+            else:
+                n, p = by_head.get(c["parents"][1]["sha"], (None, {}))
             out.append({"time": utc(parse_ts(c["commit"]["committer"]["date"])), "pr": n,
                         "title": (p.get("title") or "")[:140] or None,
                         "url": f"https://github.com/{PRIV}/pull/{n}" if n else None})
@@ -1156,32 +1259,47 @@ def overview(data, merges):
     att = []
     def add(sev, title, detail, todo):
         att.append({"severity": sev, "title": title, "detail": detail, "todo": todo})
+    xc = data.get("xc")
+    old = not xc  # the domain-package fleet (tickets, gate, integration) retired 2026-10-23; its warnings only without xc
     hold = (v2.get("domain") or {}).get("provider_hold")
-    if hold:
+    if hold and old:
         add("critical", "DeepSeek pausiert (Provider-Sperre)", "Der Anbieter hat Anfragen abgelehnt; keine neuen Worker.",
             "Abwarten bis die Sperre abläuft; bei Dauer: Modell/Anbieter in autonomy_state.py prüfen.")
-    if v2.get("enabled") is False:
+    if old and v2.get("enabled") is False:
         add("critical", "Flotte ausgeschaltet", "Repo-Variable FLEET_V2_ENABLED ist nicht 'true'.",
             "Variable in siedler-agent → Settings → Variables auf true setzen.")
-    if last_merge:
+    if xc:
+        k = xc["kinds"]
+        if k.get("open") and xc["running"] < min(xc["limit"], k["open"]) // 2:
+            idle = [p for p in xc["pools"] if p["running"] < p["limit"]]
+            add("warning", "Wenige xc-Worker aktiv", f"{xc['running']} von {xc['limit']} Plätzen arbeiten ({xc['waiting']} warten), "
+                f"{k['open']} Aufgaben-Arten offen. " + ", ".join(f"{p['account']}: {p['running']}/{p['limit']}" for p in idle) + ".",
+                "Nächste Welle startet automatisch (Watchdog alle 20 min, Pool alle 20 min); belegen andere Läufe die Konto-Plätze?")
+        c = xc.get("census") or {}
+        if c.get("conclusion") and c["conclusion"] != "success" and not c.get("running"):
+            add("warning", "Letzte Messung (Census) fehlgeschlagen", "Die Arbeitsliste ist nicht auf dem neuesten Stand.",
+                "xc-census-Lauf ansehen; der Watchdog startet ihn neu.")
+        if not (xc.get("worklist") or {}).get("kinds"):
+            add("info", "Arbeitsliste nicht lesbar", "Zahlen zu offenen Aufgaben-Arten fehlen.", "PRIVATE_REPO_TOKEN braucht Lesezugriff auf siedler-data.")
+    if last_merge and old:
         idle_h = (NOW - parse_ts(last_merge)).total_seconds() / 3600
         if pending and idle_h >= 3:
             add("critical" if idle_h >= 12 else "warning", f"Seit {idle_h:.0f} h nichts Neues integriert",
                 f"{pending} Tickets warten auf Prüfung/Integration.",
                 "Integration läuft gerade – abwarten." if integ else "Gate-/Integrationsläufe in siedler-agent prüfen.")
-    if integ and integ.get("at"):
+    if old and integ and integ.get("at"):
         mins = (now - float(integ["at"])) / 60
         if mins >= 60:
             add("warning", f"Integration läuft seit {mins:.0f} min", f"Tickets {', '.join(integ.get('tickets') or [])}.",
                 "Normal sind 10–40 min; länger: Lauf ansehen.")
-    if status.get("queued") and not gate.get("used"):
+    if old and status.get("queued") and not gate.get("used"):
         add("warning", "Gate leer, obwohl Tickets warten", f"{status['queued']} Tickets in der Warteschlange, kein Prüflauf aktiv.",
             "fleet-control-Läufe prüfen (rot?).")
-    if total.get("worker_limit") and total.get("workers", 0) < total["worker_limit"] // 2 and not hold:
+    if old and total.get("worker_limit") and total.get("workers", 0) < total["worker_limit"] // 2 and not hold:
         add("warning", "Wenige Worker aktiv", f"{total.get('workers', 0)} von {total['worker_limit']} Worker-Plätzen belegt.",
             "Gibt es noch freie Einheiten? Sonst fleet-control prüfen.")
     rep, open_ = status.get("repair", 0), sum(v for k, v in status.items() if k != "accepted")
-    if open_ and rep / open_ >= 0.3:
+    if old and open_ and rep / open_ >= 0.3:
         top = max(causes.values(), key=lambda c: c["count"])
         add("warning", f"{rep} von {open_} offenen Tickets brauchen Nacharbeit",
             f"Häufigster Grund: {top['label']} ({top['count']}×).", top["fix"])
@@ -1213,7 +1331,7 @@ def overview(data, merges):
                      if integ else None,
                      "units": units, "workers": total.get("workers"), "worker_limit": total.get("worker_limit"),
                      "gate": gate.get("used"), "gate_limit": gate.get("limit"),
-                     "repair_causes": sorted(causes.values(), key=lambda c: -c["count"])},
+                     "repair_causes": sorted(causes.values(), key=lambda c: -c["count"]), "xc": xc},
         "integrations": {"per_day": [{"day": k, "count": v} for k, v in days.items()], "last_24h": last24,
                          "prev_24h": prev24, "last": last_merge, "recent": merges[:12]},
     }
@@ -1479,6 +1597,7 @@ def main():
     merged.sort(key=lambda p: p["merged"], reverse=True)
     data["fleet"] = fleet_pools()  # legacy shared fleet (fleet/state.json tasks); card hidden on the page
     data["fleet_v2"] = v2 = safe(fleet_v2, None, "fleet v2 runs")
+    data["xc"] = safe(lambda: xc_pipeline(active_runs(PUB)), None, "xc pipeline")
     # Fleet v2: DeepSeek workers are fleet-worker.yml runs in siedler-agent (each plans its own domain package; there is
     # no separate planner). Still-running legacy opencode.yml runs are listed as "Legacy" until they finish.
     fleet_ds = []
