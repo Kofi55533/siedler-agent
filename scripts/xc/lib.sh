@@ -12,12 +12,21 @@ XC_MAX=${XC_MAX:-4} XC_STRIDE=${XC_STRIDE:-5}
 # 15 min hangs; the old 40 min limit held the whole census on one hanging scenario
 XC_TIMEOUT=${XC_TIMEOUT:-900}
 
+# images the census leaves out: no running game to compare (new-fixtures index.json not_produced/rejected_captures,
+# 2026-10-23 census: no capture result). Menu only, the map never started (turn 0): camp-bigcity, camp-extra1,
+# map-gipfelsturm, map-sandbox, sp-spreadland; map-calabria never reached its capture turn. The oracle stops on
+# untranslated code: camp-thalgrund, ai-citygates, ai-builds-citygates. Native load incomplete (hangs, or no call
+# at all): saveload-stable, saveload-recapture.
+# A recaptured image gets a new name and is measured again.
+XC_DEAD=${XC_DEAD:-"camp-bigcity camp-extra1 map-gipfelsturm map-sandbox sp-spreadland map-calabria camp-thalgrund ai-citygates ai-builds-citygates saveload-stable saveload-recapture"}
+
 # scenarios: "name image skip turns" lines. bc replays its recorded commands (commands.bin beside the image); every
 # other image runs autonomously (AI players, armies, campaign scripts), which is still the original behaviour.
 xc_scenarios(){
   echo "bc $S5_ARTIFACTS/bc/gs_h.img 100 $((XC_TURNS + 180))"
   for d in "$S5_V"/images/*/ "$S5_NF"/images/*/; do
-    [ -f "$d/start.img" ] && echo "$(basename "$d") $d/start.img 0 $XC_TURNS"
+    n=$(basename "$d"); [[ " $XC_DEAD " == *" $n "* ]] && continue
+    [ -f "$d/start.img" ] && echo "$n $d/start.img 0 $XC_TURNS"
   done | sort -u -k1,1
 }
 
