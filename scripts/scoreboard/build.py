@@ -1070,8 +1070,22 @@ def xc_worklist():
         doc = json.loads(r.read())
     kinds = doc.get("kinds") or {}
     named = {k: v for k, v in kinds.items() if not k.startswith("task type ")}
+    scen = {n: {"name": n, "turns": v.get("turns"), "calls": v.get("entries"), "samples": 0, "failing": 0, "kinds_failing": 0}
+            for n, v in (doc.get("scenarios") or {}).items()}
+    for v in kinds.values():  # per scenario: sampled ExecuteTask calls compared / differing (counts only)
+        for n, x in (v.get("scenarios") or {}).items():
+            sc = scen.setdefault(n, {"name": n, "turns": None, "calls": None, "samples": 0, "failing": 0, "kinds_failing": 0})
+            sc["samples"] += x.get("samples", 0)
+            sc["failing"] += x.get("failing", 0)
+            sc["kinds_failing"] += bool(x.get("failing"))
+    sm = doc.get("summary") or {}
+    samples, failing = sm.get("samples", 0), sm.get("failing", 0)
     return {"sha": (doc.get("sha") or "")[:12], "updated": asset.get("updated_at"), "kinds": len(named),
-            "failing": sum(1 for v in named.values() if v.get("failing")), "unnamed": len(kinds) - len(named)}, named
+            "failing": sum(1 for v in named.values() if v.get("failing")), "unnamed": len(kinds) - len(named),
+            "partial": bool(doc.get("partial")),
+            "calls": {"samples": samples, "identical": samples - failing,
+                      "pct": round(100 * (samples - failing) / samples, 1) if samples else None},
+            "scenarios": sorted(scen.values(), key=lambda x: (-x["failing"], x["name"]))}, named
 
 
 def xc_pipeline(main_runs):
@@ -1304,7 +1318,13 @@ def overview(data, merges):
         add("warning", f"{rep} von {open_} offenen Tickets brauchen Nacharbeit",
             f"Häufigster Grund: {top['label']} ({top['count']}×).", top["fix"])
     asof = (data["percent"]["identical_turns"] or {}).get("as_of")
-    if asof:
+    last = ((xc or {}).get("census") or {}).get("last")
+    if last:  # census cron every 6 h
+        h = (NOW - parse_ts(last)).total_seconds() / 3600
+        if h >= 8:
+            add("warning", f"Letzte Messung {h:.0f} h alt", "Die Census-Messung läuft sonst alle 6 Stunden.",
+                "xc-census in Actions prüfen.")
+    if old and asof:
         h = (NOW - datetime.strptime(asof, "%Y-%m-%d %H:%M").replace(tzinfo=BERLIN)).total_seconds() / 3600
         if h >= 24:
             add("info", f"Szenario-Werte {h:.0f} h alt", "Die Zug-Werte ändern sich nur, wenn ein Gate-Merge neu misst.",
@@ -1677,16 +1697,20 @@ def main():
     goal = (ov or {}).get("goal") or {}
     p7 = goal.get("done")
     p8 = next((c["done"] for c in goal.get("scope") or [] if c["key"] == "A"), None)
+    xwl = (data.get("xc") or {}).get("worklist") or {}
+    p9, p10 = (xwl.get("calls") or {}).get("pct"), xwl.get("sha")
     last = hist[-1] if hist else {}
     if (not hist or last.get("key") != key or last.get("pct_identical") != p1 or last.get("pct_coverage") != p2
             or last.get("pct_whole_logic") != p3 or last.get("maps_tested") != p5 or last.get("commands_tested") != p6
-            or (p7 is not None and (last.get("integrated") != p7 or last.get("integrated_a") != p8))):
+            or (p7 is not None and (last.get("integrated") != p7 or last.get("integrated_a") != p8))
+            or (p10 and (last.get("xc_sha") != p10 or last.get("xc_pct") != p9))):
         hist.append({"key": key, "time": data["percent"]["identical_turns"].get("as_of"),
                      "matrix_time": data["matrix_source"]["time"] if data["matrix_source"] else None,
                      "sha": data["matrix_source"]["sha"] if data["matrix_source"] else None,
                      "recorded": data["generated_berlin"], "pct_identical": p1, "pct_coverage": p2,
                      "pct_whole_logic": p3, "pct_whole_raw": p4, "maps_tested": p5, "commands_tested": p6,
-                     "integrated": p7, "integrated_a": p8,
+                     "integrated": p7, "integrated_a": p8, "xc_pct": p9, "xc_sha": p10,
+                     "xc_scenarios": {x["name"]: [x["samples"], x["failing"]] for x in xwl.get("scenarios") or []},
                      "values": {r["name"]: {"turn": r["turn"], "identical": r["identical"]} for r in rows if r["measured"]}})
     data["history"] = hist[-200:]
     json.dump(hist[-200:], open(os.path.join(OUT, "history.json"), "w"), ensure_ascii=False, indent=1)
