@@ -208,6 +208,17 @@ class StateTests(unittest.TestCase):
         self.assertEqual(state.dashboard(s)["reported_reference_verified_and_integrated"], 1)
         self.assertEqual(s["units"]["battle"]["branch"], "agent/unit-battle-e02")
 
+    def test_accept_ignores_malformed_proofs(self):
+        s = fixture()
+        s["tickets"]["1"] = {"status": "verified", "unit": "battle", "proofs": [
+            {"claim": "no address", "reference_test": "suite::native", "clean_entry": "World::tick"},
+            "cargo test -> 75 passed", {"address": "not-hex"},
+            {"address": "400000", "reference_test": "suite::native", "clean_entry": "World::tick"}]}
+        state.accept(s, ["1"], "a" * 40, 3)
+        self.assertEqual(s["tickets"]["1"]["status"], "accepted")
+        self.assertIsNone(s["integration"])
+        self.assertEqual(state.dashboard(s)["reported_reference_verified_and_integrated"], 1)
+
     def test_disjoint_batch_never_mixes_files_but_spans_receipt_bases(self):
         # The writer re-measures the union on the newest base, so receipts of
         # different (older) bases may share one batch; files never overlap.
