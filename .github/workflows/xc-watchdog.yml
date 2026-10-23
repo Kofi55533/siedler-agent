@@ -1,0 +1,39 @@
+name: xc-watchdog
+# Keeps the per-call differential loop running without any Claude or box session: census -> worker wave -> merges ->
+# post-merge census. Every 20 min (schedules fire late on this repo; fleet-control's 5-min cycle dispatches this one
+# too) it
+#   - dispatches xc-census (main repo only) when none is queued or running and the last successful one is older than
+#     6 h, or clean/integration moved since the work list was measured and no census ran for 1 h;
+#   - dispatches an xc-worker wave in this repo (main or a fork pool) when the work list has pickable kinds, no wave is
+#     queued and fewer than XC_WORKERS kinds are claimed;
+#   - opens one "[xc] pipeline stalled" issue in XC_AGENT when the last 3 census runs failed or no xc merge landed
+#     in 24 h although kinds were pickable, and closes it once the loop moves again.
+on:
+  schedule:
+    - cron: '*/20 * * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: write
+  issues: write
+concurrency:
+  group: xc-watchdog
+  cancel-in-progress: true
+env:
+  XC_PROJECT: ${{ vars.XC_PROJECT || 'Kofi55533/siedler-sim-rs' }}
+  XC_DATA: ${{ vars.XC_DATA || 'Kofi55533/siedler-data' }}
+  XC_AGENT: ${{ vars.XC_AGENT || 'Kofi55533/siedler-agent' }}
+jobs:
+  watch:
+    if: vars.XC_DISABLED != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with: { sparse-checkout: scripts/xc, sparse-checkout-cone-mode: true }
+      - name: Watch
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          R: ${{ github.repository }}
+          XC_WORKERS: ${{ vars.XC_WORKERS || '20' }}
+        run: python3 scripts/xc/watchdog.py

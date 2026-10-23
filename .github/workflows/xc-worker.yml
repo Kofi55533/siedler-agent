@@ -1,0 +1,86 @@
+name: xc-worker
+# One wave of DeepSeek workers on the per-call differential (scripts/xc/worker.sh): each job takes ONE failing task
+# kind from the census work list, gets the measured diffs + the native decompilation as its task, and works until the
+# script-side verdict (scripts/xc/verify.sh) passes; the script, not the model, commits, opens the PR and merges it.
+# The pick job claims the kinds (tracking issues "[xc] KIND", label xc-kind, in XC_AGENT) so overlapping waves and
+# other pools (forks of this repo with their own OPENCODE_API_KEY) never work on the same kind.
+# Model output stays on the runner (private game state); the log shows counts and verdict lines only.
+on:
+  workflow_dispatch:
+    inputs:
+      n: { description: 'max workers in this wave', default: '20' }
+      kinds: { description: 'comma-separated task kinds (empty: pick from the work list)', default: '' }
+permissions:
+  contents: read
+  issues: write
+env:
+  XC_PROJECT: ${{ vars.XC_PROJECT || 'Kofi55533/siedler-sim-rs' }}
+  XC_DATA: ${{ vars.XC_DATA || 'Kofi55533/siedler-data' }}
+  XC_AGENT: ${{ vars.XC_AGENT || 'Kofi55533/siedler-agent' }}
+jobs:
+  pick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    concurrency: { group: xc-pick, cancel-in-progress: false }
+    outputs:
+      kinds: ${{ steps.p.outputs.kinds }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pick and claim failing kinds
+        id: p
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          N: ${{ inputs.n || vars.XC_WORKERS || '20' }}
+          KINDS: ${{ inputs.kinds }}
+        run: |
+          gh release download xc-worklist -R $XC_DATA -D $RUNNER_TEMP -p worklist.json
+          if [ -n "$KINDS" ]; then
+            k=$(python3 -c 'import json,sys;print(json.dumps([x.strip() for x in sys.argv[1].split(",") if x.strip()]))' "$KINDS")
+            for x in $(jq -r '.[]' <<<"$k"); do python3 scripts/xc/xc.py issue "$x" claim; done
+          else
+            k=$(python3 scripts/xc/xc.py pick $RUNNER_TEMP/worklist.json "$N" --claim)
+          fi
+          echo "kinds=$k" >> "$GITHUB_OUTPUT"; echo "picked: $k" | tee -a "$GITHUB_STEP_SUMMARY"
+  fix:
+    needs: pick
+    if: needs.pick.outputs.kinds != '[]' && needs.pick.outputs.kinds != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        kind: ${{ fromJSON(needs.pick.outputs.kinds) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - name: Setup game data, toolchain, build cache, native decompilation (quiet)
+        env: { T: '${{ secrets.PRIVATE_REPO_TOKEN }}', GIT_LFS_SKIP_SMUDGE: '1' }
+        run: |
+          ( git clone -q --depth 1 --filter=blob:none --sparse "https://x-access-token:${T}@github.com/Kofi55533/siedler-forschung.git" $RUNNER_TEMP/forschung \
+            && git -C $RUNNER_TEMP/forschung sparse-checkout set --no-cone /cloud-re/results/rust_handoff/source/ ) > /dev/null 2>&1 &
+          FP=$!
+          scripts/s5-setup.sh clean/integration 1
+          wait $FP || { echo "siedler-forschung clone failed"; exit 1; }
+          echo "XC_NATIVE=$RUNNER_TEMP/forschung/cloud-re/results/rust_handoff/source" >> "$GITHUB_ENV"
+          echo "W=$RUNNER_TEMP/work" >> "$GITHUB_ENV"
+          ls $RUNNER_TEMP/forschung/cloud-re/results/rust_handoff/source/functions.jsonl > /dev/null
+          # no credential stays in a checkout the model can read; worker.sh pushes with GH_TOKEN explicitly
+          git -C $RUNNER_TEMP/forschung remote set-url origin https://github.com/Kofi55533/siedler-forschung.git
+          git -C /opt/s5/siedler-sim-rs remote set-url origin "https://github.com/$XC_PROJECT.git"
+          mkdir -p /opt/s5/xc && GH_TOKEN=$T gh release download xc-worklist -R $XC_DATA -D /opt/s5/xc -p worklist.json --clobber
+      - name: Install opencode
+        run: npm i -g opencode-ai > /dev/null 2>&1 && opencode --version
+      - name: Work on ${{ matrix.kind }} (model output private; counts and verdicts only)
+        env:
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          XC_MODEL: ${{ vars.XC_MODEL || 'opencode/deepseek-v4.1-flash-free' }}
+        run: |
+          mkdir -p ~/.local/share/opencode; umask 077
+          printf '{"opencode":{"type":"api","key":"%s"}}' "$OPENCODE_API_KEY" > ~/.local/share/opencode/auth.json
+          unset OPENCODE_API_KEY; umask 022
+          # 0 merged or nothing to do, 1 attempt recorded (not a job failure), 2 infrastructure
+          rc=0; scripts/xc/worker.sh "${{ matrix.kind }}" || rc=$?
+          [ $rc != 2 ]

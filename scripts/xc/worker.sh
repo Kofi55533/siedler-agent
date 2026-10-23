@@ -1,0 +1,123 @@
+#!/usr/bin/env bash
+# worker.sh <kind>: one task kind of the per-call differential, from measurement to merge.
+#   needs: s5-setup.sh done, $XC/worklist.json (census), $XC_NATIVE (functions.jsonl + code.jsonl), $W (model
+#   workspace), GH_TOKEN (PAT; never passed to the model), opencode installed with its auth.
+# 1. measure the kind on the current clean/integration (all scenarios where it runs) -> nothing to do if identical
+# 2. context pack (measured diffs, native decompilation, clean location) -> model rounds, each checked by verify.sh;
+#    a failed verdict goes back to the model with its lines
+# 3. PASS -> commit, push xc/<kind>, PR into clean/integration, squash-merge (re-verified on a moved base)
+# Exit 0: merged or nothing to do; 1: no passing change (attempt recorded); 2: infrastructure.
+set -uo pipefail
+D=$(cd "$(dirname "$0")" && pwd); source "$D/lib.sh"
+KIND=$1; BR=$(python3 "$D/xc.py" branch "$KIND"); WL=$XC/worklist.json
+PROJECT=${XC_PROJECT:-Kofi55533/siedler-sim-rs}; AGENT=${XC_AGENT:-Kofi55533/siedler-agent}
+MODEL=${XC_MODEL:-opencode/deepseek-v4.1-flash-free}; ROUNDS=${XC_ROUNDS:-3}; ROUND_MIN=${XC_ROUND_MIN:-40}
+log(){ echo "[$(date -u +%H:%M:%S)] $*"; }
+sum(){ [ -n "${GITHUB_STEP_SUMMARY:-}" ] && echo "$*" >> "$GITHUB_STEP_SUMMARY"; log "$*"; }
+# the pick job claimed the kind; every exit but a recorded attempt (1) or a merge hands it back
+MERGED=0
+trap 'rc=$?; [ "$rc" != 1 ] && [ $MERGED = 0 ] && python3 "$D/xc.py" issue "$KIND" unclaim' EXIT
+
+cd "$S5_REPO" || exit 2
+# the checkout carries no credential (the model reads it); fetch and push name the authenticated URL explicitly
+AUTH="https://x-access-token:${GH_TOKEN}@github.com/$PROJECT.git"
+fetch_base(){ git fetch -q "$AUTH" "+refs/heads/clean/integration:refs/remotes/origin/clean/integration"; }
+fetch_base && git checkout -q -B "$BR" origin/clean/integration || exit 2
+git rev-parse HEAD > "$XC/base.sha"; BASE=$(cat "$XC/base.sha")
+# the kind is compared in the scenarios where it failed plus a few where it was clean (at most 9: each verdict runs them
+# all); the next census compares every scenario and reverts a merge that broke one of the others
+python3 "$D/xc.py" scenarios "$WL" "$KIND" | cut -d' ' -f1-9 > "$XC/scenarios-all.txt"
+python3 "$D/xc.py" failing "$WL" "$KIND" | cut -d' ' -f1-3 > "$XC/scenarios-failing.txt"
+[ -s "$XC/scenarios-failing.txt" ] || { sum "$KIND: not failing in the work list"; exit 0; }
+log "build + baseline of $KIND on ${BASE:0:8}: failing in $(cat "$XC/scenarios-failing.txt")"
+xc_build || exit 2
+xc_scenarios | awk -v s=" $(cat "$XC/scenarios-all.txt") " 'index(s, " "$1" ")' | xc_runs "$XC/base/only" "$KIND"
+xc_scenarios | awk -v s=" $(cat "$XC/scenarios-failing.txt") " 'index(s, " "$1" ")' | xc_runs "$XC/base/full"
+python3 "$D/xc.py" check "$XC/base" "$XC/base" "$KIND" > "$XC/base.verdict"
+if grep -q 'VERDICT PASS' "$XC/base.verdict"; then sum "$KIND: already identical on ${BASE:0:8}"; exit 0; fi
+grep -q 'no sampled call' "$XC/base.verdict" && { sum "$KIND: no sampled call at base (runs crashed?)"; exit 2; }
+
+mkdir -p "$W"; ln -sfn "$S5_REPO" "$W/siedler-sim-rs"
+python3 "$D/context.py" "$KIND" "$XC/base" "$XC_NATIVE" "$S5_REPO" "$W/TASK.md" || exit 2
+cat > "$W/check" <<C
+#!/usr/bin/env bash
+exec "$D/check.sh" "$KIND" "\${1:-failing}"
+C
+chmod +x "$W/check"
+cat > "$W/opencode.json" <<'J'
+{"$schema":"https://opencode.ai/config.json","permission":{"edit":"allow","bash":"allow","webfetch":"deny","external_directory":"allow"}}
+J
+PROMPT="You are porting one task handler of the original game Die Siedler: Das Erbe der Koenige into its clean, hand-written
+Rust reimplementation, so that it behaves exactly like the original at the original's own calls.
+Workspace: $W. The Rust repo is $W/siedler-sim-rs (crate crates/s5clean). Read $W/TASK.md first: it holds the measured
+differences between the original and the clean port at real calls of task kind $KIND (\`-\` original, \`+\` clean), the
+original's decompiled handlers and callees, and where the clean code handles the kind today.
+Goal: \`$W/check\` reports 0 differing calls for $KIND (it builds and runs the comparison, several minutes; \`$W/check all\`
+runs every scenario where the kind appears). Work loop: read the difference, find the native logic that produces the
+original's value (decompilation in TASK.md; more functions: grep the address in $XC_NATIVE/functions.jsonl, read the
+record at its code_offset in code.jsonl), change the clean code, run the check, repeat.
+Rules: edit only crates/s5clean/ (and docs/logic/ if a spec statement changes). Write idiomatic Rust in the style of the
+surrounding code; cite native addresses in doc comments the way the existing code does. Never hide differences: no
+hand-written Debug/PartialEq, no removed fields or tests, the importer crates/s5clean/src/reference.rs may only be
+extended (when the original's value lives in a native field the importer does not read yet). Do not copy generated code
+from recomp/. Do not commit, push or open PRs; the pipeline verifies and ships your change. Finish when the check is clean."
+
+ok=0
+for round in $(seq 1 "$ROUNDS"); do
+  log "model round $round"
+  args=(opencode run -m "$MODEL"); [ "$round" -gt 1 ] && args+=(--continue)
+  ( cd "$W" && env -u GH_TOKEN -u GITHUB_TOKEN -u T -u OPENCODE_API_KEY -u PRIVATE_REPO_TOKEN \
+      timeout -k 30 "$((ROUND_MIN * 60))" "${args[@]}" "$PROMPT" ) > "$XC/model-$round.log" 2>&1
+  log "model round $round exit=$? ($(wc -l < "$XC/model-$round.log") log lines, private)"
+  git -C "$S5_REPO" reset -q --soft "$BASE"   # a model commit is folded back into the working change
+  "$D/verify.sh" "$KIND" > "$XC/verify-$round.txt" 2>&1
+  sed 's/^/  /' "$XC/verify-$round.txt" | grep -E 'scope|identical|VERDICT|regression|missing|tests|tick|build' | head -12
+  if grep -q 'VERDICT PASS' "$XC/verify-$round.txt"; then ok=1; break; fi
+  PROMPT="The pipeline's verification of your change failed:
+$(grep -v '^VERDICT' "$XC/verify-$round.txt" | head -40)
+Fix this (run $W/check to see the remaining differences) and finish when the check is clean and nothing else regressed."
+done
+
+record_attempt(){ python3 "$D/xc.py" issue "$KIND" attempt "$(python3 -c "import json,sys;print(json.load(open(sys.argv[1]))['sha'])" "$WL")"; }
+if [ $ok = 0 ]; then sum "$KIND: no passing change after $ROUNDS rounds"; record_attempt; exit 1; fi
+
+# ship: one commit on the measured base, PR, squash-merge; a moved base is merged in and re-verified once
+cd "$S5_REPO"
+git add -A -- crates/s5clean docs
+summary=$(grep -E 'identical|scope ok' "$XC/verify-$round.txt" | head -3)
+git -c user.name=siedler-agent -c user.email=Kofi55533@users.noreply.github.com commit -q -m "xc: $KIND identical to the original at its real calls
+
+Measured by the per-call differential (crates/s5xcheck capture, ExecuteTask 0x57BF33) in the
+recorded scenarios; verified by siedler-agent scripts/xc/verify.sh (scope, kind, no other kind
+regressed, s5clean tests, building tick).
+$summary" || exit 2
+for try in 1 2; do
+  git push -q -f "$AUTH" "HEAD:refs/heads/$BR" || exit 2
+  pr=$(gh api "repos/$PROJECT/pulls?state=open&head=${PROJECT%%/*}:$BR" --jq '.[0].number // empty')
+  [ -z "$pr" ] && pr=$(gh api "repos/$PROJECT/pulls" -f head="$BR" -f base=clean/integration \
+      -f title="xc: $KIND identical to the original at its real calls" \
+      -f body="Per-call differential (ExecuteTask 0x57BF33, task kind \`$KIND\`), verified by the pipeline:
+\`\`\`
+$(grep -vE '^VERDICT' "$XC/verify-$round.txt" | head -20)
+\`\`\`" --jq .number)
+  [ -n "$pr" ] || exit 2
+  if gh api -X PUT "repos/$PROJECT/pulls/$pr/merge" -f merge_method=squash -f sha="$(git rev-parse HEAD)" > /dev/null 2>&1; then
+    sum "$KIND: merged $PROJECT#$pr"; MERGED=1; python3 "$D/xc.py" issue "$KIND" close
+    # the post-merge census compares every scenario and reverts this merge if another kind broke anywhere
+    gh api -X POST "repos/$AGENT/actions/workflows/xc-census.yml/dispatches" -f ref=main > /dev/null 2>&1 || true
+    exit 0
+  fi
+  [ $try = 2 ] && break
+  log "merge refused (base moved?): merging clean/integration and re-verifying"
+  fetch_base
+  git -c user.name=siedler-agent -c user.email=Kofi55533@users.noreply.github.com merge -q --no-edit origin/clean/integration \
+    || { git merge --abort; sum "$KIND: conflict with the moved base"; break; }
+  git rev-parse origin/clean/integration > "$XC/base.sha"; BASE=$(cat "$XC/base.sha")
+  git reset -q --soft "$BASE"
+  "$D/verify.sh" "$KIND" > "$XC/verify-merge.txt" 2>&1 || { sum "$KIND: fails on the moved base"; break; }
+  git add -A -- crates/s5clean docs
+  git -c user.name=siedler-agent -c user.email=Kofi55533@users.noreply.github.com commit -q -m "xc: $KIND identical to the original at its real calls (on ${BASE:0:8})"
+  round=merge
+done
+[ -n "${pr:-}" ] && gh api -X PATCH "repos/$PROJECT/pulls/$pr" -f state=closed > /dev/null
+record_attempt; exit 1
