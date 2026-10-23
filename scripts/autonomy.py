@@ -309,20 +309,28 @@ def control(shadow=False):
 
     # Recover a push that succeeded immediately before the runner or state
     # write failed. Only an already tested, recorded integration intent counts.
+    # Each mutating phase below is isolated: a failure is reported (red run,
+    # stall alert) but never keeps the other phases from running.
+    failures = []
     integration = state.get("integration")
     if not shadow and integration and integration.get("candidate"):
-        candidate = integration["candidate"]
-        latest = fs.api(f"repos/{fs.PROJECT}/git/ref/heads/{fs.BASE}")["object"]["sha"]
-        landed = candidate == latest
-        if not landed:
-            comparison = fs.api(f"repos/{fs.PROJECT}/compare/{candidate}...{latest}")
-            landed = comparison["status"] in {"ahead", "identical"}
-        if landed:
-            update(lambda s: core.accept(s, integration["tickets"], candidate, at), "recover confirmed integration push")
-            state = read()
+        try:
+            candidate = integration["candidate"]
+            latest = fs.api(f"repos/{fs.PROJECT}/git/ref/heads/{fs.BASE}")["object"]["sha"]
+            landed = candidate == latest
+            if not landed:
+                comparison = fs.api(f"repos/{fs.PROJECT}/compare/{candidate}...{latest}")
+                landed = comparison["status"] in {"ahead", "identical"}
+            if landed:
+                update(lambda s: core.accept(s, integration["tickets"], candidate, at),
+                       "recover confirmed integration push")
+        except Exception as error:
+            failures.append(phase_failed("recover confirmed integration push", error))
+        state = read()
 
     def reconcile(s):
         s["backlog_base"] = backlog_base
+        s["last_control_at"] = at
         core.reconcile_runs(s, statuses, at)
         for u in s["units"].values():
             pending = u.get("dispatch")
@@ -422,14 +430,17 @@ def control(shadow=False):
             room -= 1
             verifying += 1
     state = read()
-    for candidate in backlog.select(state, snap["prs"], snap["runs"], at, backlog_base["input"], scripts,
-                                    min(room, max(0, core.LEGACY_GATE_SLOTS - held - verifying))):
-        if update(lambda s: backlog.reserve(s, candidate, at), "reserve legacy fixture regate"):
-            dispatch("gate-baseline.yml", {"mode": "regate", "pr": str(candidate["pr"])})
-            update(lambda s: s["backlog_attempts"][str(candidate["pr"])].update(status="dispatched"),
-                   "confirm legacy fixture regate dispatch")
-            room -= 1
-            external_gates += 1
+    try:
+        for candidate in backlog.select(state, snap["prs"], snap["runs"], at, backlog_base["input"], scripts,
+                                        min(room, max(0, core.LEGACY_GATE_SLOTS - held - verifying))):
+            if update(lambda s: backlog.reserve(s, candidate, at), "reserve legacy fixture regate"):
+                dispatch("gate-baseline.yml", {"mode": "regate", "pr": str(candidate["pr"])})
+                update(lambda s: s["backlog_attempts"][str(candidate["pr"])].update(status="dispatched"),
+                       "confirm legacy fixture regate dispatch")
+                room -= 1
+                external_gates += 1
+    except Exception as error:
+        failures.append(phase_failed("legacy fixture regates", error))
     state = read()
     started = 0
     for uid in core.select(state, 20 - room, at=at, unavailable_units=legacy_units, worker_limit=worker_limit,
@@ -454,7 +465,47 @@ def control(shadow=False):
     if os.environ.get("GITHUB_OUTPUT"):
         with Path(os.environ["GITHUB_OUTPUT"]).open("a") as output:
             output.write("rearm=" + str(controller_needs_wakeup(state, snap["runs"])).lower() + "\n")
+    if not shadow:
+        try:
+            alert_stall(core.stalled(state, at), failures)
+        except Exception as error:
+            # Notification only: a missing issues permission must not turn
+            # every otherwise healthy cycle red.
+            print(f"::warning::stall alert unavailable: {error!r}", flush=True)
     print(json.dumps(core.dashboard(state)))
+    if failures:
+        raise SystemExit("control phases failed: " + ", ".join(failures))
+
+
+STALL_TITLE = "Fleet stalled: nothing integrated"
+
+
+def phase_failed(name, error):
+    import traceback
+    traceback.print_exception(error)
+    print(f"::error::control phase '{name}' failed: {error!r}", flush=True)
+    return name
+
+
+def alert_stall(stall, failures):
+    """Open one issue while integration is stalled; close it on recovery.
+
+    A red run alone went unnoticed for ~40 h. The issue is the durable,
+    notifying record; it is opened once and closed (not deleted) on recovery.
+    """
+    issues = [i for i in fs.api(f"repos/{POOL}/issues?state=open&per_page=100") or []
+              if i.get("title") == STALL_TITLE and "pull_request" not in i]
+    if stall and not issues:
+        body = (f"No package was integrated for {stall['hours']} h while {stall['pending']} gate tickets wait "
+                f"(integration reserved: {stall['integration']}).\n\nFailing control phases this cycle: "
+                f"{', '.join(failures) or 'none'}. See the latest fleet-control runs.\n\n"
+                "Opened by the controller; it closes this issue after the next integration.")
+        fs.api(f"repos/{POOL}/issues", "POST", {"title": STALL_TITLE, "body": body})
+    elif not stall:
+        for issue in issues:
+            fs.api(f"repos/{POOL}/issues/{issue['number']}/comments", "POST",
+                   {"body": "Recovered: a package was integrated again."})
+            fs.api(f"repos/{POOL}/issues/{issue['number']}", "PATCH", {"state": "closed", "state_reason": "completed"})
 
 
 def admit(pool, count):

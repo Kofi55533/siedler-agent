@@ -285,6 +285,31 @@ def continue_domain(state, uid, owner, run, at, pool=None):
     return None
 
 
+def clean_proofs(proofs, addresses):
+    """Keep only well-formed proofs of this unit's obligations.
+
+    Proofs are model output. A string, an entry without a valid native address
+    or one outside the unit is dropped here, so the ticket stores only what
+    accept() can count; the count of dropped entries is returned.
+    """
+    if not isinstance(proofs, list):
+        return [], int(proofs is not None)
+    owned, kept = set(addresses), []
+    for proof in proofs:
+        if not isinstance(proof, dict):
+            continue
+        try:
+            a = address(proof.get("address"))
+        except ValueError:
+            continue
+        if a not in owned:
+            continue
+        fields = {k: "; ".join(map(str, v)) if isinstance(v, list) else str(v)
+                  for k, v in proof.items() if isinstance(v, (str, int, float, list))}
+        kept.append({**{k: v[:600] for k, v in fields.items()}, "address": a})
+    return kept, len(proofs) - len(kept)
+
+
 def finish(state, uid, owner, result, at, pool=None):
     lease = state["leases"].get(uid)
     if not lease or lease["owner"] != owner:
@@ -311,11 +336,14 @@ def finish(state, uid, owner, result, at, pool=None):
     if outcome == "ready":
         if not result.get("pr") or not re.fullmatch(r"[0-9a-f]{40}", result.get("head", "")):
             raise ValueError("Ready package needs an immutable PR head")
+        proofs, dropped = clean_proofs(result.get("proofs"), u["addresses"])
+        if dropped:
+            event(state, "dropped_proofs", at, unit=uid, count=dropped)
         tid = str(state["next_ticket"])
         state["next_ticket"] += 1
         state["tickets"][tid] = {"id": tid, "unit": uid, "pr": int(result["pr"]), "head": result["head"],
                                   "branch": u["branch"], "resources": lease["resources"], "status": "queued",
-                                  "created": at, "proofs": result.get("proofs", []), "attempts": 0}
+                                  "created": at, "proofs": proofs, "attempts": 0}
         u["status"] = "gating"
         # Keep resources reserved until the receipt lands or returns for repair.
         lease.update(owner="gate:" + tid, run=None, heartbeat=at)
@@ -528,8 +556,28 @@ def accept(state, tids, commit, at):
         u.update(status="ready", wip=None, no_gain=0)
         state["leases"].pop(u["id"], None)
     state["integration"] = None
+    state["last_accept_at"] = at
     prune_splits(state)
     event(state, "accept", at, tickets=tids, commit=commit)
+
+
+STALL_SECONDS = 3 * 3600
+
+
+def stalled(state, at, threshold=STALL_SECONDS):
+    """Gate work waits but nothing has been integrated for `threshold` seconds.
+
+    Returns None while healthy. The controller turns a stall into an alert:
+    on 2026-10-21 one malformed result stopped every merge for ~40 h and only
+    showed up as red control runs that the rearm job kept repeating.
+    """
+    pending = sum(t["status"] in {"queued", "verifying", "verified"} for t in state["tickets"].values())
+    last = state.get("last_accept_at") or max(
+        [e["at"] for e in state["events"] if e.get("kind") == "accept"] or [state.get("created", at)])
+    if not pending or at - last < threshold:
+        return None
+    return {"since": last, "hours": round((at - last) / 3600, 1), "pending": pending,
+            "integration": bool(state.get("integration"))}
 
 
 def warm_active(runs):

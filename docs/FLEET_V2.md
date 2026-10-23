@@ -116,6 +116,16 @@ provider failures. Roll back on a stalled controller or widespread job failure. 
 successful Actions jobs. Track integrated reference-tested logic obligations out of 29,723 separately from live
 scenario boundaries; the dashboard labels worker-reported native proof receipts explicitly.
 
+## Failure isolation and stall alert
+
+Worker results are model output. `finish` keeps only proofs that are objects with a valid address of the
+unit's own obligations (string fields, truncated); everything else is dropped with a `dropped_proofs` event, so a
+malformed proof can neither enter a ticket nor abort `accept` after a successful integration push.
+Each mutating control phase (push recovery, legacy regates) is isolated: a failing phase is logged as an
+`::error::`, the remaining phases still run, and the run ends red. When no package was integrated for three hours
+while gate tickets wait, the controller opens one `Fleet stalled: nothing integrated` issue in this repository
+and closes it after the next integration. The alert is best effort and never fails a cycle.
+
 ## Additional worker pools (another account's fork and key)
 
 A fork such as `Dominickofi00/siedler-agent` can run `fleet-worker-v2` with its own
