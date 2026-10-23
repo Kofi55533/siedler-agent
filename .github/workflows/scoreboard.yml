@@ -2,8 +2,8 @@ name: scoreboard
 # Builds the public status page (GitHub Pages, branch gh-pages) every 15 min.
 # Reads the private repo via PRIVATE_REPO_TOKEN; publishes only numbers/titles (data.json) + static index.html.
 # Independent of opencode.yml / refill.yml (own concurrency group, no issues/comments).
-# Cadence: the cron below plus a box-side timer (/workspace/siedler/box/scoreboard_timer.sh, tmux scoreboard-timer) that dispatches
-# only when no run was created in the last ~12 min. The former `rearm` job (sleep 780 on a runner) is gone: it held one of the
+# Cadence: the cron below (fires rarely on this busy repo) plus fleet-control.yml, which dispatches
+# only when no run was created in the last 14 min. The former `rearm` job (sleep 780 on a runner) is gone: it held one of the
 # 20 concurrent job slots for ~13 min of every cycle.
 # API budget (2026-10-20: one build cost ~990 REST calls of the shared PAT, 4-6 builds/h, the PAT hit 5000/h 12:48-13:26 and
 # the 13:04/13:18 pages were published empty): ETag cache across runs (a 304 does not count; blobs/commits by sha are
