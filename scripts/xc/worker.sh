@@ -78,7 +78,8 @@ $(grep -v '^VERDICT' "$XC/verify-$round.txt" | head -40)
 Fix this (run $W/check to see the remaining differences) and finish when the check is clean and nothing else regressed."
 done
 
-record_attempt(){ python3 "$D/xc.py" issue "$KIND" attempt "$(python3 -c "import json,sys;print(json.load(open(sys.argv[1]))['sha'])" "$WL")"; }
+wl_sha(){ python3 -c "import json,sys;print(json.load(open(sys.argv[1]))['sha'])" "$WL"; }
+record_attempt(){ python3 "$D/xc.py" issue "$KIND" attempt "$(wl_sha)"; }
 if [ $ok = 0 ]; then sum "$KIND: no passing change after $ROUNDS rounds"; record_attempt; exit 1; fi
 
 # ship: one commit on the measured base, PR, squash-merge; a moved base is merged in and re-verified once
@@ -102,7 +103,7 @@ $(grep -vE '^VERDICT' "$XC/verify-$round.txt" | head -20)
 \`\`\`" --jq .number)
   [ -n "$pr" ] || exit 2
   if gh api -X PUT "repos/$PROJECT/pulls/$pr/merge" -f merge_method=squash -f sha="$(git rev-parse HEAD)" > /dev/null 2>&1; then
-    sum "$KIND: merged $PROJECT#$pr"; MERGED=1; python3 "$D/xc.py" issue "$KIND" close
+    sum "$KIND: merged $PROJECT#$pr"; MERGED=1; python3 "$D/xc.py" issue "$KIND" merged "$(wl_sha)"
     # the post-merge census compares every scenario and reverts this merge if another kind broke anywhere
     gh api -X POST "repos/$AGENT/actions/workflows/xc-census.yml/dispatches" -f ref=main > /dev/null 2>&1 || true
     exit 0
