@@ -71,5 +71,54 @@ class ValuesAsOf(unittest.TestCase):
         self.assertEqual(b.values_as_of([], {"time": "2026-10-17 18:50"})["as_of"], "2026-10-17 18:50")
 
 
+class Overview(unittest.TestCase):
+    def setUp(self):
+        self.now = b.NOW.timestamp()
+        b._FLEET_STATE[:] = [{"autonomy_v2": {
+            "total": 10, "leases": {}, "events": [], "units": {
+                "u": {"status": "gating", "addresses": ["a1", "a2", "b1"],
+                      "verified": {"a1": {"status": "accepted"}}}},
+            "tickets": {
+                "1": {"status": "queued", "created": self.now - 7200},
+                "2": {"status": "repair", "receipt": {"error": "GATE FAIL: subsystem PR cites 3 function(s) no fixture executes"}},
+                "3": {"status": "repair", "receipt": {"error": "GATE FAIL: frontier PR without live before/after turn numbers"}},
+                "4": {"status": "repair", "receipt": {"error": "GATE FAIL: subsystem PR cites 1 function(s) no fixture executes"}},
+                "5": {"status": "accepted"}},
+            "integration": None}}]
+
+    def tearDown(self):
+        b._FLEET_STATE[:] = []
+
+    def data(self, head_hours):
+        head = (b.NOW - b.timedelta(hours=head_hours)).astimezone(b.BERLIN).strftime("%Y-%m-%d %H:%M")
+        return {"fleet_v2": {"total": {"workers": 30, "worker_limit": 30}, "groups": [{"key": "gate", "used": 10, "limit": 10}],
+                             "enabled": True, "domain": {"provider_hold": False}},
+                "head": {"time": head}, "errors": [],
+                "percent": {"identical_turns": {"as_of": head}},
+                "scenarios": [{"new": False, "identical": True, "measured": True}, {"new": True, "identical": False, "measured": True}]}
+
+    def test_repair_causes_and_scope_counts(self):
+        o = b.overview(self.data(1), [])
+        self.assertEqual([(c["label"], c["count"]) for c in o["pipeline"]["repair_causes"]],
+                         [("Differential-Test fehlt", 2), ("Live-Zahlen fehlen", 1)])
+        a = next(c for c in o["goal"]["scope"] if c["key"] == "A")
+        self.assertEqual((o["goal"]["done"], o["pipeline"]["pending"]), (1, 1))
+        self.assertTrue(a["now"])
+        self.assertEqual((o["scenarios"]["base_identical"], o["scenarios"]["gen_identical"]), (1, 0))
+
+    def test_no_merge_for_hours_with_pending_tickets_is_critical(self):
+        o = b.overview(self.data(14), [])
+        self.assertEqual(o["health"], "critical")
+        self.assertIn("nichts Neues integriert", o["attention"][0]["title"])
+        self.assertEqual(b.overview(self.data(1), [])["health"], "warning")  # 3 of 4 open tickets in repair
+
+    def test_merges_per_day_and_last_24h(self):
+        t = lambda h: b.utc(b.NOW - b.timedelta(hours=h))
+        merges = [{"time": t(1)}, {"time": t(2)}, {"time": t(30)}, {"time": t(24 * 20)}]
+        ig = b.overview(self.data(1), merges)["integrations"]
+        self.assertEqual((ig["last_24h"], ig["prev_24h"], len(ig["per_day"])), (2, 1, 7))
+        self.assertEqual(sum(d["count"] for d in ig["per_day"]), 3)
+
+
 if __name__ == "__main__":
     unittest.main()

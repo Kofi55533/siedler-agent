@@ -1050,6 +1050,175 @@ def values_as_of(rows, matrix_source):
             "as_of_scenario": None}
 
 
+# ---------------- overview (what the page leads with) ----------------
+# scripts/autonomy_state.py is the controller's own bookkeeping (scope classes, stall rule); the workflow checks it out next
+# to scripts/scoreboard so the page shows exactly what the controller counts.
+sys.path.insert(0, os.path.dirname(HERE))
+try:
+    import autonomy_state as AS
+except Exception:  # an old checkout without it: the overview falls back to the raw ticket counts
+    AS = None
+
+REPAIR_CAUSES = [  # (pattern in the gate/review error, label, what fixes it)
+    (r"no fixture executes|differential test|Differential-tests", "Differential-Test fehlt",
+     "Worker muss pro zitierter Adresse einen s5xcheck-Test mit Referenzaufruf liefern."),
+    (r"live before/after", "Live-Zahlen fehlen", "Frontier-PR braucht Zeilen 'live <fixture>: before N -> M'."),
+    (r"fixture declaration|could not be installed", "Fixture-Angabe ungültig", "Frontier-fixture-Zeile korrigieren."),
+    (r"claimed area|lane claim", "Gesperrter Bereich", "Datei ist durch einen (alten) Board-Claim belegt."),
+    (r"head differs", "PR seit Prüfung geändert", "Wird beim nächsten Durchlauf automatisch neu geprüft."),
+    (r"review", "Nachweis-Review abgelehnt", "Inhaltlicher Mangel: Worker muss nachbessern."),
+    (r"regress|diverg|worse", "Regression im Live-Test", "Änderung verschlechtert einen Szenario-Wert."),
+    (r"receipt", "Prüfbeleg unvollständig", "Gate-Lauf abgebrochen; wird neu angestoßen."),
+]
+SCOPE_LABELS = {"A": ("Simulation", "wird jetzt nachgebaut: Spiellogik, Zug für Zug identisch"),
+                "B": ("Darstellung", "später: Grafik, Sound, UI (eigener Vergleichstest nötig)"),
+                "C": ("Bibliotheken", "nicht nachbauen: Rust-Standard/Crates ersetzen sie"),
+                "D": ("Online/veraltet", "entfällt: alte Online-/Plattformdienste")}
+
+
+def utc(ts):
+    if ts is None:
+        return None
+    t = ts if isinstance(ts, datetime) else datetime.fromtimestamp(float(ts), timezone.utc)
+    return t.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def integration_commits(days=14):
+    """PR merges on clean/integration (2-parent commits), newest first, with the merged PR when it is known."""
+    since = (NOW - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    by_head = {p["head_sha"]: (n, p) for n, p in PR_INFO.items() if p.get("head_sha")}
+    out = []
+    for page in range(1, 6):
+        cs = api(f"repos/{PRIV}/commits?sha={urllib.parse.quote(BRANCH, safe='')}&since={since}&per_page=100&page={page}")
+        for c in cs:
+            if len(c.get("parents") or []) != 2:
+                continue
+            n, p = by_head.get(c["parents"][1]["sha"], (None, {}))
+            out.append({"time": utc(parse_ts(c["commit"]["committer"]["date"])), "pr": n,
+                        "title": (p.get("title") or "")[:140] or None,
+                        "url": f"https://github.com/{PRIV}/pull/{n}" if n else None})
+        if len(cs) < 100:
+            break
+    return out
+
+
+def repair_cause(t):
+    err = (t.get("receipt") or {}).get("error") or ""
+    for pat, label, fix in REPAIR_CAUSES:
+        if re.search(pat, err, re.I):
+            return label, fix
+    return "Sonstiges", "Einzelfall: Ticket ansehen."
+
+
+def overview(data, merges):
+    av = (fleet_state() or {}).get("autonomy_v2") or {}
+    tickets = list((av.get("tickets") or {}).values())
+    now = NOW.timestamp()
+    v2 = data.get("fleet_v2") or {}
+    dash = AS.dashboard(av) if AS and av.get("units") else None
+    # goal: verified + integrated functions per scope class
+    scope = []
+    for k, (label, what) in SCOPE_LABELS.items():
+        sp = ((dash or {}).get("scope") or {}).get(k) or {}
+        scope.append({"key": k, "label": label, "what": what, "total": sp.get("obligations"),
+                      "done": sp.get("integrated"), "now": sp.get("ported_now", k == "A")})
+    # pipeline
+    status = {}
+    for t in tickets:
+        status[t.get("status") or "?"] = status.get(t.get("status") or "?", 0) + 1
+    integ = av.get("integration") or None
+    queued = [t for t in tickets if t.get("status") == "queued"]
+    oldest = min((float(t["created"]) for t in queued if t.get("created")), default=None)
+    causes = {}
+    for t in tickets:
+        if t.get("status") == "repair":
+            label, fix = repair_cause(t)
+            c = causes.setdefault(label, {"label": label, "fix": fix, "count": 0})
+            c["count"] += 1
+    total = v2.get("total") or {}
+    gate = next((g for g in v2.get("groups") or [] if g["key"] == "gate"), {})
+    units = ((v2.get("domain") or {}).get("unit_status")) or {}
+    # integrations per Berlin day (last 7) and the last 24 h vs. the 24 h before
+    days = {}
+    for d in range(6, -1, -1):
+        days[(NOW.astimezone(BERLIN) - timedelta(days=d)).strftime("%Y-%m-%d")] = 0
+    for m in merges:
+        k = parse_ts(m["time"]).astimezone(BERLIN).strftime("%Y-%m-%d")
+        if k in days:
+            days[k] += 1
+    age = lambda m: (NOW - parse_ts(m["time"])).total_seconds()
+    last24 = sum(1 for m in merges if age(m) <= 86400)
+    prev24 = sum(1 for m in merges if 86400 < age(m) <= 2 * 86400)
+    head_t = data.get("head") and datetime.strptime(data["head"]["time"], "%Y-%m-%d %H:%M").replace(tzinfo=BERLIN)
+    last_merge = merges[0]["time"] if merges else utc(head_t) if head_t else None
+    pending = sum(status.get(s, 0) for s in ("queued", "verifying", "verified"))
+    # attention list: (severity, title, detail, what to do)
+    att = []
+    def add(sev, title, detail, todo):
+        att.append({"severity": sev, "title": title, "detail": detail, "todo": todo})
+    hold = (v2.get("domain") or {}).get("provider_hold")
+    if hold:
+        add("critical", "DeepSeek pausiert (Provider-Sperre)", "Der Anbieter hat Anfragen abgelehnt; keine neuen Worker.",
+            "Abwarten bis die Sperre abläuft; bei Dauer: Modell/Anbieter in autonomy_state.py prüfen.")
+    if v2.get("enabled") is False:
+        add("critical", "Flotte ausgeschaltet", "Repo-Variable FLEET_V2_ENABLED ist nicht 'true'.",
+            "Variable in siedler-agent → Settings → Variables auf true setzen.")
+    if last_merge:
+        idle_h = (NOW - parse_ts(last_merge)).total_seconds() / 3600
+        if pending and idle_h >= 3:
+            add("critical" if idle_h >= 12 else "warning", f"Seit {idle_h:.0f} h nichts Neues integriert",
+                f"{pending} Tickets warten auf Prüfung/Integration.",
+                "Integration läuft gerade – abwarten." if integ else "Gate-/Integrationsläufe in siedler-agent prüfen.")
+    if integ and integ.get("at"):
+        mins = (now - float(integ["at"])) / 60
+        if mins >= 60:
+            add("warning", f"Integration läuft seit {mins:.0f} min", f"Tickets {', '.join(integ.get('tickets') or [])}.",
+                "Normal sind 10–40 min; länger: Lauf ansehen.")
+    if status.get("queued") and not gate.get("used"):
+        add("warning", "Gate leer, obwohl Tickets warten", f"{status['queued']} Tickets in der Warteschlange, kein Prüflauf aktiv.",
+            "fleet-control-Läufe prüfen (rot?).")
+    if total.get("worker_limit") and total.get("workers", 0) < total["worker_limit"] // 2 and not hold:
+        add("warning", "Wenige Worker aktiv", f"{total.get('workers', 0)} von {total['worker_limit']} Worker-Plätzen belegt.",
+            "Gibt es noch freie Einheiten? Sonst fleet-control prüfen.")
+    rep, open_ = status.get("repair", 0), sum(v for k, v in status.items() if k != "accepted")
+    if open_ and rep / open_ >= 0.3:
+        top = max(causes.values(), key=lambda c: c["count"])
+        add("warning", f"{rep} von {open_} offenen Tickets brauchen Nacharbeit",
+            f"Häufigster Grund: {top['label']} ({top['count']}×).", top["fix"])
+    asof = (data["percent"]["identical_turns"] or {}).get("as_of")
+    if asof:
+        h = (NOW - datetime.strptime(asof, "%Y-%m-%d %H:%M").replace(tzinfo=BERLIN)).total_seconds() / 3600
+        if h >= 24:
+            add("info", f"Szenario-Werte {h:.0f} h alt", "Die Zug-Werte ändern sich nur, wenn ein Gate-Merge neu misst.",
+                "Kommt mit der nächsten Integration von selbst.")
+    if data.get("errors"):
+        add("info", f"{len(data['errors'])} Datenquelle(n) nicht lesbar", "; ".join(data["errors"][:2])[:200],
+            "Nur Anzeige betroffen; build.py-Log ansehen.")
+    order = {"critical": 0, "warning": 1, "info": 2}
+    att.sort(key=lambda a: order[a["severity"]])
+    health = "critical" if any(a["severity"] == "critical" for a in att) else (
+        "warning" if any(a["severity"] == "warning" for a in att) else "good")
+    base = [r for r in data["scenarios"] if not r["new"]]
+    gen = [r for r in data["scenarios"] if r["new"]]
+    return {
+        "health": health, "attention": att,
+        "goal": {"inventory": (dash or {}).get("inventory") or av.get("total"),
+                 "done": (dash or {}).get("reported_reference_verified_and_integrated"), "scope": scope},
+        "scenarios": {"base_total": len(base), "base_identical": sum(1 for r in base if r["identical"]),
+                      "gen_total": len(gen), "gen_identical": sum(1 for r in gen if r["identical"]),
+                      "gen_measured": sum(1 for r in gen if r["measured"])},
+        "pipeline": {"tickets": status, "pending": pending, "oldest_queued": utc(oldest),
+                     "integration": {"since": utc(integ.get("at")), "tickets": integ.get("tickets"),
+                                     "run": f"https://github.com/{PUB}/actions/runs/{integ['run']}" if integ.get("run") else None}
+                     if integ else None,
+                     "units": units, "workers": total.get("workers"), "worker_limit": total.get("worker_limit"),
+                     "gate": gate.get("used"), "gate_limit": gate.get("limit"),
+                     "repair_causes": sorted(causes.values(), key=lambda c: -c["count"])},
+        "integrations": {"per_day": [{"day": k, "count": v} for k, v in days.items()], "last_24h": last24,
+                         "prev_24h": prev24, "last": last_merge, "recent": merges[:12]},
+    }
+
+
 # ---------------- main ----------------
 def rate_remaining(tok):
     try:
@@ -1085,7 +1254,7 @@ def main():
         for pr in pl:
             PR_STATE[pr["number"]] = "merged" if pr.get("merged_at") else pr["state"]
             PR_INFO[pr["number"]] = {"author": (pr.get("user") or {}).get("login"), "state": PR_STATE[pr["number"]],
-                                     "head": pr["head"]["ref"], "title": pr.get("title") or "",
+                                     "head": pr["head"]["ref"], "head_sha": pr["head"]["sha"], "title": pr.get("title") or "",
                                      "merged": iso(parse_ts(pr["merged_at"])) if pr.get("merged_at") else None}
             if pr["state"] == "open" or not pr.get("merged_at"):
                 PR_BY_BRANCH.setdefault(pr["head"]["ref"], pr["number"])
@@ -1364,6 +1533,8 @@ def main():
     data["codex"]["activity"] = activity("codex", cc and datetime.strptime(cc["time"], "%Y-%m-%d %H:%M").replace(tzinfo=BERLIN).astimezone(timezone.utc))
     data["codex"]["paused_until_utc"] = datetime(2026, 10, 22, 15, 57, tzinfo=BERLIN).astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     data["errors"] = ERRORS
+    merges = safe(integration_commits, [], "integration commits")
+    data["overview"] = ov = safe(lambda: overview(data, merges), None, "overview")
     # any rate-limited / forbidden fetch makes the page partial (12:49: 198 errors, 35 of 86 scenarios) -> keep the last good page
     bad = [e for e in ERRORS if re.search(r"\b(403|429)\b|RateLimited", e)]
     if RATE["limited"] or bad:
@@ -1384,14 +1555,19 @@ def main():
     p3, p4 = wg.get("pct_logic"), wg.get("pct_raw")
     p5 = f'{ts["maps"]["tested"]}/{ts["maps"]["total"]}' if ts else None
     p6 = f'{ts["commands"]["tested"]}/{ts["commands"]["total"]}' if ts else None
+    goal = (ov or {}).get("goal") or {}
+    p7 = goal.get("done")
+    p8 = next((c["done"] for c in goal.get("scope") or [] if c["key"] == "A"), None)
     last = hist[-1] if hist else {}
     if (not hist or last.get("key") != key or last.get("pct_identical") != p1 or last.get("pct_coverage") != p2
-            or last.get("pct_whole_logic") != p3 or last.get("maps_tested") != p5 or last.get("commands_tested") != p6):
+            or last.get("pct_whole_logic") != p3 or last.get("maps_tested") != p5 or last.get("commands_tested") != p6
+            or (p7 is not None and (last.get("integrated") != p7 or last.get("integrated_a") != p8))):
         hist.append({"key": key, "time": data["percent"]["identical_turns"].get("as_of"),
                      "matrix_time": data["matrix_source"]["time"] if data["matrix_source"] else None,
                      "sha": data["matrix_source"]["sha"] if data["matrix_source"] else None,
                      "recorded": data["generated_berlin"], "pct_identical": p1, "pct_coverage": p2,
                      "pct_whole_logic": p3, "pct_whole_raw": p4, "maps_tested": p5, "commands_tested": p6,
+                     "integrated": p7, "integrated_a": p8,
                      "values": {r["name"]: {"turn": r["turn"], "identical": r["identical"]} for r in rows if r["measured"]}})
     data["history"] = hist[-200:]
     json.dump(hist[-200:], open(os.path.join(OUT, "history.json"), "w"), ensure_ascii=False, indent=1)
