@@ -485,5 +485,32 @@ class RuntimeInterlockTests(unittest.TestCase):
         self.assertEqual(env["S5_GATE_PIN_BASE"], "b" * 40)
 
 
+
+class BodyPrecheckTests(unittest.TestCase):
+    def test_no_fixture_declarations_are_dropped_and_names_unquoted(self):
+        body = ("Summary\nFrontier-fixture: none\nFrontier-fixture: `economy`\nFrontier-fixture: n/a\n"
+                "- Frontier-fixture: none (bullet prose stays)\nFrontier-fixture: -\n")
+        self.assertEqual(runtime.normalize_body(body),
+                         "Summary\nFrontier-fixture: economy\n- Frontier-fixture: none (bullet prose stays)\n")
+        self.assertEqual(runtime.contract.fixtures(runtime.normalize_body(body)), ["economy"])
+
+    def test_body_rules_match_the_gate(self):
+        self.assertEqual(runtime.body_gaps("no frontier fixture\n"), [])
+        self.assertIn("invalid required fixture declaration",
+                      runtime.body_gaps("Frontier-fixture: economy (unchanged)\n")[0])
+        self.assertIn("without live before/after", runtime.body_gaps("Frontier-fixture: economy\n")[0])
+        # The gate greps per line: numbers split across lines do not count.
+        self.assertTrue(runtime.body_gaps("Frontier-fixture: economy\nlive economy: before turn\n360 -> 360\n"))
+        for live in ("live economy: before turn 360 -> after turn 360 (IDENTICAL 360 ticks)",
+                     "live economy: before IDENTICAL 360 ticks -> after IDENTICAL 360 ticks"):
+            self.assertEqual(runtime.body_gaps(f"Frontier-fixture: economy, bc-full\n{live}\n"), [])
+
+    def test_body_gaps_get_a_body_repair_prompt(self):
+        prompt = runtime.precheck_repair_prompt(["frontier PR without live"], "plan", "result", "body")
+        self.assertIn("GATE FAIL: frontier PR without live", prompt)
+        self.assertNotIn("differential test", prompt)
+        self.assertIn("crates/s5xcheck/tests", runtime.precheck_repair_prompt(
+            ["subsystem PR cites 2 function(s) no fixture executes, but: x"], "plan", "result", "body"))
+
 if __name__ == "__main__":
     unittest.main()

@@ -85,7 +85,7 @@ class RecoveryTests(unittest.TestCase):
         gap=['subsystem PR cites 1 function(s) no fixture executes, but: missing y']
         result,submitted,check=self.run_ready(lambda *a:gap)
         self.assertEqual(result['outcome'],'checkpoint')
-        self.assertIn('citation precheck',result['summary'])
+        self.assertIn('gate precheck',result['summary'])
         self.assertEqual(submitted,[])
         self.assertEqual(check.call_count,3)
         self.assertNotIn('pr',result)
