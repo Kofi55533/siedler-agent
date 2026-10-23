@@ -867,10 +867,13 @@ LIVE_LINE = re.compile(r"(?i)before[^0-9]{0,40}[0-9]+.{0,80}(->|\u2192)[^0-9]{0,
 def normalize_body(body):
     """Mechanical, meaning-preserving fixes of 'Frontier-fixture:' lines.
 
-    'Frontier-fixture: none' declares no extra fixture, so the line is dropped
-    (the gate would try to install a fixture named 'none'); markdown around the
-    names is removed. Everything else stays as the model wrote it.
+    A declaration adds a fixture to the gate's live matrix. 'none' adds nothing,
+    and a standard matrix fixture is measured anyway, so naming one only made
+    the gate demand live lines or reject the prose after it: those names (and a
+    line left empty) are dropped. Markdown around names is removed. Any other
+    line stays as the model wrote it.
     """
+    standard = standard_fixtures()
     out = []
     for line in body.splitlines():
         m = re.match(r"(?i)^\s*frontier-fixture:\s*(.*?)\s*$", line)
@@ -880,6 +883,11 @@ def normalize_body(body):
         value = m[1].replace("`", "").replace("*", "").strip()
         if not value or NO_FIXTURE.match(value):
             continue
+        names = [x for x in re.split(r"[,\s]+", value.split("(")[0]) if x]
+        if names and all(x in standard for x in names):
+            continue
+        if "(" not in value:
+            value = ", ".join(x for x in names if x not in standard)
         out.append("Frontier-fixture: " + value)
     return "\n".join(out) + ("\n" if body.endswith("\n") else "")
 

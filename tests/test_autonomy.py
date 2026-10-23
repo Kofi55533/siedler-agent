@@ -488,11 +488,20 @@ class RuntimeInterlockTests(unittest.TestCase):
 
 class BodyPrecheckTests(unittest.TestCase):
     def test_no_fixture_declarations_are_dropped_and_names_unquoted(self):
-        body = ("Summary\nFrontier-fixture: none\nFrontier-fixture: `economy`\nFrontier-fixture: n/a\n"
+        body = ("Summary\nFrontier-fixture: none\nFrontier-fixture: `gen-leader-patrol`\nFrontier-fixture: n/a\n"
                 "- Frontier-fixture: none (bullet prose stays)\nFrontier-fixture: -\n")
         self.assertEqual(runtime.normalize_body(body),
-                         "Summary\nFrontier-fixture: economy\n- Frontier-fixture: none (bullet prose stays)\n")
-        self.assertEqual(runtime.contract.fixtures(runtime.normalize_body(body)), ["economy"])
+                         "Summary\nFrontier-fixture: gen-leader-patrol\n- Frontier-fixture: none (bullet prose stays)\n")
+        self.assertEqual(runtime.contract.fixtures(runtime.normalize_body(body)), ["gen-leader-patrol"])
+
+    def test_standard_matrix_fixtures_are_not_declared_again(self):
+        self.assertIn("bc-full", runtime.standard_fixtures())
+        body = ("Frontier-fixture: bc-full (known DIVERGENT turn 17941, unchanged).\n"
+                "Frontier-fixture: economy, gen-tribute-diplomacy\n"
+                "Frontier-fixture: camp-camper-range-2000 (requested)\n")
+        self.assertEqual(runtime.normalize_body(body), "Frontier-fixture: gen-tribute-diplomacy\n"
+                         "Frontier-fixture: camp-camper-range-2000 (requested)\n")
+        self.assertIn("invalid required fixture declaration", runtime.body_gaps(runtime.normalize_body(body))[0])
 
     def test_body_rules_match_the_gate(self):
         self.assertEqual(runtime.body_gaps("no frontier fixture\n"), [])
