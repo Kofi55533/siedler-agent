@@ -47,13 +47,28 @@ xc_build || exit 2
 # the base build stays runnable: verify.sh measures the base's full runs only when the change seems to break another
 # kind against the work list (most changes do not), instead of measuring them up front for every kind
 xc_keep_bins "$XC/base-bin"
-rm -rf "$XC/base"; mkdir -p "$XC/base/only"
 BIND=$(xc_binding "$KIND")
+base_only(){
+  rm -rf "$XC/base"; mkdir -p "$XC/base/only"
+  xc_scenarios | awk -v s=" $(cat "$XC/scenarios-all.txt") " 'index(s, " "$1" ")' | xc_runs "$XC/base/only" "$KIND"
+}
+# <field> summed over the kind's base runs
+shows(){
+  python3 -c 'import json,sys;from pathlib import Path;print(sum(json.loads(f.read_text())["groups"].get(sys.argv[2],{}).get(sys.argv[3],0) for f in Path(sys.argv[1]).glob("*.json")))' \
+    "$XC/base/only" "$KIND" "$1"
+}
+# the census plays XC_TURNS (1200), but a verdict at that length took ~30 min instead of ~6 at 120 (2026-10-24: no merge
+# for an hour with 14 workers): the work (base, model checks, verdicts) plays XC_TURNS_SHORT when the kind shows there
+# (a bound kind differs, an unbound one is called), else the full length; the census still compares every merge at 1200
+FULL_TURNS=$XC_TURNS; export XC_TURNS=$XC_TURNS_SHORT
+base_only
 if [ -n "$BIND" ] && [ ! -f "$BIND" ]; then
+  [ "$(shows entries)" -gt 0 ] || export XC_TURNS=$FULL_TURNS
   # a function without binding: its base runs would only count its calls, which the work list already holds
+  rm -rf "$XC/base"; mkdir -p "$XC/base/only"
   python3 "$D/xc.py" stub "$WL" "$KIND" "$XC/base/only" $(cat "$XC/scenarios-all.txt")
 else
-  xc_scenarios | awk -v s=" $(cat "$XC/scenarios-all.txt") " 'index(s, " "$1" ")' | xc_runs "$XC/base/only" "$KIND"
+  [ "$(shows failing)" -gt 0 ] || { export XC_TURNS=$FULL_TURNS; base_only; }
   python3 "$D/xc.py" check "$XC/base" "$XC/base" "$KIND" > "$XC/base.verdict"
   # nothing left for this census (fixed by another merge, or an old worker closed the issue): no re-pick until it re-measures
   if grep -q 'VERDICT PASS' "$XC/base.verdict"; then
@@ -61,13 +76,13 @@ else
   fi
   grep -q 'no sampled call' "$XC/base.verdict" && { sum "$KIND: no sampled call at base (runs crashed?)"; exit 2; }
 fi
-log "base measured in $(( $(date +%s) - t0 ))s"
+log "base measured in $(( $(date +%s) - t0 ))s, work at $XC_TURNS turns"
 
 mkdir -p "$W"; ln -sfn "$S5_REPO" "$W/siedler-sim-rs"
 python3 "$D/context.py" "$KIND" "$XC/base" "$XC_NATIVE" "$S5_REPO" "$W/TASK.md" || exit 2
 cat > "$W/check" <<C
 #!/usr/bin/env bash
-exec "$D/check.sh" "$KIND" "\${1:-failing}"
+XC_TURNS=$XC_TURNS exec "$D/check.sh" "$KIND" "\${1:-failing}"
 C
 chmod +x "$W/check"
 cat > "$W/opencode.json" <<'J'
