@@ -1,0 +1,47 @@
+name: xc-cmds-full-probe
+# one-off probe (counts and seconds only): every capture point with and without the player commands
+on:
+  push:
+    branches: [claude/xc-cmds-full-probe]
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 170
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - name: Setup (quiet)
+        env: { T: '${{ secrets.PRIVATE_REPO_TOKEN }}', GIT_LFS_SKIP_SMUDGE: '1' }
+        run: scripts/s5-setup.sh clean/integration 1
+      - name: All points, without and with commands (counts only)
+        run: |
+          set +e
+          source scripts/xc/lib.sh
+          xc_build || { echo build failed; exit 2; }
+          cat "$XC/cmds/summary.txt"
+          xc_scenarios | awk '$1=="ai-long"||$1=="camp-crawford"||$1=="combat"||$1=="economy"||$1=="late-ai"||$1=="map-winterisland"||$1=="wsecon"' \
+            | awk -v i=${{ matrix.shard }} '(NR - 1) % 4 == i' > lines.txt
+          t=$(date +%s); XC_NO_CMDS=1 xc_runs "$XC/old" < lines.txt; echo "old secs=$(( $(date +%s) - t ))"
+          t=$(date +%s); xc_runs "$XC/new" < lines.txt; echo "new secs=$(( $(date +%s) - t ))"
+          while read -r name _; do python3 - "$XC/old/$name.json" "$XC/new/$name.json" "$name" <<'P'
+          import json, sys
+          from pathlib import Path
+          def s(p):
+              if not Path(p).is_file(): return "no document"
+              d = json.loads(Path(p).read_text()); g = d["groups"].values()
+              pt = lambda k: "FN" if k.startswith("FN_") else "TICK" if k.startswith("TICK_") else "TASK"
+              per = {}
+              for k, v in d["groups"].items():
+                  x = per.setdefault(pt(k), [0, 0, 0]); x[0] += 1; x[1] += bool(v["samples"]); x[2] += bool(v["failing"])
+              return f"commands {d.get('commands', '-')} missing {len(d['missing_points'])} import_errors {len(d['import_errors'])} " + \
+                  " ".join(f"{k} kinds/sampled/failing {a}/{b}/{c}" for k, (a, b, c) in sorted(per.items()))
+          print(sys.argv[3], "old:", s(sys.argv[1])); print(sys.argv[3], "new:", s(sys.argv[2]))
+          P
+          done < lines.txt
