@@ -29,8 +29,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      # the scripts of the main repository, as xc-worker does: a fork pool decides with the current picker without
+      # being synced (only its workflow files come from the fork)
       - uses: actions/checkout@v4
-        with: { sparse-checkout: scripts/xc, sparse-checkout-cone-mode: true }
+        with: { repository: '${{ env.XC_AGENT }}', ref: main, sparse-checkout: scripts/xc, sparse-checkout-cone-mode: true }
       - name: Watch
         env:
           GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
