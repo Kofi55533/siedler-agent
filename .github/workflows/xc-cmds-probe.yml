@@ -23,6 +23,7 @@ jobs:
         run: scripts/s5-setup.sh clean/integration 1
       - name: Probe (counts only)
         run: |
+          set +e
           source scripts/xc/lib.sh
           xc_build || exit 2
           cat "$XC/cmds/summary.txt"
