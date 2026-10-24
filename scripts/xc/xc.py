@@ -27,6 +27,7 @@ import time
 from pathlib import Path
 
 ATTEMPTS = 3  # failed worker attempts per kind (on the same census) before it waits for a new census
+CENSUS = 2   # version of what the census measures (2: function units); a work list of another version is re-measured
 CLAIM_H = 7   # a claim (a worker picked the kind) blocks other picks this long; a worker job lasts at most 6 h
 PROJECT = os.environ.get("XC_PROJECT", "Kofi55533/siedler-sim-rs")
 # the tracking issues live in the main pipeline repo for every pool (forks pick from the same work list)
@@ -102,7 +103,7 @@ def merge(directory, sha, out, meta=None):
         for kind, k in fns.items():
             k["cited"] = address(kind) in cited  # the clean code names the address: maybe ported, binding missing
     states = [fn_state(k) for kind, k in fns.items() if kind not in COVERED]
-    doc = {"sha": sha, "function": ",".join(sorted(functions)), "scenarios": scenarios, "kinds": kinds,
+    doc = {"sha": sha, "census": CENSUS, "function": ",".join(sorted(functions)), "scenarios": scenarios, "kinds": kinds,
            "summary": {"kinds": len(kinds), "failing_kinds": sum(1 for k in kinds.values() if k["failing"]),
                        "samples": sum(k["samples"] for k in kinds.values()),
                        "failing": sum(k["failing"] for k in kinds.values()),

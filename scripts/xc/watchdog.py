@@ -74,7 +74,9 @@ def stall_issue(reason):
 def main():
     now = time.time()
     wl = worklist()
-    sha = json.load(open(wl))["sha"] if wl else ""
+    doc = json.load(open(wl)) if wl else {}
+    sha = doc.get("sha", "")
+    old = doc.get("census", 1) != xc.CENSUS  # measured by an earlier census version: re-measure on the same tip
     tip = (gh(f"repos/{xc.PROJECT}/commits/clean/integration") or {}).get("sha", "")
     reasons = []
 
@@ -86,7 +88,7 @@ def main():
         last_any = ts(cr[0]["created_at"]) if cr else 0
         if active(cr):
             print("census running")
-        elif not wl or now - last_ok > CENSUS_MAX_AGE or (tip and tip != sha and now - last_any > CENSUS_MIN_GAP):
+        elif not wl or now - last_ok > CENSUS_MAX_AGE or ((old or tip and tip != sha) and now - last_any > CENSUS_MIN_GAP):
             dispatch("xc-census.yml")
         if len(done) >= 3 and all(r["conclusion"] == "failure" for r in done[:3]):
             reasons.append("the last 3 xc-census runs failed")
