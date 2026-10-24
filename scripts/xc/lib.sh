@@ -40,28 +40,32 @@ xc_scenarios(){
 # xc_cmds: per scenario image, the commands of every generated fixture of the $S5_REPO checkout that starts on it
 # (fixtures-gen/*/scenario.json "image" + commands.jsonl, absolute game turns) merged into $XC/cmds/<name>.bin, which
 # xc_run replays (S5_XCHECK_COMMANDS). Commands after the compared turns are not reached. Rebuilt once per checkout.
+# combat plays without: its commands leave a state the reference importer cannot read at 8107 sampled calls (probe
+# 2026-10-25, against 0 without them), so those calls would go uncompared and the play takes twice as long
+XC_CMDS_SKIP=${XC_CMDS_SKIP-combat}
 xc_cmds(){
   local stamp; stamp=$(git -C "$S5_REPO" rev-parse HEAD 2>/dev/null)
-  [ -n "$stamp" ] && [ "$(cat "$XC/cmds/stamp" 2>/dev/null)" = "$stamp" ] && return 0
+  stamp="$stamp $XC_CMDS_SKIP"
+  [ "$(cat "$XC/cmds/stamp" 2>/dev/null)" = "$stamp" ] && return 0
   rm -rf "$XC/cmds"; mkdir -p "$XC/cmds"
   xc_scenarios | python3 -c 'import json, os, sys
 from pathlib import Path
 repo, s5 = sys.argv[1], sys.argv[2]
 # the fixtures name their image by its runner path (/opt/s5/data/...); the scenarios by $S5/data/...
 key = lambda p: os.path.normpath(p.split("/data/", 1)[1]) if "/data/" in p else os.path.normpath(p)
-by_image = {}
+by_image, skip = {}, set(sys.argv[3].split())
 for s in sorted(Path(repo, "fixtures-gen").glob("*/scenario.json")):
     c = s.parent / json.loads(s.read_text()).get("commands", "commands.jsonl")
     if c.is_file() and c.stat().st_size:
         by_image.setdefault(key(json.loads(s.read_text())["image"]), []).append(str(c))
 for line in sys.stdin:
     name, img = line.split()[:2]
-    if name != "bc" and key(img) in by_image:
-        print(name, *by_image[key(img)])' "$S5_REPO" "$S5" \
+    if name != "bc" and name not in skip and key(img) in by_image:
+        print(name, *by_image[key(img)])' "$S5_REPO" "$S5" "$XC_CMDS_SKIP" \
   | while read -r name streams; do
       echo "$name: $(python3 "$(dirname "${BASH_SOURCE[0]}")/cmdbin.py" "$S5_REPO/oracle" "$XC/cmds/$name.bin" $streams)"
     done > "$XC/cmds/summary.txt"
-  [ -z "$stamp" ] || echo "$stamp" > "$XC/cmds/stamp"
+  echo "$stamp" > "$XC/cmds/stamp"
 }
 
 # the census inventory of capture-functions: every class-A (simulation) function of scripts/scope_classes.json, one hex
