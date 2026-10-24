@@ -10,6 +10,8 @@ name: xc-worker
 # (pool/xc-pool.yml is the whole file), so every pool always runs the current main. The pick claims at most
 # XC_WORKERS kinds per pool in all, so overlapping waves of one pool never exceed its slots.
 on:
+  push:  # TRIAL ONLY (reverted before merge): a 2-job wave of this branch's scripts
+    branches: [claude/xc-worker-loop]
   workflow_dispatch:
     inputs:
       n: { description: 'max workers in this wave', default: '20' }
@@ -43,7 +45,7 @@ jobs:
         id: p
         env:
           GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
-          N: ${{ inputs.n || '20' }}
+          N: ${{ inputs.n || '2' }}
           # the main account keeps 10 of its 20 concurrent jobs free for the census (8 shards) and the watchdog
           L: ${{ vars.XC_WORKERS || (github.repository == 'Kofi55533/siedler-agent' && '10' || '20') }}
           KINDS: ${{ inputs.kinds }}
