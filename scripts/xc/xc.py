@@ -213,10 +213,23 @@ def merged_since(body, sha, pinned):
     return len(m) > 1 and pinned is not None and int(m[1]) > pinned
 
 
+RUNS = {}  # worker run id -> ended, asked once per pick
+
+
+def ended(run, pool):
+    """the claiming worker run is over: a job that died before its verdict (a setup failure, a lost runner) never
+    released its claim; a run that cannot be looked up counts as going"""
+    if run not in RUNS:
+        r = gh(f"repos/{pool}/actions/runs/{run}") if run.isdigit() else None
+        RUNS[run] = bool(r) and r.get("status") == "completed"
+    return RUNS[run]
+
+
 def claimed(body, now, pool=None):
-    """a live claim (of any pool, or of <pool> only)"""
+    """a live claim (of any pool, or of <pool> only): younger than CLAIM_H and its worker run still going"""
     c = fields(body).get("claimed", "").split()
-    return bool(c) and now - int(c[0]) < CLAIM_H * 3600 and (pool is None or c[2:3] == [pool])
+    return (bool(c) and now - int(c[0]) < CLAIM_H * 3600 and (pool is None or c[2:3] == [pool])
+            and not (len(c) > 2 and ended(c[1], c[2])))
 
 
 def tracking():
