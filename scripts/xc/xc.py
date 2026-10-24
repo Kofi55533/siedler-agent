@@ -4,10 +4,13 @@
   xc.py merge <dir> <sha> <out> [meta]
                                       per-scenario capture JSONs -> worklist.json (kinds x scenarios); meta: a directory
                                       with fn_calls.json (static calls between class-A functions) and cited.txt (native
-                                      addresses the clean code cites), the order of the function units
+                                      addresses the clean code cites), the order of the function units; the
+                                      callers of each function (capture-functions) mark the ones covered by their
+                                      verified callers and order the rest top-down
   xc.py regressions <old> <new>       (kind, scenario) pairs that compared clean in <old> and fail in <new> (JSON list)
   xc.py pick <worklist> <n> [--claim] [--limit=L]
-                                      up to n failing kinds no open PR, claim or exhausted attempt covers (JSON list);
+                                      up to n failing kinds no open PR, claim, exhausted attempt or merge since the
+                                      work list was pinned covers (JSON list);
                                       --limit: at most L live claims of this pool (GITHUB_REPOSITORY) in all
   xc.py scenarios <worklist> <kind>   names of the scenarios where <kind> was sampled, failing ones first
   xc.py failing <worklist> <kind>     names of the scenarios where <kind> fails
