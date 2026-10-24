@@ -13,6 +13,9 @@ D=$(cd "$(dirname "$0")" && pwd); source "$D/lib.sh"
 KIND=$1; BR=$(python3 "$D/xc.py" branch "$KIND"); WL=$XC/worklist.json
 PROJECT=${XC_PROJECT:-Kofi55533/siedler-sim-rs}; AGENT=${XC_AGENT:-Kofi55533/siedler-agent}
 MODEL=${XC_MODEL:-opencode/deepseek-v4.1-flash-free}; ROUNDS=${XC_ROUNDS:-3}; ROUND_MIN=${XC_ROUND_MIN:-40}
+# no new model round once it could not end inside this budget (minutes since start): of 168 jobs (2026-10-24) none that
+# ran past 3 h merged, the latest merge came after 162 min, so a fresh kind gets the slot instead
+BUDGET_MIN=${XC_BUDGET_MIN:-170}
 log(){ echo "[$(date -u +%H:%M:%S)] $*"; }
 sum(){ [ -n "${GITHUB_STEP_SUMMARY:-}" ] && echo "$*" >> "$GITHUB_STEP_SUMMARY"; log "$*"; }
 wl_sha(){ python3 -c "import json,sys;print(json.load(open(sys.argv[1]))['sha'])" "$WL"; }
@@ -86,8 +89,12 @@ extended (when the original's value lives in a native field the importer does no
 from recomp/. Do not commit, push or open PRs; the pipeline verifies and ships your change. Finish when the check is clean."
 
 ok=0
+rounds=0
 for round in $(seq 1 "$ROUNDS"); do
-  log "model round $round"
+  if [ "$round" -gt 1 ] && [ $(( SECONDS + ROUND_MIN * 60 )) -gt $(( BUDGET_MIN * 60 )) ]; then
+    log "budget: no round $round after $(( SECONDS / 60 )) min"; break
+  fi
+  rounds=$round; log "model round $round"
   args=(opencode run -m "$MODEL"); [ "$round" -gt 1 ] && args+=(--continue)
   ( cd "$W" && env -u GH_TOKEN -u GITHUB_TOKEN -u T -u OPENCODE_API_KEY -u PRIVATE_REPO_TOKEN \
       timeout -k 30 "$((ROUND_MIN * 60))" "${args[@]}" "$PROMPT" ) > "$XC/model-$round.log" 2>&1
@@ -102,7 +109,7 @@ Fix this (run $W/check to see the remaining differences) and finish when the che
 done
 
 record_attempt(){ python3 "$D/xc.py" issue "$KIND" attempt "$(wl_sha)"; }
-if [ $ok = 0 ]; then sum "$KIND: no passing change after $ROUNDS rounds"; record_attempt; exit 1; fi
+if [ $ok = 0 ]; then sum "$KIND: no passing change after $rounds rounds"; record_attempt; exit 1; fi
 
 # ship: one commit on the measured base, PR, squash-merge; a moved base is merged in and re-verified once
 cd "$S5_REPO"
