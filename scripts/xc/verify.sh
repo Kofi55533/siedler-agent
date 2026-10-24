@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # verify.sh <kind>: the script-side verdict on a worker's change (the model's word counts for nothing).
-#  1. scope: only crates/s5clean/** and docs/** change; no test removed; no hand-written Debug/PartialEq (the
-#     comparison runs over the derived {:#?} dump, a custom impl could hide fields); importer only extended.
+#  1. scope: only crates/s5clean/** and docs/** change (a function kind FN_<address> also its binding
+#     crates/s5xcheck/src/functions/fn_<address>.rs, which only translates the call); no test removed; no
+#     hand-written Debug/PartialEq (the comparison runs over the derived {:#?} dump, a custom impl could hide
+#     fields); importer only extended.
 #  2. <kind> identical at every sampled call in every scenario where it runs ($XC/scenarios-all.txt).
 #  3. the full comparison of the scenarios where <kind> failed shows no other kind newly differing.
 #  4. crates/s5clean unit tests and the building-tick capture stay green.
@@ -10,9 +12,17 @@ set -uo pipefail
 D=$(cd "$(dirname "$0")" && pwd); source "$D/lib.sh"
 KIND=$1; BASE=$(cat "$XC/base.sha"); cd "$S5_REPO"
 fail(){ echo "$*"; echo "VERDICT FAIL"; exit 1; }
-bad=$(xc_changed | grep -vE '^(crates/s5clean/|docs/)' | head -3 | tr '\n' ' ')
-[ -n "$bad" ] && fail "scope: changes outside crates/s5clean and docs: $bad (revert them)"
-git add -A -- crates/s5clean docs
+BIND=$(xc_binding "$KIND")
+bad=$(xc_changed | grep -vE "^(crates/s5clean/|docs/${BIND:+|$BIND\$})" | head -3 | tr '\n' ' ')
+[ -n "$bad" ] && fail "scope: changes outside crates/s5clean, docs${BIND:+ and $BIND}: $bad (revert them)"
+if [ -n "$BIND" ] && [ -f "$BIND" ]; then
+  # the binding translates the native call (arguments, ids) and calls crates/s5clean; the logic lives there
+  code=$(grep -vE '^\s*(//|$)' "$BIND")
+  [ "$(wc -l <<<"$code")" -gt 60 ] && fail "scope: the binding $BIND has $(wc -l <<<"$code") code lines (at most 60: move the logic into crates/s5clean)"
+  grep -qE '\bunsafe\b|\.w(8|16|32)\(|static mut' <<<"$code" && fail "scope: the binding $BIND writes native memory or uses unsafe/static mut"
+  grep -qE 'world\.|World::|s5clean::' <<<"$code" || fail "scope: the binding $BIND does not call crates/s5clean"
+fi
+git add -A -- $(xc_paths "$KIND")
 git diff --cached --quiet "$BASE" && fail "scope: no change"
 del=$(git diff --cached --name-only --diff-filter=D "$BASE" -- crates/s5clean/tests | head -3 | tr '\n' ' ')
 [ -n "$del" ] && fail "scope: test files deleted: $del"

@@ -8,6 +8,11 @@ xc_build || exit 2
 xc_scenarios | awk -v i="$I" -v n="$N" '(NR - 1) % n == i' > "$XC/shard.txt"
 echo "shard $I/$N: $(wc -l < "$XC/shard.txt") scenarios on $(git -C "$S5_REPO" rev-parse --short HEAD)"
 t0=$(date +%s); xc_runs "$OUT" < "$XC/shard.txt"
+# the order of the function units (xc.py merge): static calls between class-A functions, and the native addresses the
+# clean code cites; addresses only, private like the shard
+mkdir -p "$OUT/_meta"
+[ -f "$S5_REPO/data/scope/fn_calls.json" ] && cp "$S5_REPO/data/scope/fn_calls.json" "$OUT/_meta/"
+grep -rhoiE '0x0*[4-6][0-9a-f]{5}\b' "$S5_REPO/crates/s5clean/src" | tr 'A-F' 'a-f' | sed 's/^0x0*//' | sort -u > "$OUT/_meta/cited.txt"
 while read -r name _; do
   [ -s "$OUT/$name.json" ] && python3 -c "import json,sys;d=json.load(open(sys.argv[1]));g=d['groups'].values()
 print(f\"{sys.argv[2]}: {d['entries']} calls, {len(d['groups'])} kinds, {sum(x['failing'] for x in g)}/{sum(x['samples'] for x in g)} differ, {len(d['import_errors'])} import errors\"+(f\", points without result: {','.join(d['missing_points'])}\" if d.get('missing_points') else ''))" "$OUT/$name.json" "$name" \

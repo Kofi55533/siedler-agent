@@ -7,8 +7,7 @@ D=$(cd "$(dirname "$0")" && pwd); source "$D/lib.sh"
 t0=$(date +%s); xc_build || exit 2; echo "build secs=$(( $(date +%s) - t0 ))"
 read -r name img skip turns < <(xc_scenarios | awk -v n="$1" '$1==n')
 [ -n "${img:-}" ] || { echo "no scenario $1"; exit 2; }
-# the inventory: every logic function the coverage map lists (executed in some fixture), cited or not
-grep -o '^| [0-9]* | `0x[0-9A-F]*`' "$S5_REPO/docs/clean/COVERAGE.md" | grep -o '0x[0-9A-F]*' | sort -u > "$XC/inventory.txt"
+# the inventory (xc_build): every class-A function of scripts/scope_classes.json, as the census counts them
 echo "inventory: $(wc -l < "$XC/inventory.txt") functions"
 one(){ # one <tag> <bin> [env...]
   local tag=$1 bin=$2; shift 2; local t=$(date +%s)

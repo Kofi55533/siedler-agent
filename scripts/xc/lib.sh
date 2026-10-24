@@ -30,8 +30,16 @@ xc_scenarios(){
   done | sort -u -k1,1
 }
 
+# the census inventory of capture-functions: every class-A (simulation) function of scripts/scope_classes.json, one hex
+# address per line; each one the scenario calls becomes a kind FN_<address> (counted, compared once it has a binding)
+xc_inventory(){
+  python3 -c 'import json,sys;print("\n".join(json.load(open(sys.argv[1]))["addresses"]["A"]))' \
+    "$(dirname "${BASH_SOURCE[0]}")/../scope_classes.json" > "$XC/inventory.txt"
+}
+
 # build the capture tests of the current $S5_REPO checkout (shares recomp/target with the build cache)
 xc_build(){
+  xc_inventory || return 1
   ( cd "$S5_REPO" || exit 1
     [ -f crates/s5xcheck/Cargo.lock ] || cp recomp/Cargo.lock crates/s5xcheck/Cargo.lock
     CARGO_TARGET_DIR=${XC_TARGET:-$S5_REPO/recomp/target} cargo test --release --no-run -j "${CARGO_BUILD_JOBS:-3}" \
@@ -48,9 +56,15 @@ for l in sys.stdin:
 xc_bin(){ awk -v n="$1" '$1==n{print $2}' "$XC/bins.txt"; }
 
 # capture points: the test binaries of the census and the kinds each one measures. capture-ticks groups the entity
-# ticks (building, settler, animal) by type as TICK_<CLASS>_<type>; every other kind is an ExecuteTask task kind.
-xc_points(){ echo capture-execute-task; [ -n "$(xc_bin capture-ticks)" ] && echo capture-ticks; }
-xc_point(){ case $1 in TICK_*) echo capture-ticks ;; *) echo capture-execute-task ;; esac; }
+# ticks (building, settler, animal) by type as TICK_<CLASS>_<type>; capture-functions has one kind FN_<address> per
+# native function (bound in crates/s5xcheck/src/functions, or only counted from the inventory); every other kind is an
+# ExecuteTask task kind.
+xc_points(){
+  echo capture-execute-task
+  [ -n "$(xc_bin capture-ticks)" ] && echo capture-ticks
+  [ -n "$(xc_bin capture-functions)" ] && echo capture-functions
+}
+xc_point(){ case $1 in TICK_*) echo capture-ticks ;; FN_*) echo capture-functions ;; *) echo capture-execute-task ;; esac; }
 
 # xc_run <scenario line fields: name image skip turns> <out.json> [only-kinds]: the capture runs of one scenario (every
 # point, or only the points of the given kinds), merged into one document (the groups of the points are disjoint)
@@ -63,6 +77,7 @@ xc_run(){
   for bin in $bins; do
     ( cd "$S5_REPO" && export S5_XCHECK_IMAGE=$img S5_CAPTURE_SKIP=$skip S5_CAPTURE_TURNS=$turns S5_CAPTURE_MAX=$XC_MAX \
         S5_CAPTURE_STRIDE=$XC_STRIDE S5_CAPTURE_JSON=$out.$bin.part && { [ -z "$only" ] || export S5_CAPTURE_ONLY=$only; } &&
+      { [ "$bin" != capture-functions ] || export S5_CAPTURE_FUNCTIONS=$XC/inventory.txt; } &&
       timeout -k 30 "$XC_TIMEOUT" "$(xc_bin "$bin")" --nocapture --test-threads=1 ) \
       < /dev/null >> "$XC/run-$tag.log" 2>&1
     r=$?; [ -s "$out.$bin.part" ] || rc=$r   # a failing comparison exits 101 with its document written
@@ -93,6 +108,12 @@ xc_runs(){
     n=$((n + 1)); [ $((n % XC_JOBS)) = 0 ] && wait
   done; wait
 }
+
+# xc_binding <kind>: the binding file a function kind FN_<address> may add or change (crates/s5xcheck/src/functions)
+xc_binding(){ case $1 in FN_*) local a=${1#FN_}; a=${a,,}; echo "crates/s5xcheck/src/functions/fn_${a#"${a%%[!0]*}"}.rs" ;; esac; }
+# xc_paths <kind>: the pathspecs of a worker's change: the clean crate, the docs, and for a function kind the bindings
+# directory (verify.sh allows only the kind's own binding in it; a pathspec naming a file not yet written would fail)
+xc_paths(){ echo crates/s5clean docs; [ -n "$(xc_binding "$1")" ] && echo crates/s5xcheck/src/functions; }
 
 # paths the worker changed in $S5_REPO relative to HEAD's tree and the index (setup leftovers excluded)
 xc_changed(){
