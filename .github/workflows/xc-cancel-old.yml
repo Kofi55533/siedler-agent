@@ -1,0 +1,18 @@
+name: xc-cancel-old
+# one-off (branch claude/xc-cancel-old only): cancels the worker waves and the probe that still run the 1200-turn
+# worker code (before #1811); their "Release the claim" step frees the kinds, and the watchdog refills on main
+on:
+  push:
+    branches: [claude/xc-cancel-old]
+permissions:
+  actions: write
+jobs:
+  cancel:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - env: { GH_TOKEN: '${{ github.token }}', R: '${{ github.repository }}' }
+        run: |
+          for id in 40118943555 40120756065 40122764187 40123973872 40116922305; do
+            gh api -X POST repos/$R/actions/runs/$id/cancel > /dev/null && echo "cancelled $id" || echo "not cancelled $id"
+          done
