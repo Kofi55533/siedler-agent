@@ -6,8 +6,9 @@ on:
   push:
     branches: ['claude/**']
 permissions: { contents: read }
+# a push without the tag is skipped and must not cancel a running trial, so it gets its own group
 concurrency:
-  group: xc-try-${{ github.ref }}
+  group: "xc-try-${{ github.ref }}-${{ contains(github.event.head_commit.message, '[xc-try ') }}"
   cancel-in-progress: true
 jobs:
   try:
