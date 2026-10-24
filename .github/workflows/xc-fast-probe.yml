@@ -1,0 +1,53 @@
+name: xc-fast-probe
+# one-off probe (counts and seconds only): the capture's faster world comparison gives the same report as before
+on:
+  push:
+    branches: [claude/xc-fast-probe]
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - name: Setup (quiet)
+        env: { T: '${{ secrets.PRIVATE_REPO_TOKEN }}', GIT_LFS_SKIP_SMUDGE: '1' }
+        run: scripts/s5-setup.sh clean/integration 1
+      - name: Old against new capture (counts only)
+        run: |
+          set +e
+          source scripts/xc/lib.sh
+          one(){ # one <name> <img> <tag>
+            local t=$(date +%s)
+            ( cd "$S5_REPO" && env S5_XCHECK_IMAGE="$2" S5_CAPTURE_SKIP=0 S5_CAPTURE_TURNS=120 S5_CAPTURE_MAX=$XC_MAX \
+                S5_CAPTURE_STRIDE=$XC_STRIDE S5_CAPTURE_JSON="$XC/p-$1-$3.json" S5_CAPTURE_FUNCTIONS="$XC/inventory.txt" \
+                timeout -k 30 "$XC_TIMEOUT" "$(xc_bin capture-functions)" --nocapture --test-threads=1 ) < /dev/null > "$XC/p-$1-$3.log" 2>&1
+            echo "$1 $3: exit $? secs=$(( $(date +%s) - t ))"
+          }
+          t=$(date +%s); xc_build || { echo old build failed; exit 2; }; echo "old build secs=$(( $(date +%s) - t ))"
+          xc_scenarios | awk '$1=="combat"||$1=="combat-waves"||$1=="wsecon"||$1=="sp-winterassault"' > lines.txt
+          while read -r name img _; do one "$name" "$img" old & done < lines.txt; wait
+          git -C "$S5_REPO" fetch -q --depth 1 origin claude/xc-fast-compare && git -C "$S5_REPO" checkout -q FETCH_HEAD -- crates/s5xcheck/src/capture.rs || exit 2
+          t=$(date +%s); xc_build || { grep -E '^error' -A5 "$XC/build.log" | head -30; exit 2; }; echo "new build secs=$(( $(date +%s) - t ))"
+          while read -r name img _; do one "$name" "$img" new & done < lines.txt; wait
+          while read -r name _; do python3 - "$XC/p-$name-old.json" "$XC/p-$name-new.json" "$name" <<'P'
+          import json, sys
+          try:
+              a, b = (json.load(open(p)) for p in sys.argv[1:3])
+          except Exception as e:
+              print(sys.argv[3], "unreadable", type(e).__name__); sys.exit()
+          def walk(x, y, path, out):
+              if type(x) != type(y): out.append(path); return
+              if isinstance(x, dict):
+                  for k in set(x) | set(y): walk(x.get(k), y.get(k), path + "/" + str(k) if not str(k).startswith("0x") else path + "/*", out)
+              elif isinstance(x, list):
+                  if len(x) != len(y): out.append(path + "[len]")
+                  for i, j in zip(x, y): walk(i, j, path + "[]", out)
+              elif x != y: out.append(path)
+          out = []; walk(a, b, "", out)
+          print(sys.argv[3], "identical" if not out else f"{len(out)} differing values at {sorted(set(out))[:8]}")
+          P
+          done < lines.txt
