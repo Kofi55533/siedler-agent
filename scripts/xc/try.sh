@@ -16,6 +16,7 @@ one(){ # one <tag> <bin> [env...]
       timeout -k 30 "$XC_TIMEOUT" "$(xc_bin "$bin")" --nocapture --test-threads=1 ) < /dev/null > "$XC/try-$tag.log" 2>&1
   echo "$tag: exit $? secs=$(( $(date +%s) - t)) json=$([ -s "$XC/$tag.json" ] && echo yes || echo no)"
 }
+one execute capture-execute-task
 one ticks capture-ticks
 one functions capture-functions
 one inventory capture-functions S5_CAPTURE_FUNCTIONS="$XC/inventory.txt"
@@ -44,6 +45,12 @@ if inv:
     print(f"callers: {sum(1 for x in c if x)} of {len(un)} unbound with callers, "
           f"{sum(1 for x in c if x and all(k in bound for k in x))} only inside bound functions, "
           f"{sum(1 for x in c if 'ROOT' in x)} called from the turn itself")
+for t in ("execute", "ticks", "functions", "inventory"):
+    d = load(t)
+    if d:
+        gs = [g for g in d["groups"].values() if not g.get("unbound")]
+        print(f"{t}: {len(gs)} compared groups, {sum(g['samples'] for g in gs)} samples, {sum(g['failing'] for g in gs)} differ, "
+              f"{sum(g.get('observed', 0) for g in gs)} observed")
 for t in ("functions", "inventory"):
     d = load(t)
     if d: print(f"{t}: {d['entries']} entries, {len(d['import_errors'])} import errors")
