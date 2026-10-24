@@ -1,0 +1,53 @@
+name: xc-probe
+# temporary measurement (branch only): how many class-A functions the census observes per scenario at 120 vs 1200
+# compared turns. Counts only; the census documents stay on the runner.
+on:
+  push:
+    branches: [claude/xc-turns-probe]
+permissions:
+  contents: read
+jobs:
+  probe:
+    if: github.repository == 'Kofi55533/siedler-agent'
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - name: Setup (quiet)
+        env: { T: '${{ secrets.PRIVATE_REPO_TOKEN }}', GIT_LFS_SKIP_SMUDGE: '1' }
+        run: scripts/s5-setup.sh clean/integration 1
+      - name: Observed functions per scenario (counts only)
+        run: |
+          source scripts/xc/lib.sh
+          xc_build || exit 2
+          xc_scenarios | awk -v i=${{ matrix.shard }} '(NR - 1) % 4 == i' > $XC/shard.txt
+          for T in 120 1200 3000; do
+            rm -rf $XC/p$T; mkdir -p $XC/p$T; t0=$(date +%s)
+            while read -r name img skip turns; do
+              ( cd $S5_REPO && S5_XCHECK_IMAGE=$img S5_CAPTURE_SKIP=$skip S5_CAPTURE_TURNS=$T S5_CAPTURE_MAX=$XC_MAX \
+                S5_CAPTURE_STRIDE=$XC_STRIDE S5_CAPTURE_JSON=$XC/p$T/$name.json S5_CAPTURE_FUNCTIONS=$XC/inventory.txt \
+                timeout -k 30 5400 "$(xc_bin capture-functions)" --nocapture --test-threads=1 ) < /dev/null > $XC/p$T-$name.log 2>&1 &
+              while [ "$(jobs -rp | wc -l)" -ge 4 ]; do wait -n; done
+            done < $XC/shard.txt; wait
+            echo "turns=$T secs=$(( $(date +%s) - t0 ))"
+            python3 - $XC/p$T <<'P'
+          import json, sys
+          from pathlib import Path
+          allk = set()
+          for f in sorted(Path(sys.argv[1]).glob("*.json")):
+              g = json.loads(f.read_text())["groups"]; k = {x for x in g if x.startswith("FN_")}; allk |= k
+              print(f"  {f.stem}: {len(k)} functions, {sum(1 for x in k if g[x].get('unbound'))} unbound")
+          Path(sys.argv[1] + ".keys").write_text("\n".join(sorted(allk)))
+          print(f"  shard union: {len(allk)} functions")
+          P
+          done
+          echo "new at 1200 vs 120: $(comm -13 $XC/p120.keys $XC/p1200.keys | wc -l), new at 3000 vs 1200: $(comm -13 $XC/p1200.keys $XC/p3000.keys | wc -l)"
+          mkdir -p $RUNNER_TEMP/k && cp $XC/p*.keys $RUNNER_TEMP/k/
+      - uses: actions/upload-artifact@v4
+        with: { name: 'keys-${{ matrix.shard }}', path: '${{ runner.temp }}/k', retention-days: 2 }
