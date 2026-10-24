@@ -14,8 +14,16 @@
                                       --limit: at most L live claims of this pool (GITHUB_REPOSITORY) in all
   xc.py scenarios <worklist> <kind>   names of the scenarios where <kind> was sampled, failing ones first
   xc.py failing <worklist> <kind>     names of the scenarios where <kind> fails
-  xc.py check <base> <new> <kind>     a worker's verdict: <kind> clean everywhere, nothing else newly failing (a
-                                      function kind FN_<address> also bound and observed)
+  xc.py check <base> <new> <kind> [<worklist> <scenario>...]
+                                      a worker's verdict: <kind> clean everywhere, nothing else newly failing (a
+                                      function kind FN_<address> also bound and observed); with the work list, the
+                                      named scenarios need a full run in <new>, compared with <base>/full where
+                                      measured (scenarios without one showed no suspect against the work list)
+  xc.py suspects <worklist> <new-full> <kind>
+                                      scenarios whose full run after a change shows another kind failing that the work
+                                      list measured clean there, or missing (only those need the base's full run)
+  xc.py stub <worklist> <kind> <dir> <scenario>...
+                                      <dir>/<scenario>.json with the work list's call counts of an unbound function
   xc.py branch <kind>                 the fix branch of a kind
   xc.py issue <kind> <op> [sha]       tracking issue of a kind: claim | unclaim | attempt <census sha> |
                                       merged <census sha> | close
@@ -319,12 +327,43 @@ def scenarios(worklist, kind, only_failing=False):
     print(" ".join(name for name, v in items if v["samples"] and (v["failing"] or not only_failing)))
 
 
-def check(base, new, kind):
-    """base/new: directories with per-scenario JSONs (the kind-only runs plus full runs of the failing scenarios)."""
+def suspect(wk, scen, groups, kind):
+    """another kind failing in a full run although the work list measured it clean in that scenario, or one the work
+    list sampled there and the run lost"""
+    for other, k in wk.items():
+        v = k.get("scenarios", {}).get(scen)
+        if other == kind or not v or not v["samples"]:
+            continue
+        g = groups.get(other)
+        if g is None or (g["failing"] and not v["failing"]):
+            return True
+    return False
+
+
+def suspects(worklist, new_full, kind):
+    wk = load(worklist)["kinds"]
+    print(" ".join(f.stem for f in sorted(Path(new_full).glob("*.json")) if suspect(wk, f.stem, load(f)["groups"], kind)))
+
+
+def stub(worklist, kind, out, names):
+    k = load(worklist)["kinds"].get(kind, {"scenarios": {}})
+    Path(out).mkdir(parents=True, exist_ok=True)
+    for name in names:
+        v = k["scenarios"].get(name)
+        if v and v["entries"]:
+            g = {"entries": v["entries"], "samples": 0, "failing": 0, "unbound": True, "examples": []}
+            Path(out, f"{name}.json").write_text(json.dumps({"groups": {kind: g}}))
+
+
+def check(base, new, kind, worklist=None, full=None):
+    """base/new: directories with per-scenario JSONs (the kind-only runs plus full runs of the failing scenarios; a
+    scenario with a full run has no kind-only run, its full run holds the kind too)."""
     ok, lines = True, []
     samples = failing = observed = entries = 0
     unbound = False
-    for f in sorted(Path(new, "only").glob("*.json")):
+    runs = {f.stem: f for f in sorted(Path(new, "only").glob("*.json"))}
+    runs.update({f.stem: f for f in sorted(Path(new, "full").glob("*.json")) if worklist})
+    for _, f in sorted(runs.items()):
         g = load(f)["groups"].get(kind)
         if g:
             samples += g["samples"]
@@ -362,10 +401,10 @@ def check(base, new, kind):
         if gone:
             ok = False
             lines.append(f"full run of {f.stem}: {len(gone)} kinds without result after the change (crash?), e.g. {gone[0]}")
-    for f in sorted(Path(base, "full").glob("*.json")):
-        if not Path(new, "full", f.name).exists():
+    for name in (full if worklist else [f.stem for f in sorted(Path(base, "full").glob("*.json"))]):
+        if not Path(new, "full", f"{name}.json").exists():
             ok = False
-            lines.append(f"full run of {f.stem} missing after the change (crash?)")
+            lines.append(f"full run of {name} missing after the change (crash?)")
     lines.append(f"{kind}: {samples - failing}/{samples} sampled calls identical")
     print("\n".join(lines))
     print("VERDICT", "PASS" if ok else "FAIL")
@@ -386,7 +425,11 @@ def main(argv):
     elif cmd == "failing":
         scenarios(argv[2], argv[3], only_failing=True)
     elif cmd == "check":
-        return check(argv[2], argv[3], argv[4])
+        return check(argv[2], argv[3], argv[4], argv[5] if len(argv) > 5 else None, argv[6:])
+    elif cmd == "suspects":
+        suspects(argv[2], argv[3], argv[4])
+    elif cmd == "stub":
+        stub(argv[2], argv[3], argv[4], argv[5:])
     elif cmd == "issue":
         issue(argv[2], argv[3], argv[4] if len(argv) > 4 else None)
     elif cmd == "branch":

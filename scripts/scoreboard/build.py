@@ -888,11 +888,13 @@ V2_SUB = {"fleet-verify.yml": "preflight", "fleet-integrate.yml": "integration",
 # Brother account (Dominic 2026-10-21): the public fork runs its own fleet-worker-v2 pool on the same v2 queue
 # (fleet-pool-refill admits up to FLEET_POOL_WORKER_LIMIT, default 20); its leases carry pool=<fork>, its PRs are opened as
 # Dominickofi00. Public repo: read with GITHUB_TOKEN / anonymously, no extra secret.
-FORK = "Dominickofi00/siedler-agent"
+# Renamed to siedler-agent-pool on 2026-10-24. GitHub disabled Actions for this account at 2026-10-24 02:18 UTC
+# ("Actions has been disabled for this user"), so it counts with no capacity until GitHub enables it again.
+FORK = "Dominickofi00/siedler-agent-pool"
 try:
-    FORK_CAPACITY = int(os.environ.get("FLEET_POOL_WORKER_LIMIT") or 20)
+    FORK_CAPACITY = int(os.environ.get("FLEET_POOL_WORKER_LIMIT") or 0)
 except ValueError:
-    FORK_CAPACITY = 20
+    FORK_CAPACITY = 0
 ACCOUNTS = [(PUB, "Kofi55533"), (FORK, "Dominickofi00")]
 ACCOUNT_OF_REPO = {r: a for r, a in ACCOUNTS}
 
@@ -935,7 +937,7 @@ def v2_account_view(main_runs, fork_runs, wlimit):
                   runs_url=f"https://github.com/{PUB}/actions", **cnt(m, lambda r: True))]
     fork_parts = [dict(key="worker", label="DeepSeek-Worker", limit=FORK_CAPACITY, **cnt(f, lambda r: wf(r) == "fleet-worker.yml")),
                   dict(key="control", label="Pool-Refill (kurz)", limit=None, **cnt(f, lambda r: wf(r) != "fleet-worker.yml"))]
-    accts.append(dict(account="Dominickofi00", repo=FORK, role="Bruder-Konto (Fork)", capacity=FORK_CAPACITY,
+    accts.append(dict(account="Dominickofi00", repo=FORK, role="Bruder-Konto (Fork, Actions von GitHub gesperrt)", capacity=FORK_CAPACITY,
                       worker_limit=FORK_CAPACITY, gate_limit=0, gate_used=0, parts=fork_parts, readable=fork_runs is not None,
                       runs_url=f"https://github.com/{FORK}/actions/workflows/fleet-worker.yml", **cnt(f, lambda r: True)))
     total = {k: sum(a[k] for a in accts) for k in ("used", "running", "waiting", "capacity")}

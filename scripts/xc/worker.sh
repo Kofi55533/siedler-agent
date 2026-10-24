@@ -32,15 +32,26 @@ python3 "$D/xc.py" scenarios "$WL" "$KIND" | cut -d' ' -f1-9 > "$XC/scenarios-al
 python3 "$D/xc.py" failing "$WL" "$KIND" | cut -d' ' -f1-3 > "$XC/scenarios-failing.txt"
 [ -s "$XC/scenarios-failing.txt" ] || { sum "$KIND: not failing in the work list"; exit 0; }
 log "build + baseline of $KIND on ${BASE:0:8}: failing in $(cat "$XC/scenarios-failing.txt")"
+t0=$(date +%s)
 xc_build || exit 2
-xc_scenarios | awk -v s=" $(cat "$XC/scenarios-all.txt") " 'index(s, " "$1" ")' | xc_runs "$XC/base/only" "$KIND"
-xc_scenarios | awk -v s=" $(cat "$XC/scenarios-failing.txt") " 'index(s, " "$1" ")' | xc_runs "$XC/base/full"
-python3 "$D/xc.py" check "$XC/base" "$XC/base" "$KIND" > "$XC/base.verdict"
-# nothing left for this census (fixed by another merge, or an old worker closed the issue): no re-pick until it re-measures
-if grep -q 'VERDICT PASS' "$XC/base.verdict"; then
-  sum "$KIND: already identical on ${BASE:0:8}"; MERGED=1; python3 "$D/xc.py" issue "$KIND" merged "$(wl_sha)"; exit 0
+# the base build stays runnable: verify.sh measures the base's full runs only when the change seems to break another
+# kind against the work list (most changes do not), instead of measuring them up front for every kind
+xc_keep_bins "$XC/base-bin"
+rm -rf "$XC/base"; mkdir -p "$XC/base/only"
+BIND=$(xc_binding "$KIND")
+if [ -n "$BIND" ] && [ ! -f "$BIND" ]; then
+  # a function without binding: its base runs would only count its calls, which the work list already holds
+  python3 "$D/xc.py" stub "$WL" "$KIND" "$XC/base/only" $(cat "$XC/scenarios-all.txt")
+else
+  xc_scenarios | awk -v s=" $(cat "$XC/scenarios-all.txt") " 'index(s, " "$1" ")' | xc_runs "$XC/base/only" "$KIND"
+  python3 "$D/xc.py" check "$XC/base" "$XC/base" "$KIND" > "$XC/base.verdict"
+  # nothing left for this census (fixed by another merge, or an old worker closed the issue): no re-pick until it re-measures
+  if grep -q 'VERDICT PASS' "$XC/base.verdict"; then
+    sum "$KIND: already identical on ${BASE:0:8}"; MERGED=1; python3 "$D/xc.py" issue "$KIND" merged "$(wl_sha)"; exit 0
+  fi
+  grep -q 'no sampled call' "$XC/base.verdict" && { sum "$KIND: no sampled call at base (runs crashed?)"; exit 2; }
 fi
-grep -q 'no sampled call' "$XC/base.verdict" && { sum "$KIND: no sampled call at base (runs crashed?)"; exit 2; }
+log "base measured in $(( $(date +%s) - t0 ))s"
 
 mkdir -p "$W"; ln -sfn "$S5_REPO" "$W/siedler-sim-rs"
 python3 "$D/context.py" "$KIND" "$XC/base" "$XC_NATIVE" "$S5_REPO" "$W/TASK.md" || exit 2
@@ -52,7 +63,7 @@ chmod +x "$W/check"
 cat > "$W/opencode.json" <<'J'
 {"$schema":"https://opencode.ai/config.json","permission":{"edit":"allow","bash":"allow","webfetch":"deny","external_directory":"allow"}}
 J
-BIND=$(xc_binding "$KIND"); EDIT="crates/s5clean/"
+EDIT="crates/s5clean/"
 case $KIND in
   TICK_*) WHAT="the ordinary per-turn tick of entity type ${KIND#TICK_*_} (TICK_<class>_<type>)"; POINT="the entity tick (crates/s5xcheck/tests/capture-ticks.rs)" ;;
   FN_*) WHAT="the native function 0x${KIND#FN_} (its clean implementation and its binding $BIND, see TASK.md)"
@@ -83,7 +94,7 @@ for round in $(seq 1 "$ROUNDS"); do
   log "model round $round exit=$? ($(wc -l < "$XC/model-$round.log") log lines, private)"
   git -C "$S5_REPO" reset -q --soft "$BASE"   # a model commit is folded back into the working change
   "$D/verify.sh" "$KIND" > "$XC/verify-$round.txt" 2>&1
-  sed 's/^/  /' "$XC/verify-$round.txt" | grep -E 'scope|identical|VERDICT|regression|missing|tests|tick|build' | head -12
+  sed 's/^/  /' "$XC/verify-$round.txt" | grep -E 'scope|identical|VERDICT|regression|missing|tests|tick|build|timing' | head -14
   if grep -q 'VERDICT PASS' "$XC/verify-$round.txt"; then ok=1; break; fi
   PROMPT="The pipeline's verification of your change failed:
 $(grep -v '^VERDICT' "$XC/verify-$round.txt" | head -40)

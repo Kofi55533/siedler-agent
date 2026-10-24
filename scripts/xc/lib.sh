@@ -4,7 +4,7 @@
 source "$(dirname "${BASH_SOURCE[0]}")/../s5-env.sh"
 [ -n "${XC_LOCAL:-}" ] && source "$XC_LOCAL"   # dry run off the runner layout: a file overriding the paths above
 XC=$S5/xc; mkdir -p "$XC"
-XC_JOBS=${XC_JOBS:-3}                      # parallel capture processes (each ~0.7 GB RSS, one core)
+XC_JOBS=${XC_JOBS:-4}                      # parallel capture processes (each ~0.7 GB RSS, one core; runner: 4 cores)
 XC_TURNS=${XC_TURNS:-120}                  # compared turns per scenario
 XC_MAX=${XC_MAX:-4} XC_STRIDE=${XC_STRIDE:-5}
 # limit per capture run (one point of one scenario): a full 120-turn ExecuteTask run takes under 3 min (2026-10-23
@@ -53,7 +53,13 @@ for l in sys.stdin:
     if d.get("reason")=="compiler-artifact" and d.get("executable"): print(d["target"]["name"], d["executable"])' > "$XC/bins.txt"
     rc=${PIPESTATUS[0]}; rm -f crates/s5xcheck/Cargo.lock; exit $rc ) || { echo "xc build failed ($(grep -c '^error' "$XC/build.log") errors)"; return 1; }
 }
-xc_bin(){ awk -v n="$1" '$1==n{print $2}' "$XC/bins.txt"; }
+xc_bin(){ awk -v n="$1" '$1==n{print $2}' "${XC_BINS:-$XC/bins.txt}"; }
+# xc_keep_bins <dir>: copies of the capture test binaries just built, so runs of this build stay possible after the
+# checkout changed and was rebuilt (XC_BINS=<dir>/bins.txt selects them)
+xc_keep_bins(){
+  rm -rf "$1"; mkdir -p "$1"
+  while read -r name exe; do cp "$exe" "$1/$name" && echo "$name $1/$name"; done < "$XC/bins.txt" > "$1/bins.txt"
+}
 
 # capture points: the test binaries of the census and the kinds each one measures. capture-ticks groups the entity
 # ticks (building, settler, animal) by type as TICK_<CLASS>_<type>; capture-functions has one kind FN_<address> per
@@ -101,11 +107,12 @@ M
 
 # xc_runs <dir> [only-kinds] < scenario lines: run them $XC_JOBS at a time, <dir>/<name>.json each
 xc_runs(){
-  local dir=$1 only=${2:-} n=0; mkdir -p "$dir"
+  local dir=$1 only=${2:-}; mkdir -p "$dir"
   while read -r name img skip turns; do
     [ -f "$img" ] || continue
     xc_run "$name" "$img" "$skip" "$turns" "$dir/$name.json" "$only" &
-    n=$((n + 1)); [ $((n % XC_JOBS)) = 0 ] && wait
+    # a free slot starts the next run at once (runs differ a lot in length: one point vs all points)
+    while [ "$(jobs -rp | wc -l)" -ge "$XC_JOBS" ]; do wait -n; done
   done; wait
 }
 
