@@ -12,6 +12,7 @@
                                       up to n failing kinds no open PR, claim, exhausted attempt or merge since the
                                       work list was pinned covers (JSON list);
                                       --limit: at most L live claims of this pool (GITHUB_REPOSITORY) in all
+                                      XC_CLAIM_TOKEN set: only the kinds whose claim still carries it after claiming
   xc.py scenarios <worklist> <kind>   names of the scenarios where <kind> was sampled, failing ones first
   xc.py failing <worklist> <kind>     names of the scenarios where <kind> fails
   xc.py check <base> <new> <kind> [<worklist> <scenario>...]
@@ -39,12 +40,15 @@ from datetime import datetime
 from pathlib import Path
 
 ATTEMPTS = 3  # failed worker attempts per kind (on the same census) before it waits for a new census
-CENSUS = 3   # version of what the census measures (2: function units, 3: their callers); a work list of another version is re-measured
+CENSUS = 4   # version of what the census measures (2: function units, 3: their callers, 4: 1200 turns); a work list of another version is re-measured
 CLAIM_H = 7   # a claim (a worker picked the kind) blocks other picks this long; a worker job lasts at most 6 h
 PROJECT = os.environ.get("XC_PROJECT", "Kofi55533/siedler-sim-rs")
 # the tracking issues live in the main pipeline repo for every pool (forks pick from the same work list)
 AGENT = os.environ.get("XC_AGENT", "Kofi55533/siedler-agent")
 POOL = os.environ.get("GITHUB_REPOSITORY", "local")  # the repo whose runners do the work (main or a pool)
+# a job's own mark on its claims: a worker job that takes its next kind claims outside the wave's serialized pick job, so
+# after claiming it re-reads the issue and keeps only the kinds whose claim is still its own (the last writer wins)
+TOKEN = os.environ.get("XC_CLAIM_TOKEN", "")
 
 
 def load(path):
@@ -176,7 +180,11 @@ def pairs(doc):
 
 
 def regressions(old, new):
-    o, n = pairs(load(old)), pairs(load(new))
+    od, nd = load(old), load(new)
+    if od.get("census", 1) != nd.get("census", 1):  # measured differently (e.g. fewer turns): no pair is comparable
+        print("[]")
+        return
+    o, n = pairs(od), pairs(nd)
     out = [{"kind": k, "scenario": s} for (k, s), (samples, failing) in sorted(n.items())
            if failing and (k, s) in o and o[(k, s)][0] and not o[(k, s)][1]]
     print(json.dumps(out))
@@ -248,7 +256,7 @@ def issue(kind, op, sha=None):
     num, body = tracking().get(kind, (None, ""))
     f = fields(body)
     if op == "claim":
-        f["claimed"] = f"{int(time.time())} {os.environ.get('GITHUB_RUN_ID', 'local')} {POOL}"
+        f["claimed"] = f"{int(time.time())} {os.environ.get('GITHUB_RUN_ID', 'local')} {POOL}" + (f" {TOKEN}" if TOKEN else "")
     elif op == "unclaim":
         f.pop("claimed", None)
     elif op == "attempt":
@@ -320,6 +328,10 @@ def pick(worklist, n, claim=False, limit=None):
     if claim:
         for kind in kinds:
             issue(kind, "claim")
+        if TOKEN and kinds:
+            time.sleep(8)
+            mine = tracking()
+            kinds = [k for k in kinds if fields(mine.get(k, (None, ""))[1]).get("claimed", "").split()[3:4] == [TOKEN]]
         # a kind this census no longer lists as work (fixed, or its function is no longer called) closes its issue, so
         # the open issues stay the work in progress
         for kind, (num, body) in issues.items():

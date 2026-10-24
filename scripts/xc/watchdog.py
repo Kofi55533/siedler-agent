@@ -17,7 +17,7 @@ import xc  # noqa: E402
 R = os.environ["R"]
 MAIN = xc.AGENT
 CENSUS_MAX_AGE = 6 * 3600
-CENSUS_MIN_GAP = 3600
+CENSUS_MIN_GAP = 1800  # a moved tip is re-measured at most every 30 min: merges in between share one census
 STALL = 24 * 3600
 
 

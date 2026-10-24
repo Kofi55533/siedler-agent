@@ -5,12 +5,15 @@ source "$(dirname "${BASH_SOURCE[0]}")/../s5-env.sh"
 [ -n "${XC_LOCAL:-}" ] && source "$XC_LOCAL"   # dry run off the runner layout: a file overriding the paths above
 XC=$S5/xc; mkdir -p "$XC"
 XC_JOBS=${XC_JOBS:-4}                      # parallel capture processes (each ~0.7 GB RSS, one core; runner: 4 cores)
-XC_TURNS=${XC_TURNS:-120}                  # compared turns per scenario
+# compared turns per scenario: 1200 instead of 120 makes 16-24 % more class-A functions run (2026-10-24 probe, per
+# quarter of the scenarios: 1949-2069 at 120 turns, 2399-2475 at 1200, 2402-2573 at 3000) for ~20 % more run time (the
+# load of the image and the inventory dominate); 3000 turns added little more
+XC_TURNS=${XC_TURNS:-1200}
 XC_MAX=${XC_MAX:-4} XC_STRIDE=${XC_STRIDE:-5}
-# limit per capture run (one point of one scenario): a full 120-turn ExecuteTask run takes under 3 min (2026-10-23
-# census: whole shards in 85-172 s) and the ticks run plays the scenario once per class, so a run still going after
-# 15 min hangs; the old 40 min limit held the whole census on one hanging scenario
-XC_TIMEOUT=${XC_TIMEOUT:-900}
+# limit per capture run (one point of one scenario): a full 120-turn ExecuteTask run took under 3 min (2026-10-23
+# census: whole shards in 85-172 s), 1200 turns ~20 % more, and the ticks run plays the scenario once per class, so a
+# run still going after 20 min hangs; the old 40 min limit held the whole census on one hanging scenario
+XC_TIMEOUT=${XC_TIMEOUT:-1200}
 
 # images the census leaves out: no running game to compare (new-fixtures index.json not_produced/rejected_captures,
 # 2026-10-23 census: no capture result). Menu only, the map never started (turn 0): camp-bigcity, camp-extra1,

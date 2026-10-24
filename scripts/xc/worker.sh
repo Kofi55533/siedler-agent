@@ -27,6 +27,13 @@ cd "$S5_REPO" || exit 2
 # the checkout carries no credential (the model reads it); fetch and push name the authenticated URL explicitly
 AUTH="https://x-access-token:${GH_TOKEN}@github.com/$PROJECT.git"
 fetch_base(){ git fetch -q "$AUTH" "+refs/heads/clean/integration:refs/remotes/origin/clean/integration"; }
+# a job works several kinds in a row: an earlier kind's unshipped change (or an aborted merge) leaves the checkout,
+# and the workspace starts empty, so the model never sees the previous task's notes
+git reset -q; git merge --abort 2>/dev/null
+xc_changed | while read -r p; do
+  if git cat-file -e "HEAD:$p" 2>/dev/null; then git checkout -q HEAD -- "$p"; else rm -rf -- "$p"; fi
+done
+rm -rf "$W"
 fetch_base && git checkout -q -B "$BR" origin/clean/integration || exit 2
 git rev-parse HEAD > "$XC/base.sha"; BASE=$(cat "$XC/base.sha")
 # the kind is compared in the scenarios where it failed plus a few where it was clean (at most 9: each verdict runs them
@@ -133,8 +140,8 @@ $(grep -vE '^VERDICT' "$XC/verify-$round.txt" | head -20)
   [ -n "$pr" ] || exit 2
   if gh api -X PUT "repos/$PROJECT/pulls/$pr/merge" -f merge_method=squash -f sha="$(git rev-parse HEAD)" > /dev/null 2>&1; then
     sum "$KIND: merged $PROJECT#$pr"; MERGED=1; python3 "$D/xc.py" issue "$KIND" merged "$(wl_sha)"
-    # the post-merge census compares every scenario and reverts this merge if another kind broke anywhere
-    gh api -X POST "repos/$AGENT/actions/workflows/xc-census.yml/dispatches" -f ref=main > /dev/null 2>&1 || true
+    # no census per merge (it held 8 of the 20 job slots without pause): the watchdog's next census, at most 30 min
+    # after the last one, compares every scenario and reverts this merge if another kind broke anywhere
     exit 0
   fi
   [ $try = 2 ] && break
