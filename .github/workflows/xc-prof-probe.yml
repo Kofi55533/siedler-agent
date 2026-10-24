@@ -1,0 +1,35 @@
+name: xc-prof-probe
+# one-off probe (counts and milliseconds only): where the function census point spends its time per sampled call
+on:
+  push:
+    branches: [claude/xc-prof-probe]
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - name: Setup (quiet)
+        env: { T: '${{ secrets.PRIVATE_REPO_TOKEN }}', GIT_LFS_SKIP_SMUDGE: '1' }
+        run: scripts/s5-setup.sh clean/integration 1
+      - name: Profile (counts only)
+        run: |
+          set +e
+          source scripts/xc/lib.sh
+          python3 scripts/xc/prof_patch.py "$S5_REPO/crates/s5xcheck/src/capture.rs" || exit 2
+          t=$(date +%s); xc_build || { grep -E '^error' -A3 "$XC/build.log" | grep -vE '^\s*$' | head -20; exit 2; }; echo "build secs=$(( $(date +%s) - t ))"
+          one(){ # one <name> <img> <tag> [env]
+            local t=$(date +%s)
+            ( cd "$S5_REPO" && env S5_XCHECK_IMAGE="$2" S5_CAPTURE_SKIP=0 S5_CAPTURE_TURNS=120 S5_CAPTURE_MAX=$XC_MAX \
+                S5_CAPTURE_STRIDE=$XC_STRIDE S5_CAPTURE_JSON="$XC/p-$1-$3.json" S5_CAPTURE_FUNCTIONS="$XC/inventory.txt" "${@:4}" \
+                timeout -k 30 "$XC_TIMEOUT" "$(xc_bin capture-functions)" --nocapture --test-threads=1 ) < /dev/null > "$XC/p-$1-$3.log" 2>&1
+            echo "$1 $3: exit $? secs=$(( $(date +%s) - t )) $(grep -oE 'PROFILE .*' "$XC/p-$1-$3.log" | head -1)"
+          }
+          xc_scenarios | awk '$1=="combat"||$1=="combat-waves"||$1=="wsecon"||$1=="sp-winterassault"' > lines.txt
+          while read -r name img _; do one "$name" "$img" fn & done < lines.txt; wait
+          # the same plays without the inventory (bound functions only) and with one sample per function
+          while read -r name img _; do one "$name" "$img" max1 S5_CAPTURE_MAX=1 & done < lines.txt; wait
