@@ -32,15 +32,19 @@ jobs:
       - name: Ref
         id: r
         env: { MSG: '${{ github.event.head_commit.message || github.event.issue.title }}' }
-        # an issue title is anyone's text: only a plain ref name passes
+        # an issue title is anyone's text: only a plain ref name passes; a commit message that only names the tag (as
+        # in `[xc-try <ref>]`) runs nothing
         run: |
           ref=$(grep -o '\[xc-try [^]]*\]' <<< "$MSG" | head -1 | sed 's/^\[xc-try //; s/\]$//')
-          [[ "$ref" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]] || { echo "not a ref name"; exit 1; }
-          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+          if [[ "$ref" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]]; then echo "ref=$ref" >> "$GITHUB_OUTPUT"
+          elif [ "$GITHUB_EVENT_NAME" = push ]; then echo "no ref name in the tag: no trial"
+          else echo "not a ref name"; exit 1; fi
       - name: Setup (quiet)
+        if: steps.r.outputs.ref != ''
         env: { T: '${{ secrets.PRIVATE_REPO_TOKEN }}', GIT_LFS_SKIP_SMUDGE: '1' }
         run: scripts/s5-setup.sh "${{ steps.r.outputs.ref }}" 1
       - name: Try
+        if: steps.r.outputs.ref != ''
         run: scripts/xc/try.sh ${{ matrix.scenario }} | tee $RUNNER_TEMP/try.txt
       - name: Counts to the issue
         if: always() && github.event_name == 'issues'
