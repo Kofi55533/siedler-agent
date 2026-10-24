@@ -64,6 +64,43 @@ jobs:
           gh release view xc-census -R $XC_DATA > /dev/null 2>&1 || gh release create xc-census -R $XC_DATA -t xc-census -n "census shards (transient)" > /dev/null 2>&1 || true
           gh release upload xc-census -R $XC_DATA --clobber shard-${{ github.run_id }}-${{ matrix.shard }}.tzst > /dev/null
           echo "uploaded $(stat -c %s shard-*.tzst) bytes"
+  cache:
+    # every setup rebuilds what changed since the build cache commit (about 7 min per job once it is a few thousand
+    # commits behind); twice a day the pinned commit becomes the new cache, beside the shards so the census never waits
+    needs: pin
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+      - name: Is the build cache older than 12 h
+        id: c
+        env: { GH_TOKEN: '${{ secrets.PRIVATE_REPO_TOKEN }}' }
+        run: |
+          c=$(gh api repos/$XC_DATA/releases/tags/build-cache --jq .created_at 2>/dev/null || echo 1970-01-01T00:00:00Z)
+          age=$(( ($(date +%s) - $(date -d "$c" +%s)) / 3600 )); echo "build cache $age h old"
+          echo "stale=$([ "$age" -ge 12 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-python@v5
+        if: steps.c.outputs.stale == 'true'
+        with: { python-version: '3.11' }
+      - name: Setup (quiet)
+        if: steps.c.outputs.stale == 'true'
+        env: { T: '${{ secrets.PRIVATE_REPO_TOKEN }}', GIT_LFS_SKIP_SMUDGE: '1' }
+        run: |
+          scripts/s5-setup.sh clean/integration 1
+          source scripts/s5-env.sh; SHA=${{ needs.pin.outputs.sha }}
+          git -C $S5_REPO cat-file -e "$SHA^{commit}" 2>/dev/null || git -C $S5_REPO fetch -q --depth 1 origin "$SHA"
+          git -C $S5_REPO checkout -q --detach "$SHA"
+      - name: Build what the cache serves at the pinned commit (quiet)
+        if: steps.c.outputs.stale == 'true'
+        run: |
+          # the cache may only hold units built at its commit: s5-setup.sh dates every source back, so a unit left
+          # from an older commit would pass as fresh
+          scripts/s5-build.sh
+          source scripts/xc/lib.sh; t0=$(date +%s); xc_build; echo "capture tests secs=$(( $(date +%s) - t0 ))"
+      - name: Upload the build cache (sizes only)
+        if: steps.c.outputs.stale == 'true'
+        env: { GH_TOKEN: '${{ secrets.PRIVATE_REPO_TOKEN }}' }
+        run: scripts/build-cache-upload.sh
   merge:
     needs: shard
     if: always() && github.repository == 'Kofi55533/siedler-agent' && needs.shard.result != 'skipped'

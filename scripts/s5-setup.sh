@@ -34,8 +34,11 @@ cp $S5_ARTIFACTS/lift/gen.closure.pkl $S5_REPO/recomp/ 2>/dev/null || true
 (python3.11 -m venv $S5/py311 2>/dev/null || python3 -m venv $S5/py311) && $S5/py311/bin/pip -q install unicorn==2.1.4 >/dev/null 2>&1
 wait $RUST 2>/dev/null || true
 CSHA=""
-if [ "$CACHE" = 1 ] && gh release view build-cache -R Kofi55533/siedler-data >/dev/null 2>&1; then
-  gh release download build-cache -R Kofi55533/siedler-data -D $S5/dl >/dev/null
+# a cache swapped in while downloading (build-cache-upload.sh) only costs this setup the cache
+if [ "$CACHE" = 1 ] && ! gh release download build-cache -R Kofi55533/siedler-data -D $S5/dl >/dev/null 2>&1; then
+  rm -f $S5/dl/cache-sha.txt $S5/dl/target.tzst.*; CACHE=0; echo "s5-setup: no build cache"
+fi
+if [ "$CACHE" = 1 ]; then
   CSHA=$(cat $S5/dl/cache-sha.txt)
   git -C $S5_REPO fetch -q --depth 1 origin "$CSHA" && git -C $S5_REPO checkout -q "$CSHA"
   cat $S5/dl/target.tzst.* | zstd -dcq | tar -xf - -C /
