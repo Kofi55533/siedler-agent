@@ -13,7 +13,7 @@ rustup toolchain install 1.99.0 --profile minimal >/dev/null 2>&1 &
 RUST=$!
 git clone -q --depth 1 --no-single-branch "https://x-access-token:${T}@github.com/Kofi55533/siedler-sim-rs.git" $S5_REPO
 wait $APT
-mkdir -p $S5/dl $S5/data/game $S5/data/art $S5/data/fixtures
+mkdir -p $S5/dl $S5/data/game $S5/data/art $S5/data/fixtures $S5_NF
 export GH_TOKEN=$T
 td=$(date +%s)
 gh release download data-v2 -R Kofi55533/siedler-data -D $S5/dl -p '*.tzst*' >/dev/null
@@ -21,7 +21,7 @@ cat $S5/dl/game.tzst.* | zstd -dcq | tar -xf - -C $S5/data/game & P1=$!
 zstd -dcq $S5/dl/art.tzst | tar -xf - -C $S5/data/art & P2=$!
 zstd -dcq $S5/dl/fixtures.tzst | tar -xf - -C $S5/data/fixtures & P3=$!
 zstd -dcq $S5/dl/gen.tzst | tar -xf - -C $S5_REPO/recomp & P4=$!
-mkdir -p $S5_NF && zstd -dcq $S5/dl/newfix.tzst | tar -xf - -C $S5_NF & P5=$!
+zstd -dcq $S5/dl/newfix.tzst | tar -xf - -C $S5_NF & P5=$!
 # start images of the later captured scenarios (images/<name>/start.img{,.state.json}), same layout as newfix:
 # newfix2.tzst, newfix3.tzst, ...
 P6=""; for f in $S5/dl/newfix[0-9]*.tzst; do [ -f "$f" ] && { zstd -dcq "$f" | tar -xf - -C $S5_NF & P6="$P6 $!"; }; done

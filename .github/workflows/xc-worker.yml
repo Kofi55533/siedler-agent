@@ -98,3 +98,9 @@ jobs:
           # 0 merged or nothing to do, 1 attempt recorded (not a job failure), 2 infrastructure
           rc=0; scripts/xc/worker.sh "${{ matrix.kind }}" || rc=$?
           [ $rc != 2 ]
+      # a job that died before its verdict (setup, infrastructure, timeout) frees its kind for the next wave instead of
+      # blocking it for CLAIM_H while the rest of the wave still runs
+      - name: Release the claim
+        if: failure() || cancelled()
+        env: { GH_TOKEN: '${{ secrets.PRIVATE_REPO_TOKEN }}' }
+        run: python3 scripts/xc/xc.py issue "${{ matrix.kind }}" unclaim
