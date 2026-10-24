@@ -25,6 +25,9 @@
                                       list measured clean there, or missing (only those need the base's full run)
   xc.py stub <worklist> <kind> <dir> <scenario>...
                                       <dir>/<scenario>.json with the work list's call counts of an unbound function
+  xc.py shard <i> <n> < scenario lines
+                                      the lines of shard i of n: with XC_WEIGHTS (JSON scenario -> run seconds of the
+                                      previous census) the heaviest first onto the lightest shard, else every n-th line
   xc.py branch <kind>                 the fix branch of a kind
   xc.py issue <kind> <op> [sha]       tracking issue of a kind: claim | unclaim | attempt <census sha> |
                                       merged <census sha> | close
@@ -94,7 +97,8 @@ def merge(directory, sha, out, meta=None):
         name = f.stem
         functions.update(doc["function"].split(","))
         scenarios[name] = {"turns": doc["turns"], "entries": doc["entries"], "import_errors": len(doc["import_errors"]),
-                           "missing_points": doc.get("missing_points", []), "commands": doc.get("commands", 0)}
+                           "missing_points": doc.get("missing_points", []), "commands": doc.get("commands", 0),
+                           "secs": doc.get("secs")}
         for kind, g in doc["groups"].items():
             k = kinds.setdefault(kind, {"point": point(kind), "entries": 0, "samples": 0, "failing": 0, "scenarios": {}})
             k["entries"] += g["entries"]
@@ -438,6 +442,22 @@ def check(base, new, kind, worklist=None, full=None):
     return 0 if ok else 1
 
 
+def shard(i, n, lines, weights):
+    """the same split on every shard (same lines, same weights): heaviest scenario first onto the shard with the least
+    seconds so far; a scenario the previous census did not time counts as the median of the timed ones"""
+    if not weights:
+        return [l for j, l in enumerate(lines) if j % n == i]
+    known = sorted(weights.values())
+    default = known[len(known) // 2]
+    load, mine = [0] * n, []
+    for l in sorted(lines, key=lambda l: (-weights.get(l.split()[0], default), l)):
+        k = load.index(min(load))
+        load[k] += weights.get(l.split()[0], default)
+        if k == i:
+            mine.append(l)
+    return mine
+
+
 def main(argv):
     cmd = argv[1]
     if cmd == "merge":
@@ -459,6 +479,9 @@ def main(argv):
         stub(argv[2], argv[3], argv[4], argv[5:])
     elif cmd == "issue":
         issue(argv[2], argv[3], argv[4] if len(argv) > 4 else None)
+    elif cmd == "shard":
+        w = {k: v for k, v in json.loads(os.environ.get("XC_WEIGHTS") or "{}").items() if isinstance(v, int) and v > 0}
+        print("".join(l + "\n" for l in shard(int(argv[2]), int(argv[3]), [l.rstrip("\n") for l in sys.stdin if l.strip()], w)), end="")
     elif cmd == "branch":
         print(branch(argv[2]))
     else:

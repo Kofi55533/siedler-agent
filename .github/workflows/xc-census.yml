@@ -33,10 +33,19 @@ jobs:
     timeout-minutes: 5
     outputs:
       sha: ${{ steps.p.outputs.sha }}
+      weights: ${{ steps.p.outputs.weights }}
     steps:
       - id: p
         env: { GH_TOKEN: '${{ secrets.PRIVATE_REPO_TOKEN }}' }
-        run: echo "sha=$(gh api repos/$XC_PROJECT/commits/clean/integration --jq .sha)" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "sha=$(gh api repos/$XC_PROJECT/commits/clean/integration --jq .sha)" >> "$GITHUB_OUTPUT"
+          # the previous census' run seconds per scenario (counts only), so every shard splits the scenarios the same
+          # way by their weight (xc.py shard); none yet: every n-th scenario
+          w=$(gh release download xc-worklist -R $XC_DATA -D $RUNNER_TEMP -p worklist.json > /dev/null 2>&1 \
+            && jq -c '[.scenarios // {} | to_entries[] | select(.value.secs != null) | {(.key): .value.secs}] | add // {}' \
+              $RUNNER_TEMP/worklist.json) || w=""
+          [ -n "$w" ] || w='{}'
+          echo "weights=$w" >> "$GITHUB_OUTPUT"; echo "weights for $(jq length <<<"$w") scenarios"
   shard:
     needs: pin
     runs-on: ubuntu-latest
@@ -53,6 +62,7 @@ jobs:
         env: { T: '${{ secrets.PRIVATE_REPO_TOKEN }}', GIT_LFS_SKIP_SMUDGE: '1' }
         run: scripts/s5-setup.sh clean/integration 1
       - name: Census shard ${{ matrix.shard }} (counts only)
+        env: { XC_WEIGHTS: '${{ needs.pin.outputs.weights }}' }
         run: |
           source scripts/s5-env.sh
           SHA=${{ needs.pin.outputs.sha }}

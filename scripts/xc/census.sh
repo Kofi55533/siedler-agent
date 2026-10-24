@@ -5,9 +5,17 @@ set -uo pipefail
 D=$(cd "$(dirname "$0")" && pwd); source "$D/lib.sh"
 I=$1; N=$2; OUT=$3; mkdir -p "$OUT"
 xc_build || exit 2
-xc_scenarios | awk -v i="$I" -v n="$N" '(NR - 1) % n == i' > "$XC/shard.txt"
+# the shards split the scenarios by their run seconds of the previous census (XC_WEIGHTS, from the pin job): the
+# 2026-10-25 census at 4 shards took 17-29 min per shard but 48 on the one holding two of the heaviest scenarios
+xc_scenarios | python3 "$D/xc.py" shard "$I" "$N" > "$XC/shard.txt"
 echo "shard $I/$N: $(wc -l < "$XC/shard.txt") scenarios on $(git -C "$S5_REPO" rev-parse --short HEAD)"
+rm -f "$XC"/secs-*
 t0=$(date +%s); xc_runs "$OUT" < "$XC/shard.txt"
+# each scenario's run seconds (its points summed) go into its document, so the next census can balance its shards
+while read -r name _; do
+  [ -s "$OUT/$name.json" ] && python3 -c 'import json,sys;d=json.load(open(sys.argv[1]));d["secs"]=sum(map(int,sys.argv[2:]))
+json.dump(d,open(sys.argv[1],"w"))' "$OUT/$name.json" $(cat "$XC/secs-$name".* 2>/dev/null)
+done < "$XC/shard.txt"
 # the order of the function units (xc.py merge): static calls between class-A functions, and the native addresses the
 # clean code cites; addresses only, private like the shard
 mkdir -p "$OUT/_meta"
