@@ -5,7 +5,8 @@
 #     hand-written Debug/PartialEq (the comparison runs over the derived {:#?} dump, a custom impl could hide
 #     fields); importer only extended.
 #  2. <kind> identical at every sampled call in every scenario where it runs ($XC/scenarios-all.txt).
-#  3. the full comparison of the scenarios where <kind> failed shows no other kind newly differing.
+#  3. the full comparison of the scenarios where <kind> failed shows no other kind newly differing (against the base's
+#     full runs, measured only for the scenarios where the work list suggests a regression).
 #  4. crates/s5clean unit tests and the building-tick capture stay green.
 # Prints counts and VERDICT PASS|FAIL only.
 set -uo pipefail
@@ -44,15 +45,31 @@ rl=$(git diff --cached -U0 "$BASE" -- crates/s5clean/src/reference.rs | grep -cE
 [ "$rl" -gt 0 ] && fail "scope: $rl line(s) removed from the importer crates/s5clean/src/reference.rs (only extend it)"
 echo "scope ok: $(git diff --cached --shortstat "$BASE")"
 git reset -q
+t0=$(date +%s)
 xc_build || fail "build failed"
+t1=$(date +%s)
 rm -rf "$XC/new"
-xc_scenarios | awk -v s=" $(cat "$XC/scenarios-all.txt") " 'index(s, " "$1" ")' | xc_runs "$XC/new/only" "$KIND"
-xc_scenarios | awk -v s=" $(cat "$XC/scenarios-failing.txt") " 'index(s, " "$1" ")' | xc_runs "$XC/new/full"
-python3 "$D/xc.py" check "$XC/base" "$XC/new" "$KIND" > "$XC/verdict.txt"; grep -v '^VERDICT' "$XC/verdict.txt"
+# full runs of the failing scenarios (they hold the kind too) beside kind-only runs of the other scenarios
+FULL=$(cat "$XC/scenarios-failing.txt")
+xc_scenarios | awk -v s=" $FULL " 'index(s, " "$1" ")' | xc_runs "$XC/new/full" &
+xc_scenarios | awk -v s=" $(cat "$XC/scenarios-all.txt") " -v f=" $FULL " 'index(s, " "$1" ") && !index(f, " "$1" ")' \
+  | xc_runs "$XC/new/only" "$KIND"
+wait
+t2=$(date +%s)
+# the base's full runs only where another kind seems to break against the work list (base build kept by worker.sh)
+SUS=$(python3 "$D/xc.py" suspects "$XC/worklist.json" "$XC/new/full" "$KIND")
+if [ -n "$SUS" ]; then
+  echo "regression check: base measured in $(wc -w <<<"$SUS") scenario(s)"
+  xc_scenarios | awk -v s=" $SUS " 'index(s, " "$1" ")' | XC_BINS=$XC/base-bin/bins.txt xc_runs "$XC/base/full"
+fi
+t3=$(date +%s)
+python3 "$D/xc.py" check "$XC/base" "$XC/new" "$KIND" "$XC/worklist.json" $FULL > "$XC/verdict.txt"
+grep -v '^VERDICT' "$XC/verdict.txt"
 grep -q 'VERDICT PASS' "$XC/verdict.txt" || fail "comparison failed"
 timeout 2400 cargo test --release -q -j "${CARGO_BUILD_JOBS:-3}" --manifest-path crates/s5clean/Cargo.toml > "$XC/unit.log" 2>&1 \
   || fail "s5clean tests failed: $(grep -E '^test .* FAILED|^error' "$XC/unit.log" | head -3 | tr '\n' ' ')"
 ( S5_CAPTURE_TURNS=10 timeout 1800 "$(xc_bin capture-entity-tick)" --test-threads=1 ) > "$XC/tick.log" 2>&1 \
   || fail "building tick capture failed: $(grep -m1 -E 'building tick' "$XC/tick.log")"
 echo "s5clean tests ok, building tick ok"
+echo "timing: build $((t1 - t0))s runs $((t2 - t1))s base $((t3 - t2))s tests $(( $(date +%s) - t3 ))s"
 echo "VERDICT PASS"
