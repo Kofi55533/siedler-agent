@@ -11,18 +11,26 @@ rm -rf "$XC/try"; xc_scenarios | awk -v s=" $scen " 'index(s, " "$1" ")' | xc_ru
 python3 - "$XC/try" "$KIND" <<'P'
 import json, sys
 from pathlib import Path
-total = bad = 0; first = None
+total = bad = observed = 0; first = None; unbound = False
 for f in sorted(Path(sys.argv[1]).glob("*.json")):
     g = json.loads(f.read_text())["groups"].get(sys.argv[2])
     if not g:
         print(f"{f.stem}: no call of the kind sampled"); continue
-    total += g["samples"]; bad += g["failing"]
-    print(f"{f.stem}: {g['failing']}/{g['samples']} sampled calls differ")
+    if g.get("unbound"):
+        unbound = True; print(f"{f.stem}: {g['entries']} calls, not bound yet (write the binding)"); continue
+    total += g["samples"]; bad += g["failing"]; observed += g.get("observed", 0)
+    print(f"{f.stem}: {g['failing']}/{g['samples']} sampled calls differ"
+          + (f", {g.get('observed', 0)} observed" if "observed" in g else ""))
     if g["examples"] and first is None:
         first = (f.stem, g["examples"][0])
 if first:
     d = first[1]["diff"]; d = "\n".join(d) if isinstance(d, list) else d
     print(f"\nfirst difference ({first[0]} turn {first[1]['turn']}, {first[1]['label']}):\n{d}")
-print(f"\n{sys.argv[2]}: {bad} of {total} sampled calls differ" + (" -- DONE" if total and not bad else ""))
+fn = sys.argv[2].startswith("FN_")
+if fn and total and not bad and not observed:
+    print("\nnone of the sampled calls changed anything the comparison sees: compare the result or the written values "
+          "(Call::returning, or a reference closure)")
+done = total and not bad and not unbound and (observed or not fn)
+print(f"\n{sys.argv[2]}: {bad} of {total} sampled calls differ" + (" -- DONE" if done else ""))
 P
 for n in $scen; do [ -s "$XC/try/$n.json" ] || { echo "$n: run failed or crashed, last lines:"; tail -n 15 "$XC/run-$n-only.log"; }; done

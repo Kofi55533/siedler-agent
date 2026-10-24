@@ -1,0 +1,34 @@
+name: xc-try
+# Trial of a sim-rs ref's capture tests on a runner before it is merged (the cloud sessions cannot build the full
+# reference): a push to a claude/** branch of this repository whose head commit message holds `[xc-try <sim-rs ref>]`
+# runs scripts/xc/try.sh on a few scenarios. The log shows counts only.
+on:
+  push:
+    branches: ['claude/**']
+permissions: { contents: read }
+# a push without the tag is skipped and must not cancel a running trial, so it gets its own group
+concurrency:
+  group: "xc-try-${{ github.ref }}-${{ contains(github.event.head_commit.message, '[xc-try ') }}"
+  cancel-in-progress: true
+jobs:
+  try:
+    if: contains(github.event.head_commit.message, '[xc-try ')
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        scenario: [bc, combat, economy]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - name: Ref
+        id: r
+        env: { MSG: '${{ github.event.head_commit.message }}' }
+        run: echo "ref=$(grep -o '\[xc-try [^]]*\]' <<< "$MSG" | head -1 | sed 's/^\[xc-try //; s/\]$//')" >> "$GITHUB_OUTPUT"
+      - name: Setup (quiet)
+        env: { T: '${{ secrets.PRIVATE_REPO_TOKEN }}', GIT_LFS_SKIP_SMUDGE: '1' }
+        run: scripts/s5-setup.sh "${{ steps.r.outputs.ref }}" 1
+      - name: Try
+        run: scripts/xc/try.sh ${{ matrix.scenario }}

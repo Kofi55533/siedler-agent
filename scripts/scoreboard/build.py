@@ -1071,6 +1071,14 @@ def xc_fields(body):
     return dict(line.split(" ", 1) for line in (body or "").splitlines() if " " in line)
 
 
+XC_COVERED = {"FN_4AF630", "FN_4A6A1B", "FN_511DF9", "FN_57BF33"}  # scripts/xc/xc.py COVERED
+
+
+def xc_todo(k, v):
+    """scripts/xc/xc.py todo(): a failing kind, or an executed function without binding"""
+    return bool(v.get("failing")) or (k.startswith("FN_") and bool(v.get("unbound")))
+
+
 def xc_worklist():
     """Counts of the private work list (siedler-data release xc-worklist); the file itself holds game state."""
     rel = api(f"repos/{XC_DATA}/releases/tags/xc-worklist")
@@ -1080,10 +1088,11 @@ def xc_worklist():
     with urllib.request.urlopen(req, timeout=120) as r:
         doc = json.loads(r.read())
     kinds = doc.get("kinds") or {}
-    named = {k: v for k, v in kinds.items() if not k.startswith("task type ") and "_type" not in k}
+    named = {k: v for k, v in kinds.items() if not k.startswith("task type ") and "_type" not in k and k not in XC_COVERED}
     points = {}  # per capture point: measured / differing kinds
     for k, v in named.items():
-        pt = points.setdefault("ticks" if k.startswith("TICK_") else "tasks", {"kinds": 0, "failing": 0})
+        pt = points.setdefault("functions" if k.startswith("FN_") else "ticks" if k.startswith("TICK_") else "tasks",
+                               {"kinds": 0, "failing": 0})
         pt["kinds"] += 1
         pt["failing"] += bool(v.get("failing"))
     scen = {n: {"name": n, "turns": v.get("turns"), "calls": v.get("entries"), "samples": 0, "failing": 0, "kinds_failing": 0}
@@ -1099,6 +1108,8 @@ def xc_worklist():
     return {"sha": (doc.get("sha") or "")[:12], "updated": asset.get("updated_at"), "kinds": len(named),
             "failing": sum(1 for v in named.values() if v.get("failing")), "unnamed": len(kinds) - len(named),
             "partial": bool(doc.get("partial")), "points": points,
+            # executed class-A functions (capture-functions, xc.py fn_state): port / fix / observe / done
+            "functions": sm.get("functions"),
             "calls": {"samples": samples, "identical": samples - failing,
                       "pct": round(100 * (samples - failing) / samples, 1) if samples else None},
             "scenarios": sorted(scen.values(), key=lambda x: (-x["failing"], x["name"]))}, named
@@ -1149,7 +1160,7 @@ def xc_pipeline(main_runs):
         exhausted += bool(sha) and f.get("census") == sha and int(f.get("attempts", "0")) >= XC_ATTEMPTS
     open_ = None
     if wl:  # failing kinds a worker may still pick (pick(): not merged since this census, not exhausted)
-        open_ = sum(1 for k, v in named.items() if v.get("failing")
+        open_ = sum(1 for k, v in named.items() if xc_todo(k, v)
                     and track.get(k, {}).get("merged") != sha
                     and not (track.get(k, {}).get("census") == sha and int(track.get(k, {}).get("attempts", "0")) >= XC_ATTEMPTS))
     census = None

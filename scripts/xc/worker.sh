@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# worker.sh <kind>: one kind of the per-call differential (an ExecuteTask task kind, or an entity tick of one type
-# TICK_<CLASS>_<type>), from measurement to merge.
+# worker.sh <kind>: one kind of the per-call differential (an ExecuteTask task kind, an entity tick of one type
+# TICK_<CLASS>_<type>, or one native function FN_<address>: its port and binding), from measurement to merge.
 #   needs: s5-setup.sh done, $XC/worklist.json (census), $XC_NATIVE (functions.jsonl + code.jsonl), $W (model
 #   workspace), GH_TOKEN (PAT; never passed to the model), opencode installed with its auth.
 # 1. measure the kind on the current clean/integration (all scenarios where it runs) -> nothing to do if identical
@@ -52,8 +52,11 @@ chmod +x "$W/check"
 cat > "$W/opencode.json" <<'J'
 {"$schema":"https://opencode.ai/config.json","permission":{"edit":"allow","bash":"allow","webfetch":"deny","external_directory":"allow"}}
 J
+BIND=$(xc_binding "$KIND"); EDIT="crates/s5clean/"
 case $KIND in
   TICK_*) WHAT="the ordinary per-turn tick of entity type ${KIND#TICK_*_} (TICK_<class>_<type>)"; POINT="the entity tick (crates/s5xcheck/tests/capture-ticks.rs)" ;;
+  FN_*) WHAT="the native function 0x${KIND#FN_} (its clean implementation and its binding $BIND, see TASK.md)"
+        POINT="the function census (crates/s5xcheck/tests/capture-functions.rs)"; EDIT="crates/s5clean/ and the binding $BIND" ;;
   *) WHAT="task kind $KIND"; POINT="ExecuteTask 0x57BF33" ;;
 esac
 PROMPT="You are porting one piece of behaviour of the original game Die Siedler: Das Erbe der Koenige into its clean, hand-written
@@ -65,7 +68,7 @@ Goal: \`$W/check\` reports 0 differing calls for $KIND (it builds and runs the c
 runs every scenario where the kind appears). Work loop: read the difference, find the native logic that produces the
 original's value (decompilation in TASK.md; more functions: grep the address in $XC_NATIVE/functions.jsonl, read the
 record at its code_offset in code.jsonl), change the clean code, run the check, repeat.
-Rules: edit only crates/s5clean/ (and docs/logic/ if a spec statement changes). Write idiomatic Rust in the style of the
+Rules: edit only $EDIT (and docs/logic/ if a spec statement changes). Write idiomatic Rust in the style of the
 surrounding code; cite native addresses in doc comments the way the existing code does. Never hide differences: no
 hand-written Debug/PartialEq, no removed fields or tests, the importer crates/s5clean/src/reference.rs may only be
 extended (when the original's value lives in a native field the importer does not read yet). Do not copy generated code
@@ -92,7 +95,7 @@ if [ $ok = 0 ]; then sum "$KIND: no passing change after $ROUNDS rounds"; record
 
 # ship: one commit on the measured base, PR, squash-merge; a moved base is merged in and re-verified once
 cd "$S5_REPO"
-git add -A -- crates/s5clean docs
+git add -A -- $(xc_paths "$KIND")
 summary=$(grep -E 'identical|scope ok' "$XC/verify-$round.txt" | head -3)
 git -c user.name=siedler-agent -c user.email=Kofi55533@users.noreply.github.com commit -q -m "xc: $KIND identical to the original at its real calls
 
@@ -124,7 +127,7 @@ $(grep -vE '^VERDICT' "$XC/verify-$round.txt" | head -20)
   git rev-parse origin/clean/integration > "$XC/base.sha"; BASE=$(cat "$XC/base.sha")
   git reset -q --soft "$BASE"
   "$D/verify.sh" "$KIND" > "$XC/verify-merge.txt" 2>&1 || { sum "$KIND: fails on the moved base"; break; }
-  git add -A -- crates/s5clean docs
+  git add -A -- $(xc_paths "$KIND")
   git -c user.name=siedler-agent -c user.email=Kofi55533@users.noreply.github.com commit -q -m "xc: $KIND identical to the original at its real calls (on ${BASE:0:8})"
   round=merge
 done

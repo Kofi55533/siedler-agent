@@ -3,9 +3,9 @@
 
 Everything a model needs to fix one kind, gathered by the script so the model does not search for it:
 the measured differences at the original's real calls (base-dir/only/*.json), the native functions of the kind
-(a task kind: its handlers in data/engine/task_handlers.json; an entity tick TICK_<CLASS>_<type>: the class's tick)
-with their decompilation and that of their direct callees (code.jsonl, read by offset through functions.jsonl), and
-where the clean code handles the kind today.
+(a task kind: its handlers in data/engine/task_handlers.json; an entity tick TICK_<CLASS>_<type>: the class's tick;
+a function FN_<address>: that function, plus how to write its binding) with their decompilation and that of their
+direct callees (code.jsonl, read by offset through functions.jsonl), and where the clean code handles the kind today.
 """
 import json
 import re
@@ -37,11 +37,69 @@ def code(src, funcs, addr):
         return json.loads(f.read(entry[1]))["c"].replace("\r\n", "\n").strip()
 
 
+BINDING_API = """A binding is one file `crates/s5xcheck/src/functions/fn_{low}.rs` (collected by build.rs into
+`s5xcheck::functions::ALL`; nothing else to register). It exports `pub const BINDING: Binding` and translates the
+native call into a call of the clean implementation, nothing more: read the arguments from the entry (`entry.this()`
+= ECX, `entry.arg(i)` = i-th stack argument, `entry.r32(addr)` = native memory), map native pointers to clean ids
+(an entity object's id is at `+8`), and call crates/s5clean. Any logic belongs in crates/s5clean, not in the binding.
+The API (crates/s5xcheck/src/capture.rs):
+
+- `Call::world(label, |world| ...)`: the whole effect is on the world; after the call the reference memory is
+  imported again and compared with your port's world.
+- `Call::returning(label, |world| -> u32 ...)`: also compares the return value (EAX).
+- `Call {{ label, port: Box::new(|world| vec![..]), reference: Box::new(|mach| vec![..]) }}`: compares any values,
+  e.g. out-parameters: capture the pointer at entry, read `mach.m.r32(ptr)` in `reference`, return the same values
+  from `port`. The calls only count as verified when they are observed: the world changed, or values are compared.
+- return `None` for calls the port does not cover (they are then neither compared nor counted as samples).
+
+An existing binding as the pattern:
+
+```rust
+{example}
+```
+"""
+
+
+def function_pack(kind, base, src, repo, funcs):
+    addr = int(kind.removeprefix("FN_"), 16)
+    low = f"{addr:x}"
+    name = funcs.get(addr, (0, 0, "?"))[2]
+    md = [f"# Function {kind}: native `{name}` at {addr:#x}", ""]
+    bound = (repo / f"crates/s5xcheck/src/functions/fn_{low}.rs").is_file()
+    md += ["## What to do", "",
+           (f"The binding exists and some sampled calls differ: fix the clean implementation (crates/s5clean) until "
+            f"they are identical." if bound else
+            f"This function has no binding yet: write the clean implementation of what it does (crates/s5clean: "
+            f"extend the existing code where it already does this, a new function where not) and its binding "
+            f"`crates/s5xcheck/src/functions/fn_{low}.rs`. Then every sampled real call of the original is compared "
+            f"with your port on the same state."), "",
+           "## Binding", ""]
+    examples = sorted((repo / "crates/s5xcheck/src/functions").glob("fn_*.rs"))
+    example = examples[0].read_text().strip() if examples else ""
+    md += [BINDING_API.format(low=low, example=example), ""]
+    md += ["## Calls of the original in the scenarios", ""]
+    shown = 0
+    for f in sorted((base / "only").glob("*.json")):
+        g = json.loads(f.read_text())["groups"].get(kind)
+        if not g:
+            continue
+        md.append(f"- scenario `{f.stem}`: {g['entries']} calls" + ("" if g.get("unbound") else
+                  f", {g['failing']}/{g['samples']} sampled calls differ, {g.get('observed', 0)} observed"))
+        for ex in g["examples"][: max(0, 6 - shown)]:
+            shown += 1
+            md += ["", f"### {f.stem} turn {ex['turn']}: {ex['label']}", "```diff",
+                   ("\n".join(ex["diff"]) if isinstance(ex["diff"], list) else ex["diff"]).strip()[:4000], "```"]
+    md.append("")
+    return md, {name: f"{addr:#010x}"}, [f"{addr:#x}"], shown
+
+
 def main(kind, base, src, repo, out):
     base, src, repo = Path(base), Path(src), Path(repo)
     tick = next(((p, c) for p, c in TICKS.items() if kind.startswith(p)), None)
     funcs = index(src)
-    if tick:
+    if kind.startswith("FN_"):
+        md, handlers, search, shown = function_pack(kind, base, src, repo, funcs)
+    elif tick:
         prefix, (cls, addr) = tick
         handlers, search = {cls: addr}, [kind.removeprefix(prefix)]
         md = [f"# Entity tick of type {kind.removeprefix(prefix)} ({cls}::Tick {addr})", "",
@@ -60,7 +118,7 @@ def main(kind, base, src, repo, out):
               "against `World::execute_current_task` on the same imported state. `-` lines are the original",
               "(reference), `+` lines are the clean port; the path names the field of `World`.", ""]
     shown = 0
-    for f in sorted((base / "only").glob("*.json")):
+    for f in sorted((base / "only").glob("*.json")) if not kind.startswith("FN_") else []:
         g = json.loads(f.read_text())["groups"].get(kind)
         if not g:
             continue

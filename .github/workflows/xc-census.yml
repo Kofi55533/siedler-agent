@@ -79,16 +79,16 @@ jobs:
         id: m
         env: { GH_TOKEN: '${{ secrets.PRIVATE_REPO_TOKEN }}' }
         run: |
-          cd $RUNNER_TEMP; mkdir -p dl all prev
+          cd $RUNNER_TEMP; mkdir -p dl all prev meta
           gh release download xc-census -R $XC_DATA -D dl -p "shard-${{ github.run_id }}-*.tzst"
           n=$(ls dl | wc -l); echo "$n/$SHARDS shards"
           # a shard where every scenario gave a result has no _logs entries (the glob stays unmatched)
           mkdir -p logs
-          for f in dl/*.tzst; do zstd -dcq "$f" | tar -xf - -C dl && mv dl/census/*.json all/ && mv dl/census/sha.txt sha.txt; { mv dl/census/_logs/* logs/ 2>/dev/null || true; }; rm -rf dl/census; done
+          for f in dl/*.tzst; do zstd -dcq "$f" | tar -xf - -C dl && mv dl/census/*.json all/ && mv dl/census/sha.txt sha.txt; { mv dl/census/_logs/* logs/ 2>/dev/null || true; }; { mv -f dl/census/_meta/* meta/ 2>/dev/null || true; }; rm -rf dl/census; done
           echo "$(ls logs | wc -l) scenarios without result"
           [ "$n" -gt 0 ] || { echo "no shard results"; exit 1; }
           SHA=$(cat sha.txt)
-          python3 $GITHUB_WORKSPACE/scripts/xc/xc.py merge all "$SHA" worklist.json
+          python3 $GITHUB_WORKSPACE/scripts/xc/xc.py merge all "$SHA" worklist.json meta
           old=""; regs="[]"
           if gh release download xc-worklist -R $XC_DATA -D prev -p worklist.json > /dev/null 2>&1; then
             old=$(python3 -c 'import json;print(json.load(open("prev/worklist.json"))["sha"])')
@@ -107,9 +107,13 @@ jobs:
           import json
           d = json.load(open("worklist.json")); s = d["summary"]
           print(f"### census {d['sha'][:8]}: {s['failing_kinds']}/{s['kinds']} kinds differ, {s['failing']}/{s['samples']} sampled calls\n")
+          f = s.get("functions") or {}
+          print(f"executed class-A functions: {sum(f.values())} ({f.get('port', 0)} to port, {f.get('fix', 0)} bound and differing, "
+                f"{f.get('observe', 0)} bound but unobserved, {f.get('done', 0)} identical)\n")
           print("| kind | failing scenarios | sampled calls differing |\n|---|---|---|")
           for k, v in sorted(d["kinds"].items(), key=lambda kv: -kv[1]["failing"]):
-              print(f"| {k} | {sum(1 for x in v['scenarios'].values() if x['failing'])}/{len(v['scenarios'])} | {v['failing']}/{v['samples']} |")
+              if v["failing"] or not k.startswith("FN_"):
+                  print(f"| {k} | {sum(1 for x in v['scenarios'].values() if x['failing'])}/{len(v['scenarios'])} | {v['failing']}/{v['samples']} |")
           P
   attribute:
     needs: merge
