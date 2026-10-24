@@ -24,6 +24,7 @@ import os
 import subprocess
 import sys
 import time
+from datetime import datetime
 from pathlib import Path
 
 ATTEMPTS = 3  # failed worker attempts per kind (on the same census) before it waits for a new census
@@ -190,6 +191,17 @@ def tried(body, sha):
     return int(f.get("attempts", "0")) if f.get("census") == sha[:12] else 0
 
 
+def merged_since(body, sha, pinned):
+    """merged after the census measured on <sha> was pinned (its commit time <pinned>): that work list still lists the
+    kind as todo, the next one re-measures. "merged <census sha12> <epoch>"; an older body has no epoch."""
+    m = fields(body).get("merged", "").split()
+    if not m:
+        return False
+    if m[0] == sha[:12]:
+        return True
+    return len(m) > 1 and pinned is not None and int(m[1]) > pinned
+
+
 def claimed(body, now, pool=None):
     """a live claim (of any pool, or of <pool> only)"""
     c = fields(body).get("claimed", "").split()
@@ -216,9 +228,9 @@ def issue(kind, op, sha=None):
     elif op == "unclaim":
         f.pop("claimed", None)
     elif op == "attempt":
-        f = {"census": sha[:12], "attempts": str(tried(body, sha) + 1)}
-    elif op == "merged":  # the issue stays open: the work list measured on <sha> still lists the kind as failing
-        f = {"merged": sha[:12]}
+        f = {"census": sha[:12], "attempts": str(tried(body, sha) + 1), **({"merged": f["merged"]} if "merged" in f else {})}
+    elif op == "merged":  # the issue stays open: the work lists pinned before the merge still list the kind as todo
+        f = {"merged": f"{sha[:12]} {int(time.time())}"}
     elif op == "close":
         if num:
             gh("-X", "PATCH", f"repos/{AGENT}/issues/{num}", "-f", "state=closed", "-f", "body=" + render({}))
@@ -265,6 +277,9 @@ def pick(worklist, n, claim=False, limit=None):
         if len(prs) < 100:
             break
     issues, now = tracking(), time.time()
+    commit = gh(f"repos/{PROJECT}/commits/{doc['sha']}") or {}
+    pinned = commit.get("commit", {}).get("committer", {}).get("date")
+    pinned = datetime.fromisoformat(pinned.replace("Z", "+00:00")).timestamp() if pinned else None
     if limit is not None:  # this pool's slots: its live claims are its running worker jobs
         n = min(n, limit - sum(1 for _, body in issues.values() if claimed(body, now, POOL)))
     ranked = []
@@ -273,8 +288,7 @@ def pick(worklist, n, claim=False, limit=None):
             continue
         body = issues.get(kind, (None, ""))[1]
         # the attempt counter restarts with every census sha (new base, new examples)
-        merged = fields(body).get("merged") == doc["sha"][:12]  # fixed since this census; the next one re-measures
-        if merged or claimed(body, now) or tried(body, doc["sha"]) >= ATTEMPTS:
+        if merged_since(body, doc["sha"], pinned) or claimed(body, now) or tried(body, doc["sha"]) >= ATTEMPTS:
             continue
         ranked.append(rank(kind, k))
     ranked.sort()
