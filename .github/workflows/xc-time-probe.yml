@@ -1,0 +1,38 @@
+name: xc-time-probe
+# one-off probe (seconds only): how much of a worker's kind-only run is plain play of the scenario
+on:
+  push:
+    branches: [claude/xc-time-probe]
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - name: Setup (quiet)
+        env: { T: '${{ secrets.PRIVATE_REPO_TOKEN }}', GIT_LFS_SKIP_SMUDGE: '1' }
+        run: scripts/s5-setup.sh clean/integration 1
+      - name: Timing (seconds only)
+        run: |
+          set +e
+          source scripts/xc/lib.sh
+          xc_build || { echo build failed; exit 2; }
+          one(){ # one <name> <img> <skip> <tag> <turns> <only>
+            local t=$(date +%s)
+            ( cd "$S5_REPO" && env S5_XCHECK_IMAGE="$2" S5_CAPTURE_SKIP=$3 S5_CAPTURE_TURNS=$5 S5_CAPTURE_MAX=$XC_MAX \
+                S5_CAPTURE_STRIDE=$XC_STRIDE S5_CAPTURE_JSON="$XC/t-$1-$4.json" S5_CAPTURE_ONLY="$6" \
+                timeout -k 30 "$XC_TIMEOUT" "$(xc_bin capture-functions)" --nocapture --test-threads=1 ) < /dev/null > /dev/null 2>&1
+            echo "$1 $4: exit $? secs=$(( $(date +%s) - t ))"
+          }
+          xc_scenarios > lines.txt; echo "$(wc -l < lines.txt) scenarios"
+          # start-up only, plain play (a function no scenario calls), a kind-only run of a bound function
+          while read -r name img skip turns; do
+            one "$name" "$img" "$skip" start 1 FN_000001 &
+            one "$name" "$img" "$skip" play "$turns" FN_000001 &
+            one "$name" "$img" "$skip" kind "$turns" FN_57DB65 &
+            wait
+          done < lines.txt
