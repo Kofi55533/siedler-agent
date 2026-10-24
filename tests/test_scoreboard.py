@@ -28,8 +28,8 @@ class AccountView(unittest.TestCase):
         parts = {p["key"]: p["used"] for p in m["parts"]}
         self.assertEqual(parts, {"worker": 2, "preflight": 2, "integration": 1, "regate": 0, "control": 1})
         self.assertEqual((m["worker_limit"], m["gate_limit"], m["gate_used"]), (10, 10, 3))
-        self.assertEqual((f["account"], f["used"], f["capacity"], f["parts"][0]["used"]), ("Dominickofi00", 21, 20, 20))
-        self.assertEqual((total["used"], total["capacity"], total["workers"], total["worker_limit"]), (27, 40, 22, 30))
+        self.assertEqual((f["account"], f["used"], f["capacity"], f["parts"][0]["used"]), ("Dominickofi00", 21, 0, 20))
+        self.assertEqual((total["used"], total["capacity"], total["workers"], total["worker_limit"]), (27, 20, 22, 10))
 
     def test_unreadable_fork_counts_zero_and_is_flagged(self):
         accts, total = b.v2_account_view({1: run(1, "fleet-worker.yml")}, None, 10)
@@ -40,7 +40,8 @@ class AccountView(unittest.TestCase):
         sys.path.insert(0, str(_P.parents[1]))
         import autonomy_state as state
         self.assertEqual((b.V2_CAPACITY, b.V2_GATE), (state.CAPACITY, state.VERIFY_SLOTS))
-        self.assertEqual(b.FORK_CAPACITY, 20)
+        # the brother account's Actions are blocked by GitHub: no capacity unless FLEET_POOL_WORKER_LIMIT gives one
+        self.assertEqual(b.FORK_CAPACITY, 0)
 
 
 class Packages(unittest.TestCase):
