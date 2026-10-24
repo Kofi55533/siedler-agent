@@ -27,13 +27,41 @@ XC_TIMEOUT=${XC_TIMEOUT:-1200}
 XC_DEAD=${XC_DEAD:-"camp-bigcity camp-extra1 map-gipfelsturm map-sandbox sp-spreadland map-calabria camp-thalgrund ai-citygates ai-builds-citygates saveload-stable saveload-recapture"}
 
 # scenarios: "name image skip turns" lines. bc replays its recorded commands (commands.bin beside the image); every
-# other image runs autonomously (AI players, armies, campaign scripts), which is still the original behaviour.
+# other image runs autonomously (AI players, armies, campaign scripts), which is still the original behaviour, plus
+# the player commands of the generated fixtures on that image (xc_cmds), so the command handlers run too.
 xc_scenarios(){
   echo "bc $S5_ARTIFACTS/bc/gs_h.img 100 $((XC_TURNS + 180))"
   for d in "$S5_V"/images/*/ "$S5_NF"/images/*/; do
     n=$(basename "$d"); [[ " $XC_DEAD " == *" $n "* ]] && continue
     [ -f "$d/start.img" ] && echo "$n $d/start.img 0 $XC_TURNS"
   done | sort -u -k1,1
+}
+
+# xc_cmds: per scenario image, the commands of every generated fixture of the $S5_REPO checkout that starts on it
+# (fixtures-gen/*/scenario.json "image" + commands.jsonl, absolute game turns) merged into $XC/cmds/<name>.bin, which
+# xc_run replays (S5_XCHECK_COMMANDS). Commands after the compared turns are not reached. Rebuilt once per checkout.
+xc_cmds(){
+  local stamp; stamp=$(git -C "$S5_REPO" rev-parse HEAD 2>/dev/null)
+  [ -n "$stamp" ] && [ "$(cat "$XC/cmds/stamp" 2>/dev/null)" = "$stamp" ] && return 0
+  rm -rf "$XC/cmds"; mkdir -p "$XC/cmds"
+  xc_scenarios | python3 -c 'import json, os, sys
+from pathlib import Path
+repo, s5 = sys.argv[1], sys.argv[2]
+# the fixtures name their image by its runner path (/opt/s5/data/...); the scenarios by $S5/data/...
+key = lambda p: os.path.normpath(p.split("/data/", 1)[1]) if "/data/" in p else os.path.normpath(p)
+by_image = {}
+for s in sorted(Path(repo, "fixtures-gen").glob("*/scenario.json")):
+    c = s.parent / json.loads(s.read_text()).get("commands", "commands.jsonl")
+    if c.is_file() and c.stat().st_size:
+        by_image.setdefault(key(json.loads(s.read_text())["image"]), []).append(str(c))
+for line in sys.stdin:
+    name, img = line.split()[:2]
+    if name != "bc" and key(img) in by_image:
+        print(name, *by_image[key(img)])' "$S5_REPO" "$S5" \
+  | while read -r name streams; do
+      echo "$name: $(python3 "$(dirname "${BASH_SOURCE[0]}")/cmdbin.py" "$S5_REPO/oracle" "$XC/cmds/$name.bin" $streams)"
+    done > "$XC/cmds/summary.txt"
+  [ -z "$stamp" ] || echo "$stamp" > "$XC/cmds/stamp"
 }
 
 # the census inventory of capture-functions: every class-A (simulation) function of scripts/scope_classes.json, one hex
@@ -46,6 +74,7 @@ xc_inventory(){
 # build the capture tests of the current $S5_REPO checkout (shares recomp/target with the build cache)
 xc_build(){
   xc_inventory || return 1
+  xc_cmds
   ( cd "$S5_REPO" || exit 1
     [ -f crates/s5xcheck/Cargo.lock ] || cp recomp/Cargo.lock crates/s5xcheck/Cargo.lock
     CARGO_TARGET_DIR=${XC_TARGET:-$S5_REPO/recomp/target} cargo test --release --no-run -j "${CARGO_BUILD_JOBS:-3}" \
@@ -91,6 +120,7 @@ xc_run(){
     for t in "$first" "$short"; do
       ( cd "$S5_REPO" && export S5_XCHECK_IMAGE=$img S5_CAPTURE_SKIP=$skip S5_CAPTURE_TURNS=$t S5_CAPTURE_MAX=$XC_MAX \
           S5_CAPTURE_STRIDE=$XC_STRIDE S5_CAPTURE_JSON=$out.$bin.part && { [ -z "$only" ] || export S5_CAPTURE_ONLY=$only; } &&
+        { [ -z "${XC_NO_CMDS:-}" ] && [ -s "$XC/cmds/$name.bin" ] && export S5_XCHECK_COMMANDS=$XC/cmds/$name.bin || :; } &&
         { [ "$bin" != capture-functions ] || export S5_CAPTURE_FUNCTIONS=$XC/inventory.txt; } &&
         timeout -k 30 "$XC_TIMEOUT" "$(xc_bin "$bin")" --nocapture --test-threads=1 ) \
         < /dev/null >> "$XC/run-$tag.log" 2>&1
