@@ -33,8 +33,8 @@ jobs:
               ( cd $S5_REPO && S5_XCHECK_IMAGE=$img S5_CAPTURE_SKIP=$skip S5_CAPTURE_TURNS=$T S5_CAPTURE_MAX=$XC_MAX \
                 S5_CAPTURE_STRIDE=$XC_STRIDE S5_CAPTURE_JSON=$XC/p$T/$name.json S5_CAPTURE_FUNCTIONS=$XC/inventory.txt \
                 timeout -k 30 5400 "$(xc_bin capture-functions)" --nocapture --test-threads=1 ) < /dev/null > $XC/p$T-$name.log 2>&1 &
-              while [ "$(jobs -rp | wc -l)" -ge 4 ]; do wait -n; done
-            done < $XC/shard.txt; wait
+              while [ "$(jobs -rp | wc -l)" -ge 4 ]; do wait -n || true; done
+            done < $XC/shard.txt; wait || true
             echo "turns=$T secs=$(( $(date +%s) - t0 ))"
             python3 - $XC/p$T <<'P'
           import json, sys
