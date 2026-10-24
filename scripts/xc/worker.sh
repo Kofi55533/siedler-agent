@@ -27,6 +27,13 @@ cd "$S5_REPO" || exit 2
 # the checkout carries no credential (the model reads it); fetch and push name the authenticated URL explicitly
 AUTH="https://x-access-token:${GH_TOKEN}@github.com/$PROJECT.git"
 fetch_base(){ git fetch -q "$AUTH" "+refs/heads/clean/integration:refs/remotes/origin/clean/integration"; }
+# a job works several kinds in a row: an earlier kind's unshipped change (or an aborted merge) leaves the checkout,
+# and the workspace starts empty, so the model never sees the previous task's notes
+git reset -q; git merge --abort 2>/dev/null
+xc_changed | while read -r p; do
+  if git cat-file -e "HEAD:$p" 2>/dev/null; then git checkout -q HEAD -- "$p"; else rm -rf -- "$p"; fi
+done
+rm -rf "$W"
 fetch_base && git checkout -q -B "$BR" origin/clean/integration || exit 2
 git rev-parse HEAD > "$XC/base.sha"; BASE=$(cat "$XC/base.sha")
 # the kind is compared in the scenarios where it failed plus a few where it was clean (at most 9: each verdict runs them

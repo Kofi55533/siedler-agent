@@ -1,7 +1,8 @@
 name: xc-worker
-# One wave of DeepSeek workers on the per-call differential (scripts/xc/worker.sh): each job takes ONE failing task
+# One wave of DeepSeek workers on the per-call differential (scripts/xc/worker.sh): each job takes one failing task
 # kind from the census work list, gets the measured diffs + the native decompilation as its task, and works until the
 # script-side verdict (scripts/xc/verify.sh) passes; the script, not the model, commits, opens the PR and merges it.
+# Then the job claims the next kind (one setup per job, no idle slot until the next wave).
 # The pick job claims the kinds (tracking issues "[xc] KIND", label xc-kind, in XC_AGENT) so overlapping waves and
 # other pools (forks of this repo with their own OPENCODE_API_KEY) never work on the same kind.
 # Model output stays on the runner (private game state); the log shows counts and verdict lines only.
@@ -35,8 +36,9 @@ jobs:
     outputs:
       kinds: ${{ steps.p.outputs.kinds }}
     steps:
+      # the scripts of the revision this run started from (a branch dispatch tries its own scripts); pools run main
       - uses: actions/checkout@v4
-        with: { repository: '${{ env.XC_AGENT }}', ref: main, sparse-checkout: scripts/xc }
+        with: { repository: '${{ env.XC_AGENT }}', ref: "${{ github.repository == 'Kofi55533/siedler-agent' && github.sha || 'main' }}", sparse-checkout: scripts/xc }
       - name: Pick and claim failing kinds
         id: p
         env:
@@ -45,6 +47,8 @@ jobs:
           # the main account keeps 10 of its 20 concurrent jobs free for the census (8 shards) and the watchdog
           L: ${{ vars.XC_WORKERS || (github.repository == 'Kofi55533/siedler-agent' && '10' || '20') }}
           KINDS: ${{ inputs.kinds }}
+          # the fix jobs claim their next kinds outside this serialized job: a claim another writer replaced is dropped
+          XC_CLAIM_TOKEN: ${{ github.run_id }}-pick
         run: |
           gh release download xc-worklist -R $XC_DATA -D $RUNNER_TEMP -p worklist.json
           if [ -n "$KINDS" ]; then
@@ -65,8 +69,10 @@ jobs:
       matrix:
         kind: ${{ fromJSON(needs.pick.outputs.kinds) }}
     steps:
+      - name: Job start
+        run: echo "XC_T0=$(date +%s)" >> "$GITHUB_ENV"; echo "${{ matrix.kind }}" > "$RUNNER_TEMP/kind"
       - uses: actions/checkout@v4
-        with: { repository: '${{ env.XC_AGENT }}', ref: main }
+        with: { repository: '${{ env.XC_AGENT }}', ref: "${{ github.repository == 'Kofi55533/siedler-agent' && github.sha || 'main' }}" }
       - uses: actions/setup-python@v5
         with: { python-version: '3.11' }
       - name: Setup game data, toolchain, build cache, native decompilation (quiet)
@@ -86,21 +92,44 @@ jobs:
           mkdir -p /opt/s5/xc && GH_TOKEN=$T gh release download xc-worklist -R $XC_DATA -D /opt/s5/xc -p worklist.json --clobber
       - name: Install opencode
         run: npm i -g opencode-ai > /dev/null 2>&1 && opencode --version
-      - name: Work on ${{ matrix.kind }} (model output private; counts and verdicts only)
+      - name: Work on ${{ matrix.kind }}, then on further kinds (model output private; counts and verdicts only)
         env:
           OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
           GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
           XC_MODEL: ${{ vars.XC_MODEL || 'opencode/deepseek-v4.1-flash-free' }}
+          L: ${{ vars.XC_WORKERS || (github.repository == 'Kofi55533/siedler-agent' && '10' || '20') }}
+          XC_CLAIM_TOKEN: ${{ github.run_id }}/${{ matrix.kind }}   # also tells the scoreboard which kind this job works now
         run: |
           mkdir -p ~/.local/share/opencode; umask 077
           printf '{"opencode":{"type":"api","key":"%s"}}' "$OPENCODE_API_KEY" > ~/.local/share/opencode/auth.json
           unset OPENCODE_API_KEY; umask 022
-          # 0 merged or nothing to do, 1 attempt recorded (not a job failure), 2 infrastructure
-          rc=0; scripts/xc/worker.sh "${{ matrix.kind }}" || rc=$?
-          [ $rc != 2 ]
+          # the setup (game data, build cache, decompilation, opencode) is paid once: after each kind the job claims the
+          # next one of a fresh work list while the job's 330 min leave room for a kind (median 24 min, the budget of
+          # worker.sh at most 170 min, plus its verdict and merge), so a slot never idles until the watchdog's next wave
+          kind=$(cat "$RUNNER_TEMP/kind"); n=0
+          while :; do
+            n=$((n + 1)); echo "$kind" > "$RUNNER_TEMP/kind"
+            left=$(( 330 - ($(date +%s) - XC_T0) / 60 - 25 ))   # minutes this kind may use (verdict + merge margin)
+            # 0 merged or nothing to do, 1 attempt recorded (not a job failure), 2 infrastructure
+            rc=0; XC_BUDGET_MIN=$(( left < 170 ? left : 170 )) scripts/xc/worker.sh "$kind" || rc=$?
+            [ $rc = 2 ] && exit 1
+            [ $(( 330 - ($(date +%s) - XC_T0) / 60 )) -ge 90 ] || break
+            gh release download xc-worklist -R $XC_DATA -D /opt/s5/xc -p worklist.json --clobber || break
+            kind=$(python3 scripts/xc/xc.py pick /opt/s5/xc/worklist.json 1 --claim --limit="$L" | jq -r '.[0] // empty') || kind=""
+            [ -n "$kind" ] || break
+            echo "next kind ($((n + 1)) in this job): $kind" | tee -a "$GITHUB_STEP_SUMMARY"
+          done
+          echo "$n kinds in this job" | tee -a "$GITHUB_STEP_SUMMARY"
+          rm -f "$RUNNER_TEMP/kind"
       # a job that died before its verdict (setup, infrastructure, timeout) frees its kind for the next wave instead of
       # blocking it for CLAIM_H while the rest of the wave still runs
       - name: Release the claim
         if: failure() || cancelled()
         env: { GH_TOKEN: '${{ secrets.PRIVATE_REPO_TOKEN }}' }
-        run: python3 scripts/xc/xc.py issue "${{ matrix.kind }}" unclaim
+        run: '[ ! -s "$RUNNER_TEMP/kind" ] || python3 scripts/xc/xc.py issue "$(cat "$RUNNER_TEMP/kind")" unclaim'
+      # a slot came free: the watchdog's refill runs now instead of at its next schedule (it counts the live claims, so
+      # an early run never exceeds XC_WORKERS)
+      - name: Wake the watchdog
+        if: always() && github.repository == 'Kofi55533/siedler-agent'
+        env: { GH_TOKEN: '${{ secrets.PRIVATE_REPO_TOKEN }}' }
+        run: gh api -X POST repos/$XC_AGENT/actions/workflows/xc-watchdog.yml/dispatches -f ref=main > /dev/null || true

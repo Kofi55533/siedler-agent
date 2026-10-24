@@ -1061,7 +1061,7 @@ def fleet_v2():
 # ---------------- xc per-call differential (scripts/xc, since 2026-10-23) ----------------
 # The census (xc-census.yml) measures every task kind (ExecuteTask) and the entity ticks per type (TICK_<CLASS>_<type>)
 # at the original's real calls; workers are the fix jobs of
-# xc-worker.yml runs, one job per failing kind, in the main repo and in pool repos of other accounts that call the same
+# xc-worker.yml runs, one job per slot working failing kinds one after another, in the main repo and in pool repos of other accounts that call the same
 # reusable workflow. A slot is a job, not a run. Kinds are tracked by open `[xc] KIND` issues (label xc-kind) in PUB.
 XC_POOLS = [(PUB, "Kofi55533", "XC_WORKERS", 10), ("Dominickofi00/siedler-agent", "Dominickofi00", "XC_POOL_WORKERS", 20)]
 XC_RUNS = ("xc-worker.yml", "xc-pool.yml")
@@ -1138,7 +1138,8 @@ def xc_pipeline(main_runs):
                 run_ = j["status"] == "in_progress"
                 p["running" if run_ else "waiting"] += 1
                 st = parse_ts(j.get("started_at") or r["created_at"])
-                jobs.append({"kind": m.group(1), "account": account, "status": j["status"], "url": j.get("html_url") or r["html_url"],
+                jobs.append({"kind": m.group(1), "_token": f"{r['id']}/{m.group(1)}", "account": account, "status": j["status"],
+                             "url": j.get("html_url") or r["html_url"],
                              "started": iso(st), "minutes": max(0, int((NOW - st).total_seconds() // 60)) if run_ else None})
         pools.append(p)
     issues = []
@@ -1154,6 +1155,12 @@ def xc_pipeline(main_runs):
         ERRORS.append(f"xc worklist: {type(e).__name__}")
     sha = (wl or {}).get("sha")
     track = {i["title"].removeprefix("[xc] "): xc_fields(i.get("body")) for i in issues}
+    # a fix job works several kinds in a row; its claims carry the token <run>/<first kind> (xc-worker.yml XC_CLAIM_TOKEN)
+    now_kind = {c[3]: k for k, f in track.items() if len(c := f.get("claimed", "").split()) > 3}
+    for j in jobs:
+        cur = now_kind.get(j.pop("_token"))
+        if cur and cur != j["kind"]:
+            j["first"], j["kind"] = j["kind"], cur
     claimed = merged = exhausted = 0
     for f in track.values():
         c = f.get("claimed", "").split()
