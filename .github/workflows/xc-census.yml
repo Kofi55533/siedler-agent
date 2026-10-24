@@ -22,7 +22,9 @@ env:
   XC_PROJECT: ${{ vars.XC_PROJECT || 'Kofi55533/siedler-sim-rs' }}
   XC_DATA: ${{ vars.XC_DATA || 'Kofi55533/siedler-data' }}
   XC_AGENT: ${{ vars.XC_AGENT || 'Kofi55533/siedler-agent' }}
-  SHARDS: '8'
+  # 4 shards of ~8 scenarios: the per-shard setup (data, build cache) is ~4 min, so fewer shards leave more of the
+  # account's 20 job slots to the fix jobs (XC_WORKERS) at a few more minutes per census
+  SHARDS: '4'
 jobs:
   pin:
     # every shard measures the same commit, even when clean/integration moves during the census
@@ -42,7 +44,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+        shard: [0, 1, 2, 3]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

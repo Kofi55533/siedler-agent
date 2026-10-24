@@ -140,8 +140,8 @@ $(grep -vE '^VERDICT' "$XC/verify-$round.txt" | head -20)
   [ -n "$pr" ] || exit 2
   if gh api -X PUT "repos/$PROJECT/pulls/$pr/merge" -f merge_method=squash -f sha="$(git rev-parse HEAD)" > /dev/null 2>&1; then
     sum "$KIND: merged $PROJECT#$pr"; MERGED=1; python3 "$D/xc.py" issue "$KIND" merged "$(wl_sha)"
-    # the post-merge census compares every scenario and reverts this merge if another kind broke anywhere
-    gh api -X POST "repos/$AGENT/actions/workflows/xc-census.yml/dispatches" -f ref=main > /dev/null 2>&1 || true
+    # no census per merge (it held 8 of the 20 job slots without pause): the watchdog's next census, at most 30 min
+    # after the last one, compares every scenario and reverts this merge if another kind broke anywhere
     exit 0
   fi
   [ $try = 2 ] && break

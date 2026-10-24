@@ -8,7 +8,7 @@ set -uo pipefail
 D=$(cd "$(dirname "$0")" && pwd); source "$D/lib.sh"
 OLD=$1; REG=$2
 PROJECT=${XC_PROJECT:-Kofi55533/siedler-sim-rs}; AGENT=${XC_AGENT:-Kofi55533/siedler-agent}
-MAXC=${XC_ATTRIBUTE_MAX:-6}
+MAXC=${XC_ATTRIBUTE_MAX:-10}   # a census covers the merges of up to ~30 min
 cd "$S5_REPO" || exit 2
 HEAD0=$(git rev-parse HEAD)
 git fetch -q --deepen 300 origin clean/integration 2>/dev/null || true
