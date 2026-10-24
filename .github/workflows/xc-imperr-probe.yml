@@ -40,6 +40,6 @@ jobs:
         run: |
           source scripts/s5-env.sh
           cd $RUNNER_TEMP && tar -cf - imperr | zstd -q -19 > imperr-${{ matrix.shard }}.tzst
-          gh release view xc-probe -R $XC_DATA > /dev/null 2>&1 || gh release create xc-probe -R $XC_DATA -t xc-probe -n "probe documents (transient)" > /dev/null 2>&1 || true
-          gh release upload xc-probe -R $XC_DATA --clobber imperr-${{ matrix.shard }}.tzst > /dev/null
+          gh release view xc-probe -R Kofi55533/siedler-data > /dev/null 2>&1 || gh release create xc-probe -R Kofi55533/siedler-data -t xc-probe -n "probe documents (transient)" > /dev/null 2>&1 || true
+          gh release upload xc-probe -R Kofi55533/siedler-data --clobber imperr-${{ matrix.shard }}.tzst > /dev/null
           echo "uploaded $(stat -c %s imperr-*.tzst) bytes"
