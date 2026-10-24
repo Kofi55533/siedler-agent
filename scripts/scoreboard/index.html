@@ -111,6 +111,8 @@ details{margin-top:8px}summary{cursor:pointer;color:var(--ink2);font-size:.88rem
   <div class="sub">Alle Funktionen des Originalspiels, nach dem, was mit ihnen passiert. Gezählt ist nur, was geprüft und in <code>clean/integration</code> übernommen ist.</div>
   <div class="stack" id="stack"></div><div class="legend" id="stackleg"></div>
   <div class="classes" id="classes"></div>
+  <h2 style="font-size:.92rem;margin-top:16px">Simulation im Detail · wann fertig?</h2>
+  <div id="simdet"></div>
 </section>
 
 <section class="card"><h2>Fließband der Worker</h2>
@@ -250,6 +252,24 @@ fetch("data.json?t="+NOW).then(r=>r.json()).then(d=>{
   $("classes").innerHTML=S.map(c=>`<div class="cls"><div class="t"><span><b>${esc(c.key)} · ${esc(c.label)}</b>${c.now?`<span class="tag">jetzt dran</span>`:""}</span><span class="num mute">${fmt(c.done)} / ${fmt(c.total)}</span></div>
      <div class="meter" style="margin-top:5px"><i style="width:${c.total?Math.max(c.done?1:0,100*c.done/c.total):0}%;background:${c.now?"var(--s1)":"var(--neutral)"}"></i></div>
      <div class="w">${esc(c.what)}</div></div>`).join("");
+
+  // class A in detail: what the census reaches, what it verified, and the finish criteria with their live state
+  if(XW&&XW.functions&&A.total){
+    const F=XW.functions,ok=(F.done||0)+(F.covered||0),run=Object.values(F).reduce((a,b)=>a+b,0),open=run-ok,unrun=Math.max(0,A.total-run);
+    const rate=ig.last_24h||0,left=A.total-ok,B=S.find(c=>c.key==="B")||{};
+    const seg=(n,c,t)=>n?`<i style="flex:${n} 1 0;min-width:3px;background:${c}" data-tip="${t}"></i>`:"";
+    const crit=(good,t,v)=>`<div class="row" style="grid-template-columns:1.2em 1fr auto"><span>${good?"✓":"○"}</span><span>${t}</span><span class="num mute">${v}</span></div>`;
+    $("simdet").innerHTML=`<div class="stack">${seg(ok,"var(--s1)",`geprüft identisch: <b>${fmt(ok)}</b>`)}${seg(open,"var(--s1-soft)",`läuft in den Szenarien, noch offen: <b>${fmt(open)}</b>`)}${seg(unrun,"var(--track)",`läuft in keinem Szenario: <b>${fmt(unrun)}</b>`)}</div>
+      <div class="legend"><span><i class="sw" style="background:var(--s1)"></i>${fmt(ok)} geprüft identisch (${fmt(F.done)} selbst, ${fmt(F.covered)} mit abgedeckt)</span><span><i class="sw" style="background:var(--s1-soft)"></i>${fmt(open)} laufen in den Szenarien, noch offen</span><span><i class="sw" style="background:var(--track);border:1px solid var(--line)"></i>${fmt(unrun)} laufen in keinem Szenario (die Messung erreicht sie noch nicht)</span></div>
+      <div class="small" style="margin:8px 0">Tempo: ${fmt(rate)} Merges in 24 h${rate?` → bei diesem Tempo noch etwa <b>${fmt(Math.ceil(left/rate))} Tage</b> für die ${fmt(left)} offenen Simulations-Funktionen (nur möglich, wenn neue Szenarien die ${fmt(unrun)} nicht erreichten ausführen)`:""}.</div>
+      <div class="small"><b>Fertig, wenn alles abgehakt ist:</b></div>`
+      +crit(ok>=A.total,"Alle Simulations-Funktionen geprüft identisch",`${fmt(ok)} / ${fmt(A.total)}`)
+      +crit(!unrun,"Jede Simulations-Funktion läuft in mindestens einem Szenario",`${fmt(run)} / ${fmt(A.total)}`)
+      +crit(XC.samples&&XC.identical===XC.samples,"Jeder verglichene Aufruf gleich wie im Original",`${fmt(XC.identical)} / ${fmt(XC.samples)}`)
+      +crit(XS.length&&!XS.some(x=>x.failing),"Jedes Szenario ohne Abweichung",`${fmt(XS.filter(x=>!x.failing).length)} / ${fmt(XS.length)}`)
+      +crit(it.total&&it.ok===it.total,"Ganze Spiele laufen Zug für Zug gleich",`${it.pct!=null?it.pct.toLocaleString("de-DE"):"–"} %`)
+      +crit(B.total&&B.done>=B.total,"Danach: Darstellung (Grafik, Sound, Menüs); braucht erst einen eigenen Vergleichstest",`${fmt(B.done)} / ${fmt(B.total)}`);
+  }
 
   // pipeline
   const T=pl.tickets||{},u=pl.units||{},integ=pl.integration;
