@@ -25,6 +25,10 @@ XC_TIMEOUT=${XC_TIMEOUT:-1200}
 # at all): saveload-stable, saveload-recapture.
 # A recaptured image gets a new name and is measured again.
 XC_DEAD=${XC_DEAD:-"camp-bigcity camp-extra1 map-gipfelsturm map-sandbox sp-spreadland map-calabria camp-thalgrund ai-citygates ai-builds-citygates saveload-stable saveload-recapture"}
+# images whose play does not reach XC_TURNS within XC_TIMEOUT: they play XC_TURNS_SHORT from the start instead of
+# losing XC_TIMEOUT before the fallback (2026-10-25 time probe: ai-builds-triggered runs past 1200 s at 1200 turns
+# even without any capture, its census entry was measured at 120)
+XC_LONG=${XC_LONG-"ai-builds-triggered"}
 
 # scenarios: "name image skip turns" lines. bc replays its recorded commands (commands.bin beside the image); every
 # other image runs autonomously (AI players, armies, campaign scripts), which is still the original behaviour, plus
@@ -33,7 +37,8 @@ xc_scenarios(){
   echo "bc $S5_ARTIFACTS/bc/gs_h.img 100 $((XC_TURNS + 180))"
   for d in "$S5_V"/images/*/ "$S5_NF"/images/*/; do
     n=$(basename "$d"); [[ " $XC_DEAD " == *" $n "* ]] && continue
-    [ -f "$d/start.img" ] && echo "$n $d/start.img 0 $XC_TURNS"
+    [[ " $XC_LONG " == *" $n "* ]] && t=$((XC_TURNS < XC_TURNS_SHORT ? XC_TURNS : XC_TURNS_SHORT)) || t=$XC_TURNS
+    [ -f "$d/start.img" ] && echo "$n $d/start.img 0 $t"
   done | sort -u -k1,1
 }
 
@@ -120,6 +125,7 @@ xc_run(){
   else bins=$(xc_points); fi
   : > "$XC/run-$tag.log"
   local short=$((turns - XC_TURNS + XC_TURNS_SHORT)) first=$turns t
+  [ "$short" -gt 0 ] || short=$turns  # a scenario already playing short (XC_LONG) has no shorter retry
   for bin in $bins; do
     for t in "$first" "$short"; do
       ( cd "$S5_REPO" && export S5_XCHECK_IMAGE=$img S5_CAPTURE_SKIP=$skip S5_CAPTURE_TURNS=$t S5_CAPTURE_MAX=$XC_MAX \
