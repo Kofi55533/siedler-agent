@@ -58,8 +58,8 @@ wait
 t2=$(date +%s)
 # where the run time goes (counts only): the full runs play every point, the kind-only runs one
 secs(){ ls "$XC"/secs-* 2>/dev/null | grep -E "$@" | xargs -r cat | sort -n \
-  | awk '{s += $1; m = $1; n++} END {printf "%d runs, sum %ds, max %ds", n, s, m}'; }
-echo "timing runs: full $(secs -v -- '-only$'), kind-only $(secs -- '-only$')"
+  | awk '{s += $1; m = $1; n++} END {printf "%d points, sum %ds, max %ds", n, s, m}'; }
+echo "timing runs: full $(secs -v -- '-only\.'), kind-only $(secs -- '-only\.')"
 # the base's full runs only where another kind seems to break against the work list (base build kept by worker.sh)
 SUS=$(python3 "$D/xc.py" suspects "$XC/worklist.json" "$XC/new/full" "$KIND")
 if [ -n "$SUS" ]; then

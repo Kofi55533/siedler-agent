@@ -116,34 +116,50 @@ xc_points(){
 }
 xc_point(){ case $1 in TICK_*) echo capture-ticks ;; FN_*) echo capture-functions ;; *) echo capture-execute-task ;; esac; }
 
-# xc_run <scenario line fields: name image skip turns> <out.json> [only-kinds]: the capture runs of one scenario (every
-# point, or only the points of the given kinds), merged into one document (the groups of the points are disjoint)
-xc_run(){
-  local name=$1 img=$2 skip=$3 turns=$4 out=$5 only=${6:-} tag=$name${6:+-only} bin rc=0 r t0=$SECONDS
-  rm -f "$out" "$out".*.part
-  local bins; if [ -n "$only" ]; then bins=$(tr ',' '\n' <<<"$only" | while read -r k; do xc_point "$k"; done | sort -u)
-  else bins=$(xc_points); fi
-  : > "$XC/run-$tag.log"
-  local short=$((turns - XC_TURNS + XC_TURNS_SHORT)) first=$turns t
+# xc_bins [only-kinds]: the capture points a run measures (every point, or only the points of the given kinds)
+xc_bins(){
+  if [ -n "${1:-}" ]; then tr ',' '\n' <<<"$1" | while read -r k; do xc_point "$k"; done | sort -u; else xc_points; fi
+}
+
+# xc_run_point <scenario line fields: name image skip turns> <out.json> <only-kinds> <point>: one capture point of one
+# scenario into <out.json>.<point>.part; its exit code, log and wall seconds go to $XC/{rc,run,secs}-<tag>.<point>
+xc_run_point(){
+  local name=$1 img=$2 skip=$3 turns=$4 out=$5 only=$6 bin=$7 tag=$1${6:+-only} r=0 t t0=$SECONDS
+  local log=$XC/run-$tag.$bin.log short=$((turns - XC_TURNS + XC_TURNS_SHORT)) first=$turns
   [ "$short" -gt 0 ] || short=$turns  # a scenario already playing short (XC_LONG) has no shorter retry
-  for bin in $bins; do
-    for t in "$first" "$short"; do
-      ( cd "$S5_REPO" && export S5_XCHECK_IMAGE=$img S5_CAPTURE_SKIP=$skip S5_CAPTURE_TURNS=$t S5_CAPTURE_MAX=$XC_MAX \
-          S5_CAPTURE_STRIDE=$XC_STRIDE S5_CAPTURE_JSON=$out.$bin.part && { [ -z "$only" ] || export S5_CAPTURE_ONLY=$only; } &&
-        { [ -z "${XC_NO_CMDS:-}" ] && [ -s "$XC/cmds/$name.bin" ] && export S5_XCHECK_COMMANDS=$XC/cmds/$name.bin || :; } &&
-        { [ "$bin" != capture-functions ] || export S5_CAPTURE_FUNCTIONS=$XC/inventory.txt; } &&
-        timeout -k 30 "$XC_TIMEOUT" "$(xc_bin "$bin")" --nocapture --test-threads=1 ) \
-        < /dev/null >> "$XC/run-$tag.log" 2>&1
-      r=$?
-      # a failing comparison exits 101 with its document written; without one the point is tried once more, shorter
-      [ -s "$out.$bin.part" ] && break
-      [ "$t" = "$short" ] || [ "$short" -ge "$turns" ] && { rc=$r; break; }
-      echo "no result in $t turns (exit $r): again with $short" >> "$XC/run-$tag.log"
-      # a timeout is the play's length, not the point's: the scenario's further points start short (the 2026-10-24
-      # census lost 3 x XC_TIMEOUT of one shard's 60 min on one image)
-      [ "$r" != 124 ] || first=$short
-    done
+  # a point of this scenario timed out at full length: this one starts short (the 2026-10-24 census lost 3 x
+  # XC_TIMEOUT of one shard's 60 min on one image)
+  [ -f "$out.long" ] && first=$short
+  : > "$log"
+  for t in "$first" "$short"; do
+    ( cd "$S5_REPO" && export S5_XCHECK_IMAGE=$img S5_CAPTURE_SKIP=$skip S5_CAPTURE_TURNS=$t S5_CAPTURE_MAX=$XC_MAX \
+        S5_CAPTURE_STRIDE=$XC_STRIDE S5_CAPTURE_JSON=$out.$bin.part && { [ -z "$only" ] || export S5_CAPTURE_ONLY=$only; } &&
+      { [ -z "${XC_NO_CMDS:-}" ] && [ -s "$XC/cmds/$name.bin" ] && export S5_XCHECK_COMMANDS=$XC/cmds/$name.bin || :; } &&
+      { [ "$bin" != capture-functions ] || export S5_CAPTURE_FUNCTIONS=$XC/inventory.txt; } &&
+      timeout -k 30 "$XC_TIMEOUT" "$(xc_bin "$bin")" --nocapture --test-threads=1 ) \
+      < /dev/null >> "$log" 2>&1
+    r=$?
+    # a failing comparison exits 101 with its document written; without one the point is tried once more, shorter
+    [ -s "$out.$bin.part" ] && { r=0; break; }
+    [ "$t" = "$short" ] || [ "$short" -ge "$turns" ] && break
+    echo "no result in $t turns (exit $r): again with $short" >> "$log"
+    [ "$r" != 124 ] || : > "$out.long"
   done
+  echo "$r" > "$XC/rc-$tag.$bin"
+  echo $((SECONDS - t0)) > "$XC/secs-$tag.$bin"   # verify.sh sums them up
+}
+
+# xc_merge <name> <out.json> <only-kinds>: the points of one scenario merged into one document (the groups of the
+# points are disjoint); $XC/rc-<tag> and $XC/run-<tag>.log as one run of all its points
+xc_merge(){
+  local name=$1 out=$2 only=$3 tag=$1${3:+-only} bins bin rc=0 r
+  bins=$(xc_bins "$only")
+  : > "$XC/run-$tag.log"
+  for bin in $bins; do
+    cat "$XC/run-$tag.$bin.log" >> "$XC/run-$tag.log" 2>/dev/null
+    r=$(cat "$XC/rc-$tag.$bin" 2>/dev/null || echo 1); [ "$r" = 0 ] || rc=$r
+  done
+  rm -f "$XC/run-$tag".*.log "$XC/rc-$tag".*
   echo "$rc" > "$XC/rc-$tag"
   local cmds=; [ -n "${XC_NO_CMDS:-}" ] || cmds=$XC/cmds/$name.bin
   python3 - "$out" "$cmds" $(for bin in $bins; do echo "$out.$bin.part"; done) <<'M'
@@ -161,20 +177,27 @@ if docs:
            "commands": struct.unpack_from("<I", cmds.read_bytes(), 8)[0] if cmds and cmds.is_file() and cmds.stat().st_size >= 12 else 0}
     Path(sys.argv[1]).write_text(json.dumps(out))
 M
-  rm -f "$out".*.part
-  echo $((SECONDS - t0)) > "$XC/secs-$tag"   # wall seconds of this scenario's runs (verify.sh sums them up)
+  rm -f "$out".*.part "$out.long"
   [ -s "$out" ]
 }
 
-# xc_runs <dir> [only-kinds] < scenario lines: run them $XC_JOBS at a time, <dir>/<name>.json each
+# xc_runs <dir> [only-kinds] < scenario lines: <dir>/<name>.json each. The points of all scenarios share the $XC_JOBS
+# slots, one point per slot: a scenario's points (one play each) run side by side instead of one after the other, so
+# a verdict's few full runs no longer leave slots idle while one scenario plays its points in turn
 xc_runs(){
-  local dir=$1 only=${2:-}; mkdir -p "$dir"
-  while read -r name img skip turns; do
-    [ -f "$img" ] || continue
-    xc_run "$name" "$img" "$skip" "$turns" "$dir/$name.json" "$only" &
-    # a free slot starts the next run at once (runs differ a lot in length: one point vs all points)
-    while [ "$(jobs -rp | wc -l)" -ge "$XC_JOBS" ]; do wait -n; done
+  local dir=$1 only=${2:-} line name img skip turns bin; mkdir -p "$dir"
+  local lines; lines=$(while read -r name img skip turns; do [ -f "$img" ] && echo "$name $img $skip $turns"; done)
+  [ -n "$lines" ] || return 0
+  while read -r name _; do rm -f "$dir/$name.json" "$dir/$name.json".*.part "$dir/$name.json.long"; done <<<"$lines"
+  # point by point over the scenarios: with more scenarios than slots (the census) a scenario's later points start
+  # after its first one ended, and a timeout there starts them short ($out.long)
+  for bin in $(xc_bins "$only"); do
+    while read -r name img skip turns; do
+      xc_run_point "$name" "$img" "$skip" "$turns" "$dir/$name.json" "$only" "$bin" &
+      while [ "$(jobs -rp | wc -l)" -ge "$XC_JOBS" ]; do wait -n; done
+    done <<<"$lines"
   done; wait
+  while read -r name _; do xc_merge "$name" "$dir/$name.json" "$only"; done <<<"$lines"
 }
 
 # xc_binding <kind>: the binding file a function kind FN_<address> may add or change (crates/s5xcheck/src/functions)
