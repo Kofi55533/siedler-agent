@@ -27,7 +27,7 @@ import time
 from pathlib import Path
 
 ATTEMPTS = 3  # failed worker attempts per kind (on the same census) before it waits for a new census
-CENSUS = 2   # version of what the census measures (2: function units); a work list of another version is re-measured
+CENSUS = 3   # version of what the census measures (2: function units, 3: their callers); a work list of another version is re-measured
 CLAIM_H = 7   # a claim (a worker picked the kind) blocks other picks this long; a worker job lasts at most 6 h
 PROJECT = os.environ.get("XC_PROJECT", "Kofi55533/siedler-sim-rs")
 # the tracking issues live in the main pipeline repo for every pool (forks pick from the same work list)
@@ -61,10 +61,11 @@ def address(kind):
 
 
 def fn_state(k):
-    """a function kind's state: port (no binding yet), fix (bound, a sampled call differs), observe (bound, the sampled
-    calls change nothing the comparison sees, or none was sampled), done (bound, identical and observed)"""
+    """a function kind's state: port (no binding yet), covered (no binding, but every call of it runs inside verified
+    functions, see covered()), fix (bound, a sampled call differs), observe (bound, the sampled calls change nothing
+    the comparison sees, or none was sampled), done (bound, identical and observed)"""
     if k.get("unbound"):
-        return "port"
+        return "covered" if k.get("covered") else "port"
     if k["failing"]:
         return "fix"
     return "done" if k["samples"] and k.get("observed", 0) else "observe"
@@ -89,15 +90,26 @@ def merge(directory, sha, out, meta=None):
                 k["unbound"] = True
             k["scenarios"][name] = {"entries": g["entries"], "samples": g["samples"], "failing": g["failing"],
                                     "examples": g["examples"]}
+            if g.get("callers"):
+                c = k.setdefault("callers", {})
+                for caller, n in g["callers"].items():
+                    c[caller] = c.get(caller, 0) + n
     fns = {kind: k for kind, k in kinds.items() if kind.startswith("FN_")}
+    covered(fns)
     if meta and Path(meta, "fn_calls.json").is_file():
-        # bottom-up: a function's executed class-A callees (static direct calls) that have no binding yet
+        # a function's executed class-A callees (static direct calls) that have no binding yet
         calls = load(Path(meta, "fn_calls.json"))["calls"]
         executed = {address(kind): kind for kind in fns}
         for kind, k in fns.items():
             callees = [executed[c] for c in calls.get(address(kind), []) if c in executed]
             k["callees"] = len(callees)
             k["callees_open"] = sum(1 for c in callees if fns[c].get("unbound"))
+            k["callers_static_open"] = 0
+        for kind in fns:  # the reverse (top-down without caller counts): its executed callers without a binding
+            if fns[kind].get("unbound"):
+                for c in calls.get(address(kind), []):
+                    if c in executed:
+                        fns[executed[c]]["callers_static_open"] += 1
     if meta and Path(meta, "cited.txt").is_file():
         cited = set(Path(meta, "cited.txt").read_text().split())
         for kind, k in fns.items():
@@ -107,12 +119,42 @@ def merge(directory, sha, out, meta=None):
            "summary": {"kinds": len(kinds), "failing_kinds": sum(1 for k in kinds.values() if k["failing"]),
                        "samples": sum(k["samples"] for k in kinds.values()),
                        "failing": sum(k["failing"] for k in kinds.values()),
-                       "functions": {s: states.count(s) for s in ("port", "fix", "observe", "done")}}}
+                       "functions": {s: states.count(s) for s in ("port", "covered", "fix", "observe", "done")}}}
     Path(out).write_text(json.dumps(doc, indent=1))
     s = doc["summary"]
     print(f"worklist {sha[:8]}: {len(scenarios)} scenarios, {s['kinds']} kinds, {s['failing_kinds']} failing kinds, "
           f"{s['failing']}/{s['samples']} samples differ; executed functions: "
           + ", ".join(f"{n} {st}" for st, n in s["functions"].items()))
+
+
+def covered(fns):
+    """the function kinds whose every call runs inside verified functions (Group::callers of capture-functions: the
+    innermost observed function enclosing each call): inside a bound function identical at its sampled calls, or
+    inside a function covered the same way. Such a function needs no unit of its own: its behaviour is the part of
+    the verified caller's port that does its job (a native container walk, an accessor, ...), however that port is
+    written. Each kind also gets callers_open (its calls inside functions still to port, or from the turn itself)
+    and children_open (the functions still to port called inside it), the top-down order of the rest."""
+    verified = {kind for kind, k in fns.items()
+                if fn_state(k) == "done" or (kind in COVERED and k["samples"] and not k["failing"])}
+    cov = set()
+    while True:
+        new = {kind for kind, k in fns.items() if k.get("unbound") and kind not in cov and k.get("callers")
+               and all(c in verified or c in cov for c in k["callers"])}
+        if not new:
+            break
+        cov |= new
+    def open_(kind):  # still to port: no binding and not covered (ROOT, the turn itself, is no function)
+        return kind in fns and fns[kind].get("unbound") and kind not in cov
+    for kind, k in fns.items():
+        if kind in cov:
+            k["covered"] = True
+        if "callers" in k:
+            k["callers_open"] = sum(n for c, n in k["callers"].items() if open_(c))
+    for kind, k in fns.items():
+        if open_(kind):
+            for c in k.get("callers", {}):
+                if open_(c):
+                    fns[c]["children_open"] = fns[c].get("children_open", 0) + 1
 
 
 def pairs(doc):
@@ -200,13 +242,18 @@ def todo(kind, k):
 def rank(kind, k):
     """task kinds first: a settler's or animal's tick runs its current task, so a task handler that differs shows in
     the ticks of every type running it; fixing the handler is the narrower job and clears those as well. Then the
-    entity ticks and the bound functions whose calls differ, then the functions to port bottom-up: fewest executed
-    callees without a binding first (a leaf needs nothing else), the ones the clean code already cites (maybe only the
-    binding is missing) and the ones run in the most scenarios first."""
+    entity ticks and the bound functions whose calls differ, then the functions to port from the top of the call tree
+    down: the ones called only from verified functions or the turn itself first (their port goes into the clean
+    world as the caller's part; porting one covers the helpers inside it, see covered()), then the fewest open
+    functions inside (a smaller job), the ones the clean code already cites (maybe only the binding is missing) and
+    the ones run in the most scenarios. Without caller counts (an older census) the static call graph stands in."""
     scen = sum(1 for v in k["scenarios"].values() if (v["entries"] if k.get("unbound") else v["failing"]))
     if not kind.startswith("FN_") or k["failing"]:
         return (point(kind) != "capture-execute-task", 0, -scen, -k["failing"], kind)
-    return (2, k.get("callees_open", 0), not k.get("cited"), -scen, -k["entries"], kind)
+    if "callers_open" in k:
+        return (2, k["callers_open"] > 0, k.get("children_open", 0), not k.get("cited"), -scen, -k["entries"], kind)
+    return (2, k.get("callers_static_open", 0) > 0, k.get("callees_open", 0), not k.get("cited"), -scen, -k["entries"],
+            kind)
 
 
 def pick(worklist, n, claim=False, limit=None):

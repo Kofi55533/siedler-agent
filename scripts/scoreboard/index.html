@@ -234,7 +234,7 @@ fetch("data.json?t="+NOW).then(r=>r.json()).then(d=>{
   if(XW){ // the census replaces the retired gate matrix as the measurement
     kp[1]={l:"Szenarien ohne Abweichung",v:`${XS.filter(x=>!x.failing).length}<small> / ${XS.length}</small>`,h:`alte Gate-Messung: ${sc.base_identical??"–"} von ${sc.base_total??"–"} Basis-Szenarien`};
     const XF=XW.functions,xn=XF?Object.values(XF).reduce((a,b)=>a+b,0):0;
-    if(xn)kp[0]={l:"Funktionen identisch",v:`${pct(XF.done||0,xn,1)} %`,h:`${fmt(XF.done)} von ${fmt(xn)} ausgeführten Simulations-Funktionen an echten Aufrufen geprüft · ${fmt(XF.port)} noch zu portieren`};
+    if(xn)kp[0]={l:"Funktionen identisch",v:`${pct((XF.done||0)+(XF.covered||0),xn,1)} %`,h:`${fmt((XF.done||0)+(XF.covered||0))} von ${fmt(xn)} ausgeführten Simulations-Funktionen identisch: ${fmt(XF.done)} selbst an echten Aufrufen geprüft, ${fmt(XF.covered||0)} nur innerhalb geprüfter Funktionen aufgerufen · ${fmt(XF.port)} noch zu portieren`};
     kp[2]={l:"Gleiche Aufrufe",v:`${XC.pct!=null?XC.pct.toLocaleString("de-DE"):"–"} %`,h:`${fmt(XC.identical)} von ${fmt(XC.samples)} verglichenen Aufrufen · gemessen ${ago(Date.parse(XW.updated))}`};
   }
   $("kpis").innerHTML=kp.map(k=>`<div class="kpi"><div class="l">${k.l}</div><div class="v num">${k.v}</div><div class="h">${k.h}</div></div>`).join("");
