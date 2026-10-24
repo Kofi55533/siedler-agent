@@ -42,6 +42,12 @@ BINDING_API = """A binding is one file `crates/s5xcheck/src/functions/fn_{low}.r
 native call into a call of the clean implementation, nothing more: read the arguments from the entry (`entry.this()`
 = ECX, `entry.arg(i)` = i-th stack argument, `entry.r32(addr)` = native memory), map native pointers to clean ids
 (an entity object's id is at `+8`), and call crates/s5clean. Any logic belongs in crates/s5clean, not in the binding.
+The port computes its result from the clean `World` (its entities, map, players, ...), which is imported from the
+same state: never from native memory read at the entry, and never by handing a memory reader or a native address to
+crates/s5clean (verify.sh rejects `|_world|` ports and `|address| entry.r32(address)` readers). Native containers,
+allocators and CRT helpers (std::map/vector/list walks, sizes, iterators, memcpy, operator new) have no clean
+counterpart: Rust collections in World replace them. When the function is such a helper, port the game behaviour
+it serves in its caller instead; it is then covered by the caller's comparison.
 The API (crates/s5xcheck/src/capture.rs):
 
 - `Call::world(label, |world| ...)`: the whole effect is on the world; after the call the reference memory is
@@ -75,7 +81,8 @@ def function_pack(kind, base, src, repo, funcs):
             f"with your port on the same state."), "",
            "## Binding", ""]
     examples = sorted((repo / "crates/s5xcheck/src/functions").glob("fn_*.rs"))
-    example = examples[0].read_text().strip() if examples else ""
+    good = [e for e in examples if e.name == "fn_57a683.rs"]  # an id to a World query: the pattern to follow
+    example = (good or examples)[0].read_text().strip() if examples else ""
     md += [BINDING_API.format(low=low, example=example), ""]
     md += ["## Calls of the original in the scenarios", ""]
     shown = 0

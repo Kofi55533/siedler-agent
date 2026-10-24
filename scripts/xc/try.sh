@@ -37,6 +37,13 @@ for prefix, fn in cls.items():
 if inv:
     un = [g for g in inv["groups"].values() if g.get("unbound")]
     print(f"inventory: {len(un)} unbound functions called, {sum(g['entries'] for g in un)} calls, {len(inv['import_errors'])} import errors")
+    # the callers (Group::callers): how many unbound functions run only inside bound ones (covered once those are
+    # identical), how many are called from the turn itself
+    bound = {k for k, g in inv["groups"].items() if not g.get("unbound")}
+    c = [g.get("callers", {}) for g in un]
+    print(f"callers: {sum(1 for x in c if x)} of {len(un)} unbound with callers, "
+          f"{sum(1 for x in c if x and all(k in bound for k in x))} only inside bound functions, "
+          f"{sum(1 for x in c if 'ROOT' in x)} called from the turn itself")
 for t in ("functions", "inventory"):
     d = load(t)
     if d: print(f"{t}: {d['entries']} entries, {len(d['import_errors'])} import errors")

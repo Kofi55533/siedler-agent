@@ -1075,8 +1075,8 @@ XC_COVERED = {"FN_4AF630", "FN_4A6A1B", "FN_511DF9", "FN_57BF33"}  # scripts/xc/
 
 
 def xc_todo(k, v):
-    """scripts/xc/xc.py todo(): a failing kind, or an executed function without binding"""
-    return bool(v.get("failing")) or (k.startswith("FN_") and bool(v.get("unbound")))
+    """scripts/xc/xc.py todo(): a failing kind, or an executed function without binding and not covered by its callers"""
+    return bool(v.get("failing")) or (k.startswith("FN_") and bool(v.get("unbound")) and not v.get("covered"))
 
 
 def xc_worklist():

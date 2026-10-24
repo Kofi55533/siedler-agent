@@ -21,7 +21,15 @@ if [ -n "$BIND" ] && [ -f "$BIND" ]; then
   [ "$(wc -l <<<"$code")" -gt 60 ] && fail "scope: the binding $BIND has $(wc -l <<<"$code") code lines (at most 60: move the logic into crates/s5clean)"
   grep -qE '\bunsafe\b|\.w(8|16|32)\(|static mut' <<<"$code" && fail "scope: the binding $BIND writes native memory or uses unsafe/static mut"
   grep -qE 'world\.|World::|s5clean::' <<<"$code" || fail "scope: the binding $BIND does not call crates/s5clean"
+  # the port runs on the clean world: a closure that ignores it, or hands native memory to crates/s5clean, ports the
+  # native data structure (a std::map walk, a vector size) instead of the game behaviour
+  grep -qE '(Call::(world|returning)\([^|]*|Box::new\()(move\s*)?\|_\w*\|' <<<"$code" \
+    && fail "scope: the port in $BIND ignores the world (|_world|): compute the result from the clean World, not from native memory read at the entry"
+  grep -qE '\|\s*\w+\s*\|\s*entry\.(r(8|16|32)|mach)' <<<"$code" \
+    && fail "scope: $BIND passes a native memory reader to crates/s5clean: the clean code works on World, never on native addresses"
 fi
+grep -qE '^\+.*(impl|dyn) Fn(Mut)?\(u32\) -> u32' <<<"$(git diff "$BASE" -- crates/s5clean)" \
+  && fail "scope: crates/s5clean takes a native memory reader (Fn(u32) -> u32): the clean code works on World, never on native addresses"
 git add -A -- $(xc_paths "$KIND")
 git diff --cached --quiet "$BASE" && fail "scope: no change"
 del=$(git diff --cached --name-only --diff-filter=D "$BASE" -- crates/s5clean/tests | head -3 | tr '\n' ' ')
