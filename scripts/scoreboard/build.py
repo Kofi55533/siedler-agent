@@ -1172,8 +1172,13 @@ def xc_pipeline(main_runs):
         census = {"running": any(r["status"] != "completed" for r in cr),
                   "last": utc(parse_ts(done["updated_at"])) if done else None,
                   "conclusion": done and done["conclusion"], "url": (done or cr[0])["html_url"]}
+    try:  # the build cache every worker setup starts from (refreshed by the xc-census job cache twice a day)
+        rel = api(f"repos/{XC_DATA}/releases/tags/build-cache")
+        cache_at = utc(parse_ts(next(a["updated_at"] for a in rel["assets"] if a["name"] == "cache-sha.txt")))
+    except Exception:
+        cache_at = None
     jobs.sort(key=lambda j: (j["status"] != "in_progress", j["account"] != "Kofi55533", j["started"]))
-    return {"pools": pools, "jobs": jobs, "worklist": wl, "census": census,
+    return {"pools": pools, "jobs": jobs, "worklist": wl, "census": census, "build_cache": cache_at,
             "kinds": {"tracked": len(track), "in_work": claimed, "merged": merged, "exhausted": exhausted, "open": open_},
             "running": sum(p["running"] for p in pools), "waiting": sum(p["waiting"] for p in pools),
             "limit": sum(p["limit"] for p in pools)}
@@ -1353,6 +1358,12 @@ def overview(data, merges):
         if h >= 8:
             add("warning", f"Letzte Messung {h:.0f} h alt", "Die Census-Messung läuft sonst alle 6 Stunden.",
                 "xc-census in Actions prüfen.")
+    cache = (xc or {}).get("build_cache")
+    if cache:  # census job cache refreshes it twice a day
+        h = (NOW - parse_ts(cache)).total_seconds() / 3600
+        if h >= 36:
+            add("warning", f"Build-Cache {h:.0f} h alt", "Jeder Worker-Job baut dann mehrere Minuten länger.",
+                "Job „cache“ im letzten xc-census-Lauf prüfen.")
     if old and asof:
         h = (NOW - datetime.strptime(asof, "%Y-%m-%d %H:%M").replace(tzinfo=BERLIN)).total_seconds() / 3600
         if h >= 24:
