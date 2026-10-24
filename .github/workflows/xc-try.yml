@@ -5,6 +5,9 @@ name: xc-try
 on:
   push:
     branches: ['claude/**']
+  workflow_dispatch:
+    inputs:
+      ref: { description: 'sim-rs ref to try', required: true }
 permissions: { contents: read }
 # a push without the tag is skipped and must not cancel a running trial, so it gets its own group
 concurrency:
@@ -12,7 +15,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   try:
-    if: contains(github.event.head_commit.message, '[xc-try ')
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[xc-try ')
     runs-on: ubuntu-latest
     timeout-minutes: 150
     strategy:
@@ -25,8 +28,10 @@ jobs:
         with: { python-version: '3.11' }
       - name: Ref
         id: r
-        env: { MSG: '${{ github.event.head_commit.message }}' }
-        run: echo "ref=$(grep -o '\[xc-try [^]]*\]' <<< "$MSG" | head -1 | sed 's/^\[xc-try //; s/\]$//')" >> "$GITHUB_OUTPUT"
+        env: { MSG: '${{ github.event.head_commit.message }}', REF: '${{ inputs.ref }}' }
+        run: |
+          [ -n "$REF" ] && { echo "ref=$REF" >> "$GITHUB_OUTPUT"; exit 0; }
+          echo "ref=$(grep -o '\[xc-try [^]]*\]' <<< "$MSG" | head -1 | sed 's/^\[xc-try //; s/\]$//')" >> "$GITHUB_OUTPUT"
       - name: Setup (quiet)
         env: { T: '${{ secrets.PRIVATE_REPO_TOKEN }}', GIT_LFS_SKIP_SMUDGE: '1' }
         run: scripts/s5-setup.sh "${{ steps.r.outputs.ref }}" 1
