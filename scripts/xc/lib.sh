@@ -86,9 +86,9 @@ xc_run(){
   local bins; if [ -n "$only" ]; then bins=$(tr ',' '\n' <<<"$only" | while read -r k; do xc_point "$k"; done | sort -u)
   else bins=$(xc_points); fi
   : > "$XC/run-$tag.log"
-  local short=$((turns - XC_TURNS + XC_TURNS_SHORT)) t
+  local short=$((turns - XC_TURNS + XC_TURNS_SHORT)) first=$turns t
   for bin in $bins; do
-    for t in "$turns" "$short"; do
+    for t in "$first" "$short"; do
       ( cd "$S5_REPO" && export S5_XCHECK_IMAGE=$img S5_CAPTURE_SKIP=$skip S5_CAPTURE_TURNS=$t S5_CAPTURE_MAX=$XC_MAX \
           S5_CAPTURE_STRIDE=$XC_STRIDE S5_CAPTURE_JSON=$out.$bin.part && { [ -z "$only" ] || export S5_CAPTURE_ONLY=$only; } &&
         { [ "$bin" != capture-functions ] || export S5_CAPTURE_FUNCTIONS=$XC/inventory.txt; } &&
@@ -99,6 +99,9 @@ xc_run(){
       [ -s "$out.$bin.part" ] && break
       [ "$t" = "$short" ] || [ "$short" -ge "$turns" ] && { rc=$r; break; }
       echo "no result in $t turns (exit $r): again with $short" >> "$XC/run-$tag.log"
+      # a timeout is the play's length, not the point's: the scenario's further points start short (the 2026-10-24
+      # census lost 3 x XC_TIMEOUT of one shard's 60 min on one image)
+      [ "$r" != 124 ] || first=$short
     done
   done
   echo "$rc" > "$XC/rc-$tag"
