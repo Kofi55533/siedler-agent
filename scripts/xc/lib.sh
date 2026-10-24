@@ -9,6 +9,9 @@ XC_JOBS=${XC_JOBS:-4}                      # parallel capture processes (each ~0
 # quarter of the scenarios: 1949-2069 at 120 turns, 2399-2475 at 1200, 2402-2573 at 3000) for ~20 % more run time (the
 # load of the image and the inventory dominate); 3000 turns added little more
 XC_TURNS=${XC_TURNS:-1200}
+# a point that gives no result in XC_TURNS (the 2026-10-24 census at 1200 turns: 4 images stop on a panic later in the
+# play, 1 runs past XC_TIMEOUT; all 5 compared at 120) is run again with this many turns instead of being lost
+XC_TURNS_SHORT=${XC_TURNS_SHORT:-120}
 XC_MAX=${XC_MAX:-4} XC_STRIDE=${XC_STRIDE:-5}
 # limit per capture run (one point of one scenario): a full 120-turn ExecuteTask run took under 3 min (2026-10-23
 # census: whole shards in 85-172 s), 1200 turns ~20 % more, and the ticks run plays the scenario once per class, so a
@@ -83,13 +86,20 @@ xc_run(){
   local bins; if [ -n "$only" ]; then bins=$(tr ',' '\n' <<<"$only" | while read -r k; do xc_point "$k"; done | sort -u)
   else bins=$(xc_points); fi
   : > "$XC/run-$tag.log"
+  local short=$((turns - XC_TURNS + XC_TURNS_SHORT)) t
   for bin in $bins; do
-    ( cd "$S5_REPO" && export S5_XCHECK_IMAGE=$img S5_CAPTURE_SKIP=$skip S5_CAPTURE_TURNS=$turns S5_CAPTURE_MAX=$XC_MAX \
-        S5_CAPTURE_STRIDE=$XC_STRIDE S5_CAPTURE_JSON=$out.$bin.part && { [ -z "$only" ] || export S5_CAPTURE_ONLY=$only; } &&
-      { [ "$bin" != capture-functions ] || export S5_CAPTURE_FUNCTIONS=$XC/inventory.txt; } &&
-      timeout -k 30 "$XC_TIMEOUT" "$(xc_bin "$bin")" --nocapture --test-threads=1 ) \
-      < /dev/null >> "$XC/run-$tag.log" 2>&1
-    r=$?; [ -s "$out.$bin.part" ] || rc=$r   # a failing comparison exits 101 with its document written
+    for t in "$turns" "$short"; do
+      ( cd "$S5_REPO" && export S5_XCHECK_IMAGE=$img S5_CAPTURE_SKIP=$skip S5_CAPTURE_TURNS=$t S5_CAPTURE_MAX=$XC_MAX \
+          S5_CAPTURE_STRIDE=$XC_STRIDE S5_CAPTURE_JSON=$out.$bin.part && { [ -z "$only" ] || export S5_CAPTURE_ONLY=$only; } &&
+        { [ "$bin" != capture-functions ] || export S5_CAPTURE_FUNCTIONS=$XC/inventory.txt; } &&
+        timeout -k 30 "$XC_TIMEOUT" "$(xc_bin "$bin")" --nocapture --test-threads=1 ) \
+        < /dev/null >> "$XC/run-$tag.log" 2>&1
+      r=$?
+      # a failing comparison exits 101 with its document written; without one the point is tried once more, shorter
+      [ -s "$out.$bin.part" ] && break
+      [ "$t" = "$short" ] || [ "$short" -ge "$turns" ] && { rc=$r; break; }
+      echo "no result in $t turns (exit $r): again with $short" >> "$XC/run-$tag.log"
+    done
   done
   echo "$rc" > "$XC/rc-$tag"
   python3 - "$out" $(for bin in $bins; do echo "$out.$bin.part"; done) <<'M'
