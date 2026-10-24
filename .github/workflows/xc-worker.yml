@@ -115,7 +115,9 @@ jobs:
             [ $rc = 2 ] && exit 1
             [ $(( 330 - ($(date +%s) - XC_T0) / 60 )) -ge 90 ] || break
             gh release download xc-worklist -R $XC_DATA -D /opt/s5/xc -p worklist.json --clobber || break
-            kind=$(python3 scripts/xc/xc.py pick /opt/s5/xc/worklist.json 1 --claim --limit="$L" | jq -r '.[0] // empty') || kind=""
+            # L + 1: this job's own slot counts too, its last kind's claim is already released (a wave started in that
+            # gap must not end the loop; the pool is then one over for this kind, and the watchdog waits till it is not)
+            kind=$(python3 scripts/xc/xc.py pick /opt/s5/xc/worklist.json 1 --claim --limit=$((L + 1)) | jq -r '.[0] // empty') || kind=""
             [ -n "$kind" ] || break
             echo "next kind ($((n + 1)) in this job): $kind" | tee -a "$GITHUB_STEP_SUMMARY"
           done
