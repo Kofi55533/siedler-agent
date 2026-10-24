@@ -327,7 +327,7 @@ fetch("data.json?t="+NOW).then(r=>r.json()).then(d=>{
       <td>${!x.samples?`<span class="st"><span class="dot info"></span>nichts verglichen</span>`:x.failing?`<span class="st"><span class="dot warning"></span>weicht ab</span> <span class="small mute">${x.kinds_failing} Art${x.kinds_failing==1?"":"en"}</span>`:`<span class="st"><span class="dot good"></span>Identisch</span>`}</td>
       <td class="prog"><div class="meter" data-tip="${esc(x.name)}: ${x.samples-x.failing} von ${x.samples} Aufrufen gleich"><i style="width:${100*f}%;background:${x.failing?"var(--s1)":"var(--good)"}"></i></div>
         <div class="small mute num">${fmt(x.samples-x.failing)} von ${fmt(x.samples)}</div></td>
-      <td class="hide-m small mute num">${fmt(x.turns)} Züge<br>${fmt(x.calls)} Aufrufe${x.commands?`<br>${fmt(x.commands)} Spielerbefehle`:""}</td></tr>`}).join("");
+      <td class="hide-m small mute num">${fmt(x.turns)} Züge<br>${fmt(x.calls)} Aufrufe${x.commands?`<br>${fmt(x.commands)} Spielerbefehle`:""}${x.import_errors?`<br>${fmt(x.import_errors)} Aufrufe nicht einlesbar`:""}</td></tr>`}).join("");
     $("baseold").textContent=$("genold").textContent="· alte Gate-Messung, wird nicht mehr aktualisiert";
   }
   const SC=d.scenarios||[];
