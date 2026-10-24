@@ -40,7 +40,7 @@ from datetime import datetime
 from pathlib import Path
 
 ATTEMPTS = 3  # failed worker attempts per kind (on the same census) before it waits for a new census
-CENSUS = 4   # version of what the census measures (2: function units, 3: their callers, 4: 1200 turns); a work list of another version is re-measured
+CENSUS = 5   # version of what the census measures (2: function units, 3: their callers, 4: 1200 turns, 5: player commands); a work list of another version is re-measured
 CLAIM_H = 7   # a claim (a worker picked the kind) blocks other picks this long; a worker job lasts at most 6 h
 PROJECT = os.environ.get("XC_PROJECT", "Kofi55533/siedler-sim-rs")
 # the tracking issues live in the main pipeline repo for every pool (forks pick from the same work list)
@@ -94,7 +94,7 @@ def merge(directory, sha, out, meta=None):
         name = f.stem
         functions.update(doc["function"].split(","))
         scenarios[name] = {"turns": doc["turns"], "entries": doc["entries"], "import_errors": len(doc["import_errors"]),
-                           "missing_points": doc.get("missing_points", [])}
+                           "missing_points": doc.get("missing_points", []), "commands": doc.get("commands", 0)}
         for kind, g in doc["groups"].items():
             k = kinds.setdefault(kind, {"point": point(kind), "entries": 0, "samples": 0, "failing": 0, "scenarios": {}})
             k["entries"] += g["entries"]
@@ -185,8 +185,10 @@ def regressions(old, new):
         print("[]")
         return
     o, n = pairs(od), pairs(nd)
+    # a scenario played with other player commands (new generated fixtures on its image) runs other calls
+    cmds = lambda doc, s: (doc.get("scenarios", {}).get(s) or {}).get("commands", 0)
     out = [{"kind": k, "scenario": s} for (k, s), (samples, failing) in sorted(n.items())
-           if failing and (k, s) in o and o[(k, s)][0] and not o[(k, s)][1]]
+           if failing and (k, s) in o and o[(k, s)][0] and not o[(k, s)][1] and cmds(od, s) == cmds(nd, s)]
     print(json.dumps(out))
 
 

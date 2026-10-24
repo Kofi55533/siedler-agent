@@ -1097,7 +1097,8 @@ def xc_worklist():
                                {"kinds": 0, "failing": 0})
         pt["kinds"] += 1
         pt["failing"] += bool(v.get("failing"))
-    scen = {n: {"name": n, "turns": v.get("turns"), "calls": v.get("entries"), "samples": 0, "failing": 0, "kinds_failing": 0}
+    scen = {n: {"name": n, "turns": v.get("turns"), "calls": v.get("entries"), "commands": v.get("commands"), "samples": 0,
+                "failing": 0, "kinds_failing": 0}
             for n, v in (doc.get("scenarios") or {}).items()}
     for v in kinds.values():  # per scenario: sampled calls compared / differing (counts only)
         for n, x in (v.get("scenarios") or {}).items():

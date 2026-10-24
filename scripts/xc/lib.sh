@@ -135,16 +135,20 @@ xc_run(){
     done
   done
   echo "$rc" > "$XC/rc-$tag"
-  python3 - "$out" $(for bin in $bins; do echo "$out.$bin.part"; done) <<'M'
-import json, sys
+  local cmds=; [ -n "${XC_NO_CMDS:-}" ] || cmds=$XC/cmds/$name.bin
+  python3 - "$out" "$cmds" $(for bin in $bins; do echo "$out.$bin.part"; done) <<'M'
+import json, struct, sys
 from pathlib import Path
-docs = [json.loads(Path(p).read_text()) for p in sys.argv[2:] if Path(p).is_file() and Path(p).stat().st_size]
+cmds = Path(sys.argv[2]) if sys.argv[2] else None
+docs = [json.loads(Path(p).read_text()) for p in sys.argv[3:] if Path(p).is_file() and Path(p).stat().st_size]
 if docs:
     out = {"function": ",".join(d["function"] for d in docs), "turns": docs[0]["turns"],
            "entries": sum(d["entries"] for d in docs), "import_errors": [e for d in docs for e in d["import_errors"]],
            "groups": {k: v for d in docs for k, v in d["groups"].items()},
            # a point without its document (crash, timeout) is named, so a missing kind is not read as fixed
-           "missing_points": [Path(p).suffixes[-2][1:] for p in sys.argv[2:] if not (Path(p).is_file() and Path(p).stat().st_size)]}
+           "missing_points": [Path(p).suffixes[-2][1:] for p in sys.argv[3:] if not (Path(p).is_file() and Path(p).stat().st_size)],
+           # the player commands the play ran with (xc_cmds)
+           "commands": struct.unpack_from("<I", cmds.read_bytes(), 8)[0] if cmds and cmds.is_file() and cmds.stat().st_size >= 12 else 0}
     Path(sys.argv[1]).write_text(json.dumps(out))
 M
   rm -f "$out".*.part
