@@ -1173,7 +1173,8 @@ def xc_pipeline(main_runs):
                   "last": utc(parse_ts(done["updated_at"])) if done else None,
                   "conclusion": done and done["conclusion"], "url": (done or cr[0])["html_url"]}
     try:  # the build cache every worker setup starts from (refreshed by the xc-census job cache twice a day)
-        cache_at = utc(parse_ts(api(f"repos/{XC_DATA}/releases/tags/build-cache")["created_at"]))
+        rel = api(f"repos/{XC_DATA}/releases/tags/build-cache")
+        cache_at = utc(parse_ts(next(a["updated_at"] for a in rel["assets"] if a["name"] == "cache-sha.txt")))
     except Exception:
         cache_at = None
     jobs.sort(key=lambda j: (j["status"] != "in_progress", j["account"] != "Kofi55533", j["started"]))

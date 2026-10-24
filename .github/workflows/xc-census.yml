@@ -76,7 +76,8 @@ jobs:
         id: c
         env: { GH_TOKEN: '${{ secrets.PRIVATE_REPO_TOKEN }}' }
         run: |
-          c=$(gh api repos/$XC_DATA/releases/tags/build-cache --jq .created_at 2>/dev/null || echo 1970-01-01T00:00:00Z)
+          c=$(gh api repos/$XC_DATA/releases/tags/build-cache --jq '.assets[]|select(.name=="cache-sha.txt")|.updated_at' 2>/dev/null || true)
+          c=${c:-1970-01-01T00:00:00Z}
           age=$(( ($(date +%s) - $(date -d "$c" +%s)) / 3600 )); echo "build cache $age h old"
           echo "stale=$([ "$age" -ge 12 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
       - uses: actions/setup-python@v5

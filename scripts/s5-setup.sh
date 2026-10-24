@@ -34,16 +34,17 @@ cp $S5_ARTIFACTS/lift/gen.closure.pkl $S5_REPO/recomp/ 2>/dev/null || true
 (python3.11 -m venv $S5/py311 2>/dev/null || python3 -m venv $S5/py311) && $S5/py311/bin/pip -q install unicorn==2.1.4 >/dev/null 2>&1
 wait $RUST 2>/dev/null || true
 CSHA=""
-# a cache swapped in while downloading (build-cache-upload.sh) only costs this setup the cache
-if [ "$CACHE" = 1 ] && ! gh release download build-cache -R Kofi55533/siedler-data -D $S5/dl >/dev/null 2>&1; then
-  rm -f $S5/dl/cache-sha.txt $S5/dl/target.tzst.*; CACHE=0; echo "s5-setup: no build cache"
-fi
-if [ "$CACHE" = 1 ]; then
-  CSHA=$(cat $S5/dl/cache-sha.txt)
+# the parts of the commit cache-sha.txt names (target-<sha12>.tzst.*, older caches: target.tzst.*); a download that
+# fails anyway (parts replaced meanwhile, build-cache-upload.sh) only costs this setup the cache
+cdl(){ gh release download build-cache -R Kofi55533/siedler-data -D $S5/dl --clobber "$@" >/dev/null 2>&1; }
+if [ "$CACHE" = 1 ] && cdl -p cache-sha.txt && CSHA=$(cat $S5/dl/cache-sha.txt) \
+   && { cdl -p "target-${CSHA:0:12}.tzst.*" || cdl -p 'target.tzst.*'; }; then
   git -C $S5_REPO fetch -q --depth 1 origin "$CSHA" && git -C $S5_REPO checkout -q "$CSHA"
-  cat $S5/dl/target.tzst.* | zstd -dcq | tar -xf - -C /
-  rm -f $S5/dl/target.tzst.*
+  cat $S5/dl/target*.tzst.* | zstd -dcq | tar -xf - -C /
+else
+  [ "$CACHE" = 1 ] && echo "s5-setup: no build cache"; CSHA=""
 fi
+rm -f $S5/dl/target*.tzst.* $S5/dl/cache-sha.txt
 # old mtimes for everything = cache-consistent; later checkouts give changed files a fresh mtime
 find $S5_REPO -path $S5_REPO/.git -prune -o -path $S5_REPO/recomp/target -prune -o -type f -print0 | xargs -0 touch -h -d '2000-01-01 00:00:00'
 git -C $S5_REPO checkout -q "$REF"

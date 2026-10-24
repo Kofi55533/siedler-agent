@@ -8,17 +8,19 @@ D=$(cd "$(dirname "$0")" && pwd); source "$D/s5-env.sh"
 R=Kofi55533/siedler-data
 SHA=$(git -C $S5_REPO rev-parse HEAD)
 [ -z "$(git -C $S5_REPO status --porcelain --untracked-files=no)" ] || { echo "build cache: checkout has local changes, not uploaded"; exit 1; }
-W=$(mktemp -d); cd "$W"; echo "$SHA" > cache-sha.txt
+W=$(mktemp -d); cd "$W"; echo "$SHA" > cache-sha.txt; P=target-${SHA:0:12}.tzst.
 find $S5_REPO/recomp/target/release -maxdepth 1 -type f -perm -u+x ! -name s5verify ! -name s5check -delete
 rm -rf $S5_REPO/recomp/target/verify
-tar -cf - -P $S5_REPO/recomp/target $S5_REPO/recomp/gen $HOME/.cargo/registry | zstd -q -T0 -3 | split -b 1900M - target.tzst.
-echo "build cache bytes $(cat target.tzst.* | wc -c) at ${SHA:0:8}"
-# upload under a side tag, then swap it in: a setup downloading meanwhile sees the old cache or, for a second, none
-N=build-cache-next
-gh release delete $N -R $R -y --cleanup-tag >/dev/null 2>&1 || true
-gh release create $N -R $R -t build-cache -n "target cache @ $SHA" cache-sha.txt target.tzst.* >/dev/null
-id=$(gh api repos/$R/releases/tags/$N --jq .id)
-gh release delete build-cache -R $R -y --cleanup-tag >/dev/null 2>&1 || true
-gh api -X PATCH repos/$R/releases/$id -f tag_name=build-cache >/dev/null
-gh api -X DELETE repos/$R/git/refs/tags/$N >/dev/null 2>&1 || true
+tar -cf - -P $S5_REPO/recomp/target $S5_REPO/recomp/gen $HOME/.cargo/registry | zstd -q -T0 -3 | split -b 1900M - "$P"
+echo "build cache bytes $(cat "$P"* | wc -c) at ${SHA:0:8}"
+# the parts carry the commit in their name and cache-sha.txt, uploaded last, switches s5-setup.sh over: a setup
+# meanwhile still gets the whole previous cache, which stays one generation; older parts go
+gh release view build-cache -R $R >/dev/null 2>&1 || gh release create build-cache -R $R -t build-cache -n "target cache" >/dev/null
+prev=$(gh api repos/$R/releases/tags/build-cache --jq '.body' | grep -o '[0-9a-f]\{40\}' | head -1 || true)
+gh release upload build-cache -R $R --clobber "$P"* >/dev/null
+gh release upload build-cache -R $R --clobber cache-sha.txt >/dev/null
+gh release edit build-cache -R $R --notes "target cache @ $SHA" >/dev/null
+for a in $(gh api repos/$R/releases/tags/build-cache --jq '.assets[].name'); do
+  case "$a" in cache-sha.txt|"$P"*|target-${prev:0:12}.tzst.*) ;; *) gh release delete-asset build-cache -R $R -y "$a" >/dev/null ;; esac
+done
 cd /; rm -rf "$W"; echo "build cache uploaded"
