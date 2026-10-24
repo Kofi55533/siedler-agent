@@ -66,7 +66,11 @@ t3=$(date +%s)
 python3 "$D/xc.py" check "$XC/base" "$XC/new" "$KIND" "$XC/worklist.json" $FULL > "$XC/verdict.txt"
 grep -v '^VERDICT' "$XC/verdict.txt"
 grep -q 'VERDICT PASS' "$XC/verdict.txt" || fail "comparison failed"
-timeout 2400 cargo test --release -q -j "${CARGO_BUILD_JOBS:-3}" --manifest-path crates/s5clean/Cargo.toml > "$XC/unit.log" 2>&1 \
+# the release profile (no overflow checks, no debug assertions: the semantics the clean code is held to) at opt-level 0 for
+# s5clean itself: its 181 test binaries rebuild after every change, 141 s at opt-level 3 against 39 s at 0 with the same
+# 1288 passed / 3 ignored (2026-10-25, 3 jobs); Rust floats and integers behave the same at every opt-level
+timeout 2400 cargo test --release -q -j "${CARGO_BUILD_JOBS:-3}" --manifest-path crates/s5clean/Cargo.toml \
+  --config 'profile.release.package.s5clean.opt-level=0' > "$XC/unit.log" 2>&1 \
   || fail "s5clean tests failed: $(grep -E '^test .* FAILED|^error' "$XC/unit.log" | head -3 | tr '\n' ' ')"
 ( S5_CAPTURE_TURNS=10 timeout 1800 "$(xc_bin capture-entity-tick)" --test-threads=1 ) > "$XC/tick.log" 2>&1 \
   || fail "building tick capture failed: $(grep -m1 -E 'building tick' "$XC/tick.log")"
