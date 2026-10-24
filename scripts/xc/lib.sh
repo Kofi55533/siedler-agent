@@ -119,7 +119,7 @@ xc_point(){ case $1 in TICK_*) echo capture-ticks ;; FN_*) echo capture-function
 # xc_run <scenario line fields: name image skip turns> <out.json> [only-kinds]: the capture runs of one scenario (every
 # point, or only the points of the given kinds), merged into one document (the groups of the points are disjoint)
 xc_run(){
-  local name=$1 img=$2 skip=$3 turns=$4 out=$5 only=${6:-} tag=$name${6:+-only} bin rc=0 r
+  local name=$1 img=$2 skip=$3 turns=$4 out=$5 only=${6:-} tag=$name${6:+-only} bin rc=0 r t0=$SECONDS
   rm -f "$out" "$out".*.part
   local bins; if [ -n "$only" ]; then bins=$(tr ',' '\n' <<<"$only" | while read -r k; do xc_point "$k"; done | sort -u)
   else bins=$(xc_points); fi
@@ -162,6 +162,7 @@ if docs:
     Path(sys.argv[1]).write_text(json.dumps(out))
 M
   rm -f "$out".*.part
+  echo $((SECONDS - t0)) > "$XC/secs-$tag"   # wall seconds of this scenario's runs (verify.sh sums them up)
   [ -s "$out" ]
 }
 

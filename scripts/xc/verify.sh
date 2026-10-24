@@ -48,7 +48,7 @@ git reset -q
 t0=$(date +%s)
 xc_build || fail "build failed"
 t1=$(date +%s)
-rm -rf "$XC/new"
+rm -rf "$XC/new" "$XC"/secs-*
 # full runs of the failing scenarios (they hold the kind too) beside kind-only runs of the other scenarios
 FULL=$(cat "$XC/scenarios-failing.txt")
 xc_scenarios | awk -v s=" $FULL " 'index(s, " "$1" ")' | xc_runs "$XC/new/full" &
@@ -56,6 +56,10 @@ xc_scenarios | awk -v s=" $(cat "$XC/scenarios-all.txt") " -v f=" $FULL " 'index
   | xc_runs "$XC/new/only" "$KIND"
 wait
 t2=$(date +%s)
+# where the run time goes (counts only): the full runs play every point, the kind-only runs one
+secs(){ ls "$XC"/secs-* 2>/dev/null | grep -E "$@" | xargs -r cat | sort -n \
+  | awk '{s += $1; m = $1; n++} END {printf "%d runs, sum %ds, max %ds", n, s, m}'; }
+echo "timing runs: full $(secs -v -- '-only$'), kind-only $(secs -- '-only$')"
 # the base's full runs only where another kind seems to break against the work list (base build kept by worker.sh)
 SUS=$(python3 "$D/xc.py" suspects "$XC/worklist.json" "$XC/new/full" "$KIND")
 if [ -n "$SUS" ]; then
