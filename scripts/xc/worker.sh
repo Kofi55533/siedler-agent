@@ -14,7 +14,7 @@ set -uo pipefail
 D=$(cd "$(dirname "$0")" && pwd); source "$D/lib.sh"
 KIND=$1; BR=$(python3 "$D/xc.py" branch "$KIND"); WL=$XC/worklist.json
 PROJECT=${XC_PROJECT:-Kofi55533/siedler-sim-rs}; AGENT=${XC_AGENT:-Kofi55533/siedler-agent}
-MODEL=${XC_MODEL:-opencode/deepseek-v4.1-flash-free}; ROUNDS=${XC_ROUNDS:-3}; ROUND_MIN=${XC_ROUND_MIN:-40}
+MODEL=${XC_MODEL:-opencode/deepseek-v4.1-flash-free}; ROUNDS=${XC_ROUNDS:-3}; [ -n "${XC_HAND:-}" ] && ROUNDS=1; ROUND_MIN=${XC_ROUND_MIN:-40}
 # no new model round once it could not end inside this budget (minutes since start): of 168 jobs (2026-10-24) none that
 # ran past 3 h merged, the latest merge came after 162 min, so a fresh kind gets the slot instead
 BUDGET_MIN=${XC_BUDGET_MIN:-170}
@@ -47,7 +47,7 @@ grep -q . "$XC/scenarios-failing.txt" || { sum "$KIND: not failing in the work l
 # small functions to port, each called most in one of this kind's full-run scenarios, join it (claimed for this job)
 # (trial 2026-10-25: 4 functions in one 61-min job, 2 model rounds of ~22 min, against ~18 min per single kind; every
 # kind of a bundle has to pass in the same round, so the default stays at 3)
-KINDS=$(python3 "$D/xc.py" bundle "$WL" "$KIND" "${XC_BUNDLE:-3}" "$XC_NATIVE") && [ -n "$KINDS" ] || KINDS=$KIND
+KINDS=$(python3 "$D/xc.py" bundle "$WL" "$KIND" "${XC_BUNDLE:-1}" "$XC_NATIVE") && [ -n "$KINDS" ] || KINDS=$KIND
 # the companions' own calling scenarios join the kind-only runs (this kind's first, at most 12 in all)
 if [ "$KINDS" != "$KIND" ]; then
   for k in ${KINDS//,/ }; do python3 "$D/xc.py" scenarios "$WL" "$k" | cut -d' ' -f1-9; done \
@@ -153,6 +153,13 @@ from recomp/. Do not commit, push or open PRs; the pipeline verifies and ships y
 AHEAD=$!
 # model <round>: one opencode session turn on $PROMPT (round 1 starts the session, later ones continue it)
 model(){
+  if [ -n "${XC_HAND:-}" ]; then   # trial: the hand-written change of branch $XC_HAND instead of a model session
+    log "model round $1: hand-written change of $XC_HAND"
+    git fetch -q --depth 2 "$AUTH" "+refs/heads/$XC_HAND:refs/remotes/origin/hand" \
+      && git diff origin/hand~1 origin/hand | git apply --3way --index && git reset -q
+    log "model round $1 applied: $(git status --short | wc -l) file(s)"
+    return
+  fi
   log "model round $1"
   local args=(opencode run -m "$MODEL"); [ "$1" != 1 ] && args+=(--continue)
   ( cd "$W" && env -u GH_TOKEN -u GITHUB_TOKEN -u T -u OPENCODE_API_KEY -u PRIVATE_REPO_TOKEN \
