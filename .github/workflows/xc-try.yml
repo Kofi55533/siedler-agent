@@ -24,7 +24,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        scenario: [bc, combat, economy]
+        scenario: [build-probe]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -45,7 +45,7 @@ jobs:
         run: scripts/s5-setup.sh "${{ steps.r.outputs.ref }}" 1
       - name: Try
         if: steps.r.outputs.ref != ''
-        run: scripts/xc/try.sh ${{ matrix.scenario }} | tee $RUNNER_TEMP/try.txt
+        run: scripts/xc/probe_build.sh | tee $RUNNER_TEMP/try.txt
       - name: Counts to the issue
         if: always() && github.event_name == 'issues'
         env: { GH_TOKEN: '${{ github.token }}', N: '${{ github.event.issue.number }}', SC: '${{ matrix.scenario }}' }
