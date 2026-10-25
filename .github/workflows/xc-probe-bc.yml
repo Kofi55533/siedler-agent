@@ -1,0 +1,50 @@
+name: xc-probe-bc
+# One-off probe (counts only): does a late window of the bc recording (commands.bin beside gs_h.img, ~23,900 turns)
+# run class-A functions and task/tick kinds the census (bc turns 100-1480 + 30 images) never reaches, and how long
+# does the native replay of the skipped turns take? Decides whether xc_scenarios gets bc windows.
+on:
+  push:
+    branches: [claude/xc-probe-bc]
+    paths: [.github/workflows/xc-probe-bc.yml]
+permissions:
+  contents: read
+jobs:
+  probe:
+    if: github.repository == 'Kofi55533/siedler-agent'
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    strategy:
+      fail-fast: false
+      matrix:
+        skip: [4000, 8000, 12000, 16000, 20000, 23000]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - name: Setup (quiet)
+        env: { T: '${{ secrets.PRIVATE_REPO_TOKEN }}', GIT_LFS_SKIP_SMUDGE: '1' }
+        run: scripts/s5-setup.sh clean/integration 1
+      - name: Probe bc window at ${{ matrix.skip }} (counts only)
+        env: { GH_TOKEN: '${{ secrets.PRIVATE_REPO_TOKEN }}', XC_TIMEOUT: '5400', XC_TURNS_SHORT: '1200' }
+        run: |
+          source scripts/xc/lib.sh
+          xc_build || exit 2
+          echo "bc files: $(ls $S5_ARTIFACTS/bc | wc -l); other bc-like dirs: $(ls -d $S5_ARTIFACTS/bc* | wc -l)"
+          gh release download xc-worklist -R Kofi55533/siedler-data -D $RUNNER_TEMP -p worklist.json > /dev/null 2>&1 || echo "no worklist"
+          t0=$(date +%s)
+          echo "bc-${{ matrix.skip }} $S5_ARTIFACTS/bc/gs_h.img ${{ matrix.skip }} 1200" | xc_runs $RUNNER_TEMP/p
+          echo "secs=$(( $(date +%s) - t0 )) per point: $(cat $XC/secs-bc-${{ matrix.skip }}.* 2>/dev/null | tr '\n' ' ')"
+          python3 - $RUNNER_TEMP/p/bc-${{ matrix.skip }}.json $RUNNER_TEMP/worklist.json <<'P'
+          import json, sys
+          from pathlib import Path
+          p = Path(sys.argv[1])
+          if not p.is_file():
+              print("no result"); sys.exit(0)
+          d = json.loads(p.read_text()); g = d["groups"]
+          w = Path(sys.argv[2]); known = set(json.loads(w.read_text())["kinds"]) if w.is_file() else set()
+          fn = [k for k in g if k.startswith("FN_")]
+          new = [k for k in g if k not in known]
+          print(f"entries={d['entries']} kinds={len(g)} fn={len(fn)} new_kinds={len(new)} new_fn={sum(k.startswith('FN_') for k in new)}"
+                f" failing={sum(x['failing'] for x in g.values())}/{sum(x['samples'] for x in g.values())}"
+                f" import_errors={len(d['import_errors'])} missing_points={len(d.get('missing_points', []))}")
+          P
