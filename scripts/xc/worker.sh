@@ -183,6 +183,18 @@ for round in $(seq 1 "$ROUNDS"); do
     cp "$XC/verify-$round.txt" "$XC/hand-$KIND.txt"
     gh release view xc-hand -R "$XC_DATA" > /dev/null 2>&1 || gh release create xc-hand -R "$XC_DATA" --prerelease -n "hand-port verdicts" > /dev/null 2>&1
     gh release upload xc-hand -R "$XC_DATA" "$XC/hand-$KIND.txt" --clobber > /dev/null 2>&1 || log "hand: verdict upload failed"
+    # the kinds' differing examples per scenario (game state: private release only, never the log)
+    python3 - "$XC/new" "$KINDS" > "$XC/hand-$KIND.json" 2> /dev/null <<'PY' || true
+import json, sys
+from pathlib import Path
+kinds, out = sys.argv[2].split(","), {}
+for f in sorted(Path(sys.argv[1]).glob("*/*.json")):
+    for kind, g in json.loads(f.read_text())["groups"].items():
+        if kind in kinds and g.get("examples"):
+            out.setdefault(kind, {})[f"{f.parent.name}/{f.stem}"] = g["examples"][:20]
+print(json.dumps(out, indent=1))
+PY
+    gh release upload xc-hand -R "$XC_DATA" "$XC/hand-$KIND.json" --clobber > /dev/null 2>&1 || log "hand: examples upload failed"
   fi
   if grep -q 'VERDICT PASS' "$XC/verify-$round.txt"; then ok=1; break; fi
   PROMPT="The pipeline's verification of your change failed:
