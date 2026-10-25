@@ -60,11 +60,13 @@ t2=$(date +%s)
 secs(){ ls "$XC"/secs-* 2>/dev/null | grep -E "$@" | xargs -r cat | sort -n \
   | awk '{s += $1; m = $1; n++} END {printf "%d points, sum %ds, max %ds", n, s, m}'; }
 echo "timing runs: full $(secs -v -- '-only\.'), kind-only $(secs -- '-only\.')"
-# the base's full runs only where another kind seems to break against the work list (base build kept by worker.sh)
+# the base's full runs where another kind seems to break against the work list (base build kept by worker.sh); worker.sh
+# played them ahead for the failing scenarios while the model worked, so only a suspect without one plays here
 SUS=$(python3 "$D/xc.py" suspects "$XC/worklist.json" "$XC/new/full" "$KIND")
+NEED=$(for s in $SUS; do [ -s "$XC/base/full/$s.json" ] || echo "$s"; done | xargs)
 if [ -n "$SUS" ]; then
-  echo "regression check: base measured in $(wc -w <<<"$SUS") scenario(s)"
-  xc_scenarios | awk -v s=" $SUS " 'index(s, " "$1" ")' | XC_BINS=$XC/base-bin/bins.txt xc_runs "$XC/base/full"
+  echo "regression check: base measured in $(wc -w <<<"$SUS") scenario(s), $(wc -w <<<"$NEED") of them now"
+  [ -z "$NEED" ] || xc_scenarios | awk -v s=" $NEED " 'index(s, " "$1" ")' | XC_BINS=$XC/base-bin/bins.txt xc_runs "$XC/base/full"
 fi
 t3=$(date +%s)
 python3 "$D/xc.py" check "$XC/base" "$XC/new" "$KIND" "$XC/worklist.json" $FULL > "$XC/verdict.txt"
