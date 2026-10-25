@@ -3,7 +3,7 @@
 # TICK_<CLASS>_<type>, or one native function FN_<address>: its port and binding), from measurement to merge.
 #   needs: s5-setup.sh done, $XC/worklist.json (census), $XC_NATIVE (functions.jsonl + code.jsonl), $W (model
 #   workspace), GH_TOKEN (PAT; never passed to the model), opencode installed with its auth.
-# A small function to port takes up to XC_BUNDLE-1 more of them along (xc.py bundle): one base measurement, model session
+# A small function to port takes up to XC_BUNDLE-1 (default 2) more of them along (xc.py bundle): one base measurement, model session
 # and verdict for all, shipped as one change.
 # 1. measure the kind on the current clean/integration (all scenarios where it runs) -> nothing to do if identical
 # 2. context pack (measured diffs, native decompilation, clean location) -> model rounds, each checked by verify.sh;
@@ -45,7 +45,9 @@ python3 "$D/xc.py" scenarios "$WL" "$KIND" | cut -d' ' -f1-9 > "$XC/scenarios-al
 python3 "$D/xc.py" failing "$WL" "$KIND" | cut -d' ' -f1-3 > "$XC/scenarios-failing.txt"
 grep -q . "$XC/scenarios-failing.txt" || { sum "$KIND: not failing in the work list"; exit 0; }
 # small functions to port, each called most in one of this kind's full-run scenarios, join it (claimed for this job)
-KINDS=$(python3 "$D/xc.py" bundle "$WL" "$KIND" "${XC_BUNDLE:-4}" "$XC_NATIVE") && [ -n "$KINDS" ] || KINDS=$KIND
+# (trial 2026-10-25: 4 functions in one 61-min job, 2 model rounds of ~22 min, against ~18 min per single kind; every
+# kind of a bundle has to pass in the same round, so the default stays at 3)
+KINDS=$(python3 "$D/xc.py" bundle "$WL" "$KIND" "${XC_BUNDLE:-3}" "$XC_NATIVE") && [ -n "$KINDS" ] || KINDS=$KIND
 # the companions' own calling scenarios join the kind-only runs (this kind's first, at most 12 in all)
 if [ "$KINDS" != "$KIND" ]; then
   for k in ${KINDS//,/ }; do python3 "$D/xc.py" scenarios "$WL" "$k" | cut -d' ' -f1-9; done \
