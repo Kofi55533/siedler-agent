@@ -399,7 +399,9 @@ def bundle(worklist, kind, n, native):
             issues, now = tracking(), time.time()
             ranked = sorted(rank(o, v) for o, v in available(doc, issues, now)
                             if o != kind and small_port(o, v, ins) and calling(v)[:1] and calling(v)[0] in full)
-            out += claim_own([r[-1] for r in ranked[:n - 1]])
+            more = [r[-1] for r in ranked[:n - 1]]
+            # the pick job claimed <kind> under its own token: it moves to this job's, so jobs() counts the bundle once
+            out += [o for o in claim_own([kind] + more if more else []) if o != kind]
     print(",".join(out))
 
 

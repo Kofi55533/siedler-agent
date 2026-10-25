@@ -1164,7 +1164,7 @@ def xc_pipeline(main_runs):
             now_kind.setdefault(c[3], []).append((int(c[0]), k))
     for j in jobs:
         held = sorted(now_kind.get(j.pop("_token"), []))
-        cur = held[0][1] if held else None
+        cur = j["kind"] if any(k == j["kind"] for _, k in held) else held[0][1] if held else None
         if cur and cur != j["kind"]:
             j["first"], j["kind"] = j["kind"], cur
         if len(held) > 1:
