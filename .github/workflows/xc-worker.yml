@@ -113,6 +113,7 @@ jobs:
             # 0 merged or nothing to do, 1 attempt recorded (not a job failure), 2 infrastructure
             rc=0; XC_BUDGET_MIN=$(( left < 170 ? left : 170 )) scripts/xc/worker.sh "$kind" || rc=$?
             [ $rc = 2 ] && exit 1
+            break   # trial: one kind, so its log is readable now
             [ $(( 330 - ($(date +%s) - XC_T0) / 60 )) -ge 90 ] || break
             gh release download xc-worklist -R $XC_DATA -D /opt/s5/xc -p worklist.json --clobber || break
             # L + 1: this job's own slot counts too, its last kind's claim is already released (a wave started in that
