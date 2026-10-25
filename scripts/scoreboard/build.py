@@ -1157,11 +1157,18 @@ def xc_pipeline(main_runs):
     sha = (wl or {}).get("sha")
     track = {i["title"].removeprefix("[xc] "): xc_fields(i.get("body")) for i in issues}
     # a fix job works several kinds in a row; its claims carry the token <run>/<first kind> (xc-worker.yml XC_CLAIM_TOKEN)
-    now_kind = {c[3]: k for k, f in track.items() if len(c := f.get("claimed", "").split()) > 3}
+    # a bundle of small functions shares the token: its first claim is the kind the job took, the later ones ride along
+    now_kind = {}
+    for k, f in track.items():
+        if len(c := f.get("claimed", "").split()) > 3:
+            now_kind.setdefault(c[3], []).append((int(c[0]), k))
     for j in jobs:
-        cur = now_kind.get(j.pop("_token"))
+        held = sorted(now_kind.get(j.pop("_token"), []))
+        cur = held[0][1] if held else None
         if cur and cur != j["kind"]:
             j["first"], j["kind"] = j["kind"], cur
+        if len(held) > 1:
+            j["kind"] = f"{j['kind']} +{len(held) - 1}"
     claimed = merged = exhausted = 0
     for f in track.values():
         c = f.get("claimed", "").split()
