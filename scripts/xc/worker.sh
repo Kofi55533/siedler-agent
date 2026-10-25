@@ -43,7 +43,7 @@ git rev-parse HEAD > "$XC/base.sha"; BASE=$(cat "$XC/base.sha")
 # all); the next census compares every scenario and reverts a merge that broke one of the others
 python3 "$D/xc.py" scenarios "$WL" "$KIND" | cut -d' ' -f1-9 > "$XC/scenarios-all.txt"
 python3 "$D/xc.py" failing "$WL" "$KIND" | cut -d' ' -f1-3 > "$XC/scenarios-failing.txt"
-[ -s "$XC/scenarios-failing.txt" ] || { sum "$KIND: not failing in the work list"; exit 0; }
+grep -q . "$XC/scenarios-failing.txt" || { sum "$KIND: not failing in the work list"; exit 0; }
 # small functions to port, each called most in one of this kind's full-run scenarios, join it (claimed for this job)
 KINDS=$(python3 "$D/xc.py" bundle "$WL" "$KIND" "${XC_BUNDLE:-4}" "$XC_NATIVE") && [ -n "$KINDS" ] || KINDS=$KIND
 # the companions' own calling scenarios join the kind-only runs (this kind's first, at most 12 in all)
