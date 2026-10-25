@@ -31,8 +31,8 @@ XC_DEAD=${XC_DEAD:-"camp-bigcity camp-extra1 map-gipfelsturm map-sandbox sp-spre
 XC_LONG=${XC_LONG-"ai-builds-triggered"}
 
 # later windows of the bc recording (~23,900 turns), by their skipped turns: the 2026-10-25 probe (xc-probe-bc, 1200
-# turns each) found 35-89 class-A functions per window that no census scenario reaches, at 145-266 s per point for the
-# native replay up to the window; 23000 took 930 s per point (past the recording's end, close to XC_TIMEOUT)
+# turns each) found 35-89 class-A functions per window that no census scenario reaches, at 145-403 s per point for the
+# native replay up to the window (16000: 403 s); 23000 took 930 s per point (past the recording's end, close to XC_TIMEOUT)
 XC_BC_WINDOWS=${XC_BC_WINDOWS-"8000 12000 16000 20000"}
 
 # scenarios: "name image skip turns" lines. bc replays its recorded commands (commands.bin beside the image); every
