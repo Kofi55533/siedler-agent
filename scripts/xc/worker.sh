@@ -23,6 +23,9 @@ wl_sha(){ python3 -c "import json,sys;print(json.load(open(sys.argv[1]))['sha'])
 MERGED=0
 trap 'rc=$?; [ "$rc" != 1 ] && [ $MERGED = 0 ] && python3 "$D/xc.py" issue "$KIND" unclaim' EXIT
 
+cpu(){ awk '/^cpu /{print $2+$3+$4+$7+$8, $2+$3+$4+$5+$6+$7+$8}' /proc/stat; }   # trial: busy, total jiffies
+read -r CB0 CT0 < <(cpu); CS0=$SECONDS
+cpu_mark(){ read -r b t < <(cpu); log "cpu trial $1: busy $(( 100 * (b - CB0) / (t - CT0 + 1) ))% of 4 cores over $(( (SECONDS - CS0) / 60 )) min"; read -r CB0 CT0 < <(cpu); CS0=$SECONDS; }
 cd "$S5_REPO" || exit 2
 # the checkout carries no credential (the model reads it); fetch and push name the authenticated URL explicitly
 AUTH="https://x-access-token:${GH_TOKEN}@github.com/$PROJECT.git"
@@ -76,7 +79,7 @@ else
   fi
   grep -q 'no sampled call' "$XC/base.verdict" && { sum "$KIND: no sampled call at base (runs crashed?)"; exit 2; }
 fi
-log "base measured in $(( $(date +%s) - t0 ))s, work at $XC_TURNS turns"
+cpu_mark base; log "base measured in $(( $(date +%s) - t0 ))s, work at $XC_TURNS turns"
 
 mkdir -p "$W"; ln -sfn "$S5_REPO" "$W/siedler-sim-rs"
 python3 "$D/context.py" "$KIND" "$XC/base" "$XC_NATIVE" "$S5_REPO" "$W/TASK.md" || exit 2
@@ -127,11 +130,12 @@ for round in $(seq 1 "$ROUNDS"); do
   args=(opencode run -m "$MODEL"); [ "$round" -gt 1 ] && args+=(--continue)
   ( cd "$W" && env -u GH_TOKEN -u GITHUB_TOKEN -u T -u OPENCODE_API_KEY -u PRIVATE_REPO_TOKEN \
       timeout -k 30 "$((ROUND_MIN * 60))" "${args[@]}" "$PROMPT" ) > "$XC/model-$round.log" 2>&1
-  log "model round $round exit=$? ($(wc -l < "$XC/model-$round.log") log lines, private)"
+  rc=$?; cpu_mark "model-$round"; log "model round $round exit=$rc ($(wc -l < "$XC/model-$round.log") log lines, private)"
   git -C "$S5_REPO" reset -q --soft "$BASE"   # a model commit is folded back into the working change
   # the base runs write the same per-run files ($XC/{rc,secs}-<scenario>.*) as the verdict's full runs
   t=$SECONDS; wait "$AHEAD" 2>/dev/null; [ $((SECONDS - t)) -gt 0 ] && log "waited $((SECONDS - t))s for the base's full runs"
   "$D/verify.sh" "$KIND" > "$XC/verify-$round.txt" 2>&1
+  cpu_mark "verify-$round"
   sed 's/^/  /' "$XC/verify-$round.txt" | grep -E 'scope|identical|VERDICT|regression|missing|tests|tick|build|timing' | head -14
   if grep -q 'VERDICT PASS' "$XC/verify-$round.txt"; then ok=1; break; fi
   PROMPT="The pipeline's verification of your change failed:
