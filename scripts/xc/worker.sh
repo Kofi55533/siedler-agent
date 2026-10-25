@@ -151,17 +151,21 @@ from recomp/. Do not commit, push or open PRs; the pipeline verifies and ships y
   xc_scenarios | awk -v s=" $(cat "$XC/scenarios-failing.txt") " 'index(s, " "$1" ")' \
     | XC_BINS=$XC/base-bin/bins.txt xc_runs "$XC/base/full" ) > /dev/null 2>&1 &
 AHEAD=$!
+# model <round>: one opencode session turn on $PROMPT (round 1 starts the session, later ones continue it)
+model(){
+  log "model round $1"
+  local args=(opencode run -m "$MODEL"); [ "$1" != 1 ] && args+=(--continue)
+  ( cd "$W" && env -u GH_TOKEN -u GITHUB_TOKEN -u T -u OPENCODE_API_KEY -u PRIVATE_REPO_TOKEN \
+      timeout -k 30 "$((ROUND_MIN * 60))" "${args[@]}" "$PROMPT" ) > "$XC/model-$1.log" 2>&1
+  log "model round $1 exit=$? ($(wc -l < "$XC/model-$1.log") log lines, private)"
+}
 ok=0
 rounds=0
 for round in $(seq 1 "$ROUNDS"); do
   if [ "$round" -gt 1 ] && [ $(( SECONDS + ROUND_MIN * 60 )) -gt $(( BUDGET_MIN * 60 )) ]; then
     log "budget: no round $round after $(( SECONDS / 60 )) min"; break
   fi
-  rounds=$round; log "model round $round"
-  args=(opencode run -m "$MODEL"); [ "$round" -gt 1 ] && args+=(--continue)
-  ( cd "$W" && env -u GH_TOKEN -u GITHUB_TOKEN -u T -u OPENCODE_API_KEY -u PRIVATE_REPO_TOKEN \
-      timeout -k 30 "$((ROUND_MIN * 60))" "${args[@]}" "$PROMPT" ) > "$XC/model-$round.log" 2>&1
-  log "model round $round exit=$? ($(wc -l < "$XC/model-$round.log") log lines, private)"
+  rounds=$round; model "$round"
   git -C "$S5_REPO" reset -q --soft "$BASE"   # a model commit is folded back into the working change
   # the base runs write the same per-run files ($XC/{rc,secs}-<scenario>.*) as the verdict's full runs
   t=$SECONDS; wait "$AHEAD" 2>/dev/null; [ $((SECONDS - t)) -gt 0 ] && log "waited $((SECONDS - t))s for the base's full runs"
@@ -204,6 +208,21 @@ merge_pr(){
   done
   return 1
 }
+# a merge of the moved base that conflicts (another merge changed the same lines: 11 of 114 attempts on 2026-10-25, each
+# losing a passing change) goes back to the model once: it resolves the markers keeping both sides, the moved-base
+# verdict below judges the result
+resolve(){
+  local files; files=$(git diff --name-only --diff-filter=U | xargs)
+  [ -n "$files" ] && [ $(( SECONDS + ROUND_MIN * 60 )) -le $(( BUDGET_MIN * 60 )) ] || return 1
+  log "conflict with the moved base in $(wc -w <<<"$files") file(s): the model resolves it"
+  PROMPT="Your change passed, but clean/integration moved meanwhile and merging it into your change conflicts in: $files
+Resolve every conflict marker (<<<<<<< ======= >>>>>>>) in those files so that both sides stay: the other merge's
+behaviour and yours. Change nothing else, do not commit; run $W/check and finish when it is clean."
+  model conflict
+  grep -lE '^(<<<<<<<|>>>>>>>)( |$)' $files 2>/dev/null | grep -q . && return 1
+  git rev-parse -q --verify MERGE_HEAD > /dev/null || return 1   # the model committed or aborted the merge itself
+  git add -- $files && git -c user.name=siedler-agent -c user.email=Kofi55533@users.noreply.github.com commit -q --no-edit
+}
 for try in 1 2; do
   git push -q -f "$AUTH" "HEAD:refs/heads/$BR" || exit 2
   pr=$(gh api "repos/$PROJECT/pulls?state=open&head=${PROJECT%%/*}:$BR" --jq '.[0].number // empty')
@@ -225,7 +244,7 @@ $(grep -vE '^VERDICT' "$XC/verify-$round.txt" | head -20)
   log "merge still refused: merging clean/integration and re-verifying"
   fetch_base
   git -c user.name=siedler-agent -c user.email=Kofi55533@users.noreply.github.com merge -q --no-edit origin/clean/integration \
-    || { git merge --abort; sum "$KINDS: conflict with the moved base"; break; }
+    || resolve || { git merge --abort; sum "$KINDS: conflict with the moved base"; break; }
   git rev-parse origin/clean/integration > "$XC/base.sha"; BASE=$(cat "$XC/base.sha")
   git reset -q --soft "$BASE"
   "$D/verify.sh" "$KINDS" > "$XC/verify-merge.txt" 2>&1 || { sum "$KINDS: fails on the moved base"; break; }
