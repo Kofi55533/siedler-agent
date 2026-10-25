@@ -30,11 +30,17 @@ XC_DEAD=${XC_DEAD:-"camp-bigcity camp-extra1 map-gipfelsturm map-sandbox sp-spre
 # even without any capture, its census entry was measured at 120)
 XC_LONG=${XC_LONG-"ai-builds-triggered"}
 
+# later windows of the bc recording (~23,900 turns), by their skipped turns: the 2026-10-25 probe (xc-probe-bc, 1200
+# turns each) found 35-89 class-A functions per window that no census scenario reaches, at 145-266 s per point for the
+# native replay up to the window; 23000 took 930 s per point (past the recording's end, close to XC_TIMEOUT)
+XC_BC_WINDOWS=${XC_BC_WINDOWS-"8000 12000 16000 20000"}
+
 # scenarios: "name image skip turns" lines. bc replays its recorded commands (commands.bin beside the image); every
 # other image runs autonomously (AI players, armies, campaign scripts), which is still the original behaviour, plus
 # the player commands of the generated fixtures on that image (xc_cmds), so the command handlers run too.
 xc_scenarios(){
   echo "bc $S5_ARTIFACTS/bc/gs_h.img 100 $((XC_TURNS + 180))"
+  for s in $XC_BC_WINDOWS; do echo "bc-$s $S5_ARTIFACTS/bc/gs_h.img $s $XC_TURNS"; done
   for d in "$S5_V"/images/*/ "$S5_NF"/images/*/; do
     n=$(basename "$d"); [[ " $XC_DEAD " == *" $n "* ]] && continue
     [[ " $XC_LONG " == *" $n "* ]] && t=$((XC_TURNS < XC_TURNS_SHORT ? XC_TURNS : XC_TURNS_SHORT)) || t=$XC_TURNS
@@ -67,7 +73,7 @@ for s in sorted(Path(repo, "fixtures-gen").glob("*/scenario.json")):
         by_image.setdefault(key(json.loads(s.read_text())["image"]), []).append(str(c))
 for line in sys.stdin:
     name, img = line.split()[:2]
-    if name != "bc" and name not in skip and key(img) in by_image:
+    if name != "bc" and not name.startswith("bc-") and name not in skip and key(img) in by_image:
         print(name, *by_image[key(img)])' "$S5_REPO" "$S5" "$XC_CMDS_SKIP" \
   | while read -r name streams; do
       echo "$name: $(python3 "$(dirname "${BASH_SOURCE[0]}")/cmdbin.py" "$S5_REPO/oracle" "$XC/cmds/$name.bin" $streams)"
