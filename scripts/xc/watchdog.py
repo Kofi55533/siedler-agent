@@ -94,10 +94,10 @@ def main():
             reasons.append("the last 3 xc-census runs failed")
 
     # waves overlap freely (the claims keep them apart); a new one starts while kinds are pickable, no wave waits
-    # in the queue and this repo holds fewer than XC_WORKERS claims (each claim is one running worker job)
+    # in the queue and this repo runs fewer than XC_WORKERS jobs (its claims under distinct tokens)
     kinds = pickable(wl) if wl else []
     queued = [r for r in runs("xc-worker.yml") if r["status"] in ("queued", "waiting", "pending", "requested")]
-    busy = sum(1 for _, body in xc.tracking().values() if xc.claimed(body, now, R))  # this repo's slots only
+    busy = xc.jobs(xc.tracking(), now, R)  # this repo's slots only (a job's bundle shares one claim token)
     limit = int(os.environ.get("XC_WORKERS") or 20)
     print(f"{len(kinds)} kinds pickable, {busy} claimed, {len(queued)} waves queued")
     if kinds and not queued and busy < limit:

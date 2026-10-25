@@ -13,18 +13,21 @@
                                       work list was pinned covers (JSON list);
                                       --limit: at most L live claims of this pool (GITHUB_REPOSITORY) in all
                                       XC_CLAIM_TOKEN set: only the kinds whose claim still carries it after claiming
+  xc.py bundle <worklist> <kind> <n> <native-dir>
+                                      <kind> plus up to n-1 more small functions to port that share its run (claimed
+                                      under the same XC_CLAIM_TOKEN), comma-joined; <kind> alone when it is no small port
   xc.py scenarios <worklist> <kind>   names of the scenarios where <kind> was sampled, failing ones first
   xc.py failing <worklist> <kind>     names of the scenarios where <kind> fails
-  xc.py check <base> <new> <kind> [<worklist> <scenario>...]
-                                      a worker's verdict: <kind> clean everywhere, nothing else newly failing (a
+  xc.py check <base> <new> <kind>[,<kind>...] [<worklist> <scenario>...]
+                                      a worker's verdict: each <kind> clean everywhere, nothing else newly failing (a
                                       function kind FN_<address> also bound and observed); with the work list, the
                                       named scenarios need a full run in <new>, compared with <base>/full where
                                       measured (scenarios without one showed no suspect against the work list)
-  xc.py suspects <worklist> <new-full> <kind>
+  xc.py suspects <worklist> <new-full> <kind>[,<kind>...]
                                       scenarios whose full run after a change shows another kind failing that the work
                                       list measured clean there, or missing (only those need the base's full run)
-  xc.py stub <worklist> <kind> <dir> <scenario>...
-                                      <dir>/<scenario>.json with the work list's call counts of an unbound function
+  xc.py stub <worklist> <kind>[,<kind>...] <dir> <scenario>...
+                                      <dir>/<scenario>.json with the work list's call counts of unbound functions
   xc.py shard <i> <n> < scenario lines
                                       the lines of shard i of n: with XC_WEIGHTS (JSON scenario -> run seconds of the
                                       previous census) the heaviest first onto the lightest shard, else every n-th line
@@ -44,6 +47,9 @@ from pathlib import Path
 
 ATTEMPTS = 3  # failed worker attempts per kind (on the same census) before it waits for a new census
 CENSUS = 5   # version of what the census measures (2: function units, 3: their callers, 4: 1200 turns, 5: player commands); a work list of another version is re-measured
+# a function port this small (recognized instructions) shares its worker run with up to n-1 more of them: the base
+# measurement, the full runs and the tests of a verdict (~15 of a kind's ~18 min on 2026-10-25) are paid once
+BUNDLE_INS = 15
 CLAIM_H = 7   # a claim (a worker picked the kind) blocks other picks this long; a worker job lasts at most 6 h
 PROJECT = os.environ.get("XC_PROJECT", "Kofi55533/siedler-sim-rs")
 # the tracking issues live in the main pipeline repo for every pool (forks pick from the same work list)
@@ -246,6 +252,13 @@ def claimed(body, now, pool=None):
             and not (len(c) > 2 and ended(c[1], c[2])))
 
 
+def jobs(issues, now, pool=None):
+    """the running worker jobs behind the live claims: a job claims its whole bundle under its one token (bundle()),
+    so the slots count distinct tokens; a claim without a token counts alone"""
+    live = (fields(body).get("claimed", "").split() for _, body in issues.values() if claimed(body, now, pool))
+    return len({c[3] if len(c) > 3 else i for i, c in enumerate(live)})
+
+
 def tracking():
     """open tracking issues: kind -> (number, body)"""
     out = {}
@@ -306,21 +319,18 @@ def rank(kind, k):
             kind)
 
 
-def pick(worklist, n, claim=False, limit=None):
-    doc = load(worklist)
+def available(doc, issues, now):
+    """the work units a worker may take now: todo, no open PR on its branch, no merge since the work list was pinned,
+    no live claim, attempts left on this census"""
     taken = set()
     for page in range(1, 6):
         prs = gh(f"repos/{PROJECT}/pulls?state=open&per_page=100&page={page}") or []
         taken |= {p["head"]["ref"] for p in prs}
         if len(prs) < 100:
             break
-    issues, now = tracking(), time.time()
     commit = gh(f"repos/{PROJECT}/commits/{doc['sha']}") or {}
     pinned = commit.get("commit", {}).get("committer", {}).get("date")
     pinned = datetime.fromisoformat(pinned.replace("Z", "+00:00")).timestamp() if pinned else None
-    if limit is not None:  # this pool's slots: its live claims are its running worker jobs
-        n = min(n, limit - sum(1 for _, body in issues.values() if claimed(body, now, POOL)))
-    ranked = []
     for kind, k in doc["kinds"].items():
         if not todo(kind, k) or branch(kind) in taken:
             continue
@@ -328,16 +338,29 @@ def pick(worklist, n, claim=False, limit=None):
         # the attempt counter restarts with every census sha (new base, new examples)
         if merged_since(body, doc["sha"], pinned) or claimed(body, now) or tried(body, doc["sha"]) >= ATTEMPTS:
             continue
-        ranked.append(rank(kind, k))
-    ranked.sort()
+        yield kind, k
+
+
+def claim_own(kinds):
+    """claim the kinds; with XC_CLAIM_TOKEN only the ones whose claim still carries it (the last writer wins)"""
+    for kind in kinds:
+        issue(kind, "claim")
+    if TOKEN and kinds:
+        time.sleep(8)
+        mine = tracking()
+        kinds = [k for k in kinds if fields(mine.get(k, (None, ""))[1]).get("claimed", "").split()[3:4] == [TOKEN]]
+    return kinds
+
+
+def pick(worklist, n, claim=False, limit=None):
+    doc = load(worklist)
+    issues, now = tracking(), time.time()
+    if limit is not None:  # this pool's slots: its live claims are its running worker jobs
+        n = min(n, limit - jobs(issues, now, POOL))
+    ranked = sorted(rank(kind, k) for kind, k in available(doc, issues, now))
     kinds = [r[-1] for r in ranked[:max(n, 0)]]
     if claim:
-        for kind in kinds:
-            issue(kind, "claim")
-        if TOKEN and kinds:
-            time.sleep(8)
-            mine = tracking()
-            kinds = [k for k in kinds if fields(mine.get(k, (None, ""))[1]).get("claimed", "").split()[3:4] == [TOKEN]]
+        kinds = claim_own(kinds)
         # a kind this census no longer lists as work (fixed, or its function is no longer called) closes its issue, so
         # the open issues stay the work in progress
         for kind, (num, body) in issues.items():
@@ -345,6 +368,41 @@ def pick(worklist, n, claim=False, limit=None):
             if not doc.get("partial") and not claimed(body, now) and (k is None or not todo(kind, k)):
                 gh("-X", "PATCH", f"repos/{AGENT}/issues/{num}", "-f", "state=closed")
     print(json.dumps(kinds))
+
+
+def sizes(native):
+    """recognized instructions per function address (functions.jsonl of the decompilation)"""
+    with open(Path(native, "functions.jsonl")) as f:
+        return {int(d["addr"], 16): d.get("recognized_instructions", 0) for d in map(json.loads, f)}
+
+
+def small_port(kind, k, ins):
+    return kind.startswith("FN_") and fn_state(k) == "port" and 0 < ins.get(int(address(kind) or "0", 16), 0) <= BUNDLE_INS
+
+
+def calling(k):
+    """the scenarios that call an unbound function, the most calls first (the order of scenarios())"""
+    return [name for name, v in sorted(k["scenarios"].items(), key=lambda kv: (-kv[1]["entries"], kv[0])) if v["entries"]]
+
+
+def bundle(worklist, kind, n, native):
+    """<kind> and, when it is a small function to port, up to n-1 more of them in the order pick() would take them,
+    each called most in one of the scenarios that <kind>'s verdict plays in full (worker.sh: its first three), so the
+    verdict's runs sample every function of the bundle; they are claimed for this job"""
+    doc = load(worklist)
+    k = doc["kinds"].get(kind)
+    out = [kind]
+    if n > 1 and k:
+        ins = sizes(native)
+        if small_port(kind, k, ins):
+            full = set(calling(k)[:3])
+            issues, now = tracking(), time.time()
+            ranked = sorted(rank(o, v) for o, v in available(doc, issues, now)
+                            if o != kind and small_port(o, v, ins) and calling(v)[:1] and calling(v)[0] in full)
+            more = [r[-1] for r in ranked[:n - 1]]
+            # the pick job claimed <kind> under its own token: it moves to this job's, so jobs() counts the bundle once
+            out += [o for o in claim_own([kind] + more if more else []) if o != kind]
+    print(",".join(out))
 
 
 def scenarios(worklist, kind, only_failing=False):
@@ -358,12 +416,12 @@ def scenarios(worklist, kind, only_failing=False):
     print(" ".join(name for name, v in items if v["samples"] and (v["failing"] or not only_failing)))
 
 
-def suspect(wk, scen, groups, kind):
+def suspect(wk, scen, groups, kinds):
     """another kind failing in a full run although the work list measured it clean in that scenario, or one the work
     list sampled there and the run lost"""
     for other, k in wk.items():
         v = k.get("scenarios", {}).get(scen)
-        if other == kind or not v or not v["samples"]:
+        if other in kinds or not v or not v["samples"]:
             continue
         g = groups.get(other)
         if g is None or (g["failing"] and not v["failing"]):
@@ -373,58 +431,67 @@ def suspect(wk, scen, groups, kind):
 
 def suspects(worklist, new_full, kind):
     wk = load(worklist)["kinds"]
-    print(" ".join(f.stem for f in sorted(Path(new_full).glob("*.json")) if suspect(wk, f.stem, load(f)["groups"], kind)))
+    kinds = kind.split(",")
+    print(" ".join(f.stem for f in sorted(Path(new_full).glob("*.json")) if suspect(wk, f.stem, load(f)["groups"], kinds)))
 
 
 def stub(worklist, kind, out, names):
-    k = load(worklist)["kinds"].get(kind, {"scenarios": {}})
+    wk = load(worklist)["kinds"]
     Path(out).mkdir(parents=True, exist_ok=True)
     for name in names:
-        v = k["scenarios"].get(name)
-        if v and v["entries"]:
-            g = {"entries": v["entries"], "samples": 0, "failing": 0, "unbound": True, "examples": []}
-            Path(out, f"{name}.json").write_text(json.dumps({"groups": {kind: g}}))
+        groups = {}
+        for one in kind.split(","):
+            v = wk.get(one, {"scenarios": {}})["scenarios"].get(name)
+            if v and v["entries"]:
+                groups[one] = {"entries": v["entries"], "samples": 0, "failing": 0, "unbound": True, "examples": []}
+        if groups:
+            Path(out, f"{name}.json").write_text(json.dumps({"groups": groups}))
 
 
 def check(base, new, kind, worklist=None, full=None):
     """base/new: directories with per-scenario JSONs (the kind-only runs plus full runs of the failing scenarios; a
-    scenario with a full run has no kind-only run, its full run holds the kind too)."""
+    scenario with a full run has no kind-only run, its full run holds the kind too). <kind> may be a bundle
+    (comma-joined): each of its kinds has to pass, and none of them counts as another kind's regression."""
     ok, lines = True, []
-    samples = failing = observed = entries = 0
-    unbound = False
+    kinds = kind.split(",")
     runs = {f.stem: f for f in sorted(Path(new, "only").glob("*.json"))}
     runs.update({f.stem: f for f in sorted(Path(new, "full").glob("*.json")) if worklist})
-    for _, f in sorted(runs.items()):
-        g = load(f)["groups"].get(kind)
-        if g:
-            samples += g["samples"]
-            failing += g["failing"]
-            observed += g.get("observed", 0)
-            entries += g["entries"]
-            unbound |= bool(g.get("unbound"))
-            if g["failing"]:
-                lines.append(f"{kind} still differs in {f.stem}: {g['failing']}/{g['samples']}")
-    if unbound:
-        ok = False
-        lines.append(f"{kind}: not bound yet ({entries} calls; crates/s5xcheck/src/functions/fn_{address(kind)}.rs missing)")
-    elif not samples:
-        ok = False
-        lines.append(f"{kind}: no sampled call (scenario runs missing or crashed)")
-    elif kind.startswith("FN_") and not observed:
-        # identical calls that change nothing the comparison sees prove nothing: the binding has to compare the
-        # function's effect (its result, its writes)
-        ok = False
-        lines.append(f"{kind}: none of the {samples} sampled calls changed anything the comparison sees (compare the "
-                     "result or written values in the binding's reference)")
-    if failing:
-        ok = False
+    done = []
+    for kind in kinds:
+        samples = failing = observed = entries = 0
+        unbound = False
+        for _, f in sorted(runs.items()):
+            g = load(f)["groups"].get(kind)
+            if g:
+                samples += g["samples"]
+                failing += g["failing"]
+                observed += g.get("observed", 0)
+                entries += g["entries"]
+                unbound |= bool(g.get("unbound"))
+                if g["failing"]:
+                    lines.append(f"{kind} still differs in {f.stem}: {g['failing']}/{g['samples']}")
+        if unbound:
+            ok = False
+            lines.append(f"{kind}: not bound yet ({entries} calls; crates/s5xcheck/src/functions/fn_{address(kind)}.rs missing)")
+        elif not samples:
+            ok = False
+            lines.append(f"{kind}: no sampled call (scenario runs missing or crashed)")
+        elif kind.startswith("FN_") and not observed:
+            # identical calls that change nothing the comparison sees prove nothing: the binding has to compare the
+            # function's effect (its result, its writes)
+            ok = False
+            lines.append(f"{kind}: none of the {samples} sampled calls changed anything the comparison sees (compare the "
+                         "result or written values in the binding's reference)")
+        if failing:
+            ok = False
+        done.append(f"{kind}: {samples - failing}/{samples} sampled calls identical")
     for f in sorted(Path(new, "full").glob("*.json")):
         b = Path(base, "full", f.name)
         if not b.exists():
             continue
         bg, ng = load(b)["groups"], load(f)["groups"]
         for other, g in ng.items():
-            if other != kind and g["failing"] and other in bg and bg[other]["samples"] and not bg[other]["failing"]:
+            if other not in kinds and g["failing"] and other in bg and bg[other]["samples"] and not bg[other]["failing"]:
                 ok = False
                 lines.append(f"regression: {other} now differs in {f.stem} ({g['failing']}/{g['samples']})")
         # the groups come from the original's side, so one that vanished means its capture run crashed
@@ -436,8 +503,7 @@ def check(base, new, kind, worklist=None, full=None):
         if not Path(new, "full", f"{name}.json").exists():
             ok = False
             lines.append(f"full run of {name} missing after the change (crash?)")
-    lines.append(f"{kind}: {samples - failing}/{samples} sampled calls identical")
-    print("\n".join(lines))
+    print("\n".join(lines + done))
     print("VERDICT", "PASS" if ok else "FAIL")
     return 0 if ok else 1
 
@@ -467,6 +533,8 @@ def main(argv):
     elif cmd == "pick":
         lim = [int(a.split("=")[1]) for a in argv if a.startswith("--limit=")]
         pick(argv[2], int(argv[3]), claim="--claim" in argv, limit=lim[0] if lim else None)
+    elif cmd == "bundle":
+        bundle(argv[2], argv[3], int(argv[4]), argv[5])
     elif cmd == "scenarios":
         scenarios(argv[2], argv[3])
     elif cmd == "failing":
