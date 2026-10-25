@@ -32,6 +32,7 @@
                                       the lines of shard i of n: with XC_WEIGHTS (JSON scenario -> run seconds of the
                                       previous census) the heaviest first onto the lightest shard, else every n-th line
   xc.py branch <kind>                 the fix branch of a kind
+  xc.py trial-waiting                 exit 0 while an xc-try run of the main repo waits for a job slot
   xc.py issue <kind> <op> [sha]       tracking issue of a kind: claim | unclaim | attempt <census sha> |
                                       merged <census sha> | close
 
@@ -257,6 +258,24 @@ def jobs(issues, now, pool=None):
     so the slots count distinct tokens; a claim without a token counts alone"""
     live = (fields(body).get("claimed", "").split() for _, body in issues.values() if claimed(body, now, pool))
     return len({c[3] if len(c) > 3 else i for i, c in enumerate(live)})
+
+
+def trial_waiting(repo=None):
+    """a hand or ref trial (xc-try.yml) of the main account waits for a job slot: the fleet makes way for it (the
+    watchdog starts no wave, a worker job takes no further kind), so a trial never queues behind the fix jobs"""
+    rs = (gh(f"repos/{repo or AGENT}/actions/workflows/xc-try.yml/runs?per_page=20") or {}).get("workflow_runs", [])
+    now = time.time()
+    for r in rs:
+        # a push without the trial tag skips its job within seconds; a young run is not yet known to wait
+        if now - datetime.fromisoformat(r["created_at"].replace("Z", "+00:00")).timestamp() < 60:
+            continue
+        if r["status"] in ("queued", "waiting", "pending", "requested"):
+            return True
+        if r["status"] == "in_progress":
+            js = (gh(f"repos/{repo or AGENT}/actions/runs/{r['id']}/jobs?per_page=50") or {}).get("jobs", [])
+            if any(j["status"] in ("queued", "waiting", "pending", "requested") for j in js):
+                return True
+    return False
 
 
 def tracking():
@@ -552,6 +571,8 @@ def main(argv):
         print("".join(l + "\n" for l in shard(int(argv[2]), int(argv[3]), [l.rstrip("\n") for l in sys.stdin if l.strip()], w)), end="")
     elif cmd == "branch":
         print(branch(argv[2]))
+    elif cmd == "trial-waiting":
+        return 0 if trial_waiting() else 1
     else:
         raise SystemExit(__doc__)
     return 0
