@@ -189,6 +189,8 @@ for round in $(seq 1 "$ROUNDS"); do
   sed 's/^/  /' "$XC/verify-$round.txt" | grep -E 'scope|identical|VERDICT|regression|missing|tests|tick|build|timing' | head -14
   if [ -n "${XC_HAND:-}" ]; then   # trial: the verdict's details go to the private data repo, for the hand port
     cp "$XC/verify-$round.txt" "$XC/hand-$KIND.txt"
+    # a failed build: its compiler errors (source excerpts, private release only)
+    grep -q 'build failed' "$XC/verify-$round.txt" && grep -A12 '^error' "$XC/build.log" 2> /dev/null | head -n 150 >> "$XC/hand-$KIND.txt"
     gh release view xc-hand -R "$XC_DATA" > /dev/null 2>&1 || gh release create xc-hand -R "$XC_DATA" --prerelease -n "hand-port verdicts" > /dev/null 2>&1
     gh release upload xc-hand -R "$XC_DATA" "$XC/hand-$KIND.txt" --clobber > /dev/null 2>&1 || log "hand: verdict upload failed"
     # the kinds' differing examples per scenario (game state: private release only, never the log)
