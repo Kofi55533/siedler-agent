@@ -44,8 +44,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
           N: ${{ inputs.n || '20' }}
-          # the main account keeps 6 of its 20 concurrent jobs free for the census (4 shards) and the watchdog
-          L: ${{ vars.XC_WORKERS || (github.repository == 'Kofi55533/siedler-agent' && '14' || '20') }}
+          # the main account keeps 10 of its 20 concurrent jobs free for the census (10 shards), trials and the watchdog
+          L: ${{ vars.XC_WORKERS || (github.repository == 'Kofi55533/siedler-agent' && '10' || '20') }}
           KINDS: ${{ inputs.kinds }}
           # the fix jobs claim their next kinds outside this serialized job: a claim another writer replaced is dropped
           XC_CLAIM_TOKEN: ${{ github.run_id }}-pick
@@ -97,7 +97,7 @@ jobs:
           OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
           GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
           XC_MODEL: ${{ vars.XC_MODEL || 'opencode/deepseek-v4.1-flash-free' }}
-          L: ${{ vars.XC_WORKERS || (github.repository == 'Kofi55533/siedler-agent' && '14' || '20') }}
+          L: ${{ vars.XC_WORKERS || (github.repository == 'Kofi55533/siedler-agent' && '10' || '20') }}
           XC_CLAIM_TOKEN: ${{ github.run_id }}/${{ matrix.kind }}   # also tells the scoreboard which kind this job works now
         run: |
           mkdir -p ~/.local/share/opencode; umask 077
@@ -114,6 +114,10 @@ jobs:
             rc=0; XC_BUDGET_MIN=$(( left < 170 ? left : 170 )) scripts/xc/worker.sh "$kind" || rc=$?
             [ $rc = 2 ] && exit 1
             [ $(( 330 - ($(date +%s) - XC_T0) / 60 )) -ge 90 ] || break
+            # a waiting xc-try trial of the main account gets this slot before the next fleet kind
+            if [ "$GITHUB_REPOSITORY" = Kofi55533/siedler-agent ] && python3 scripts/xc/xc.py trial-waiting; then
+              echo "a trial waits for a slot: this job ends" | tee -a "$GITHUB_STEP_SUMMARY"; break
+            fi
             gh release download xc-worklist -R $XC_DATA -D /opt/s5/xc -p worklist.json --clobber || break
             # L + 1: this job's own slot counts too, its last kind's claim is already released (a wave started in that
             # gap must not end the loop; the pool is then one over for this kind, and the watchdog waits till it is not)
