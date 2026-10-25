@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# verify.sh <kind>: the script-side verdict on a worker's change (the model's word counts for nothing).
+# verify.sh <kind>[,<kind>...]: the script-side verdict on a worker's change (the model's word counts for nothing).
 #  1. scope: only crates/s5clean/** and docs/** change (a function kind FN_<address> also its binding
 #     crates/s5xcheck/src/functions/fn_<address>.rs, which only translates the call); no test removed; no
 #     hand-written Debug/PartialEq (the comparison runs over the derived {:#?} dump, a custom impl could hide
 #     fields); importer only extended.
-#  2. <kind> identical at every sampled call in every scenario where it runs ($XC/scenarios-all.txt).
+#  2. <kind> (every kind of a bundle) identical at every sampled call in every scenario where it runs ($XC/scenarios-all.txt).
 #  3. the full comparison of the scenarios where <kind> failed shows no other kind newly differing (against the base's
 #     full runs, measured only for the scenarios where the work list suggests a regression).
 #  4. crates/s5clean unit tests and the building-tick capture stay green.
@@ -13,10 +13,11 @@ set -uo pipefail
 D=$(cd "$(dirname "$0")" && pwd); source "$D/lib.sh"
 KIND=$1; BASE=$(cat "$XC/base.sha"); cd "$S5_REPO"
 fail(){ echo "$*"; echo "VERDICT FAIL"; exit 1; }
-BIND=$(xc_binding "$KIND")
-bad=$(xc_changed | grep -vE "^(crates/s5clean/|docs/${BIND:+|$BIND\$})" | head -3 | tr '\n' ' ')
-[ -n "$bad" ] && fail "scope: changes outside crates/s5clean, docs${BIND:+ and $BIND}: $bad (revert them)"
-if [ -n "$BIND" ] && [ -f "$BIND" ]; then
+BIND=$(xc_binding "$KIND"); ALT=$(paste -sd'|' <<<"$BIND")
+bad=$(xc_changed | grep -vE "^(crates/s5clean/|docs/${ALT:+|($ALT)\$})" | head -3 | tr '\n' ' ')
+[ -n "$bad" ] && fail "scope: changes outside crates/s5clean, docs${BIND:+ and $(xargs <<<"$BIND")}: $bad (revert them)"
+for BIND in $BIND; do
+  [ -f "$BIND" ] || continue
   # the binding translates the native call (arguments, ids) and calls crates/s5clean; the logic lives there
   code=$(grep -vE '^\s*(//|$)' "$BIND")
   [ "$(wc -l <<<"$code")" -gt 60 ] && fail "scope: the binding $BIND has $(wc -l <<<"$code") code lines (at most 60: move the logic into crates/s5clean)"
@@ -28,7 +29,7 @@ if [ -n "$BIND" ] && [ -f "$BIND" ]; then
     && fail "scope: the port in $BIND ignores the world (|_world|): compute the result from the clean World, not from native memory read at the entry"
   grep -qE '\|\s*\w+\s*\|\s*entry\.(r(8|16|32)|mach)' <<<"$code" \
     && fail "scope: $BIND passes a native memory reader to crates/s5clean: the clean code works on World, never on native addresses"
-fi
+done
 grep -qE '^\+.*(impl|dyn) Fn(Mut)?\(u32\) -> u32' <<<"$(git diff "$BASE" -- crates/s5clean)" \
   && fail "scope: crates/s5clean takes a native memory reader (Fn(u32) -> u32): the clean code works on World, never on native addresses"
 git add -A -- $(xc_paths "$KIND")

@@ -203,8 +203,13 @@ xc_runs(){
   while read -r name _; do xc_merge "$name" "$dir/$name.json" "$only"; done <<<"$lines"
 }
 
-# xc_binding <kind>: the binding file a function kind FN_<address> may add or change (crates/s5xcheck/src/functions)
-xc_binding(){ case $1 in FN_*) local a=${1#FN_}; a=${a,,}; echo "crates/s5xcheck/src/functions/fn_${a#"${a%%[!0]*}"}.rs" ;; esac; }
+# xc_binding <kind>[,<kind>...]: the binding file a function kind FN_<address> may add or change
+# (crates/s5xcheck/src/functions), one line per function kind of a bundle
+xc_binding(){
+  local k a; for k in ${1//,/ }; do
+    case $k in FN_*) a=${k#FN_}; a=${a,,}; echo "crates/s5xcheck/src/functions/fn_${a#"${a%%[!0]*}"}.rs" ;; esac
+  done
+}
 # xc_paths <kind>: the pathspecs of a worker's change: the clean crate, the docs, and for a function kind the bindings
 # directory (verify.sh allows only the kind's own binding in it; a pathspec naming a file not yet written would fail)
 xc_paths(){ echo crates/s5clean docs; [ -n "$(xc_binding "$1")" ] && echo crates/s5xcheck/src/functions; }
