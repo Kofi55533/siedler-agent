@@ -1,64 +1,12 @@
 name: xc-try
-# Trial of a sim-rs ref's capture tests on a runner before it is merged (the cloud sessions cannot build the full
-# reference): a push to a claude/** branch of this repository whose head commit message holds `[xc-try <sim-rs ref>]`
-# runs scripts/xc/try.sh on a few scenarios. So does the label xc-try, set by Kofi55533 on an issue titled
-# `[xc-try <sim-rs ref>]` (a trial without a helper branch): the count lines go to the issue as a comment, then it is
-# closed. The log shows counts only.
+# trial branch: one worker job with this branch's scripts on one kind
 on:
   push:
-    branches: ['claude/**']
-  issues:
-    types: [labeled]
+    branches: ['claude/xc-bundle-trial']
 permissions: { contents: read, issues: write }
-# a push without the tag is skipped and must not cancel a running trial, so it gets its own group
-concurrency:
-  group: "xc-try-${{ github.event.issue.number || github.ref }}-${{ contains(github.event.head_commit.message, '[xc-try ') }}"
-  cancel-in-progress: true
 jobs:
-  try:
-    if: >-
-      contains(github.event.head_commit.message, '[xc-try ') || (github.event.label.name == 'xc-try'
-      && github.event.sender.login == 'Kofi55533' && contains(github.event.issue.title, '[xc-try '))
-    runs-on: ubuntu-latest
-    timeout-minutes: 150
-    strategy:
-      fail-fast: false
-      matrix:
-        scenario: [bc, combat, economy]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with: { python-version: '3.11' }
-      - name: Ref
-        id: r
-        env: { MSG: '${{ github.event.head_commit.message || github.event.issue.title }}' }
-        # an issue title is anyone's text: only a plain ref name passes; a commit message that only names the tag (as
-        # in `[xc-try <ref>]`) runs nothing
-        run: |
-          ref=$(grep -o '\[xc-try [^]]*\]' <<< "$MSG" | head -1 | sed 's/^\[xc-try //; s/\]$//')
-          if [[ "$ref" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]]; then echo "ref=$ref" >> "$GITHUB_OUTPUT"
-          elif [ "$GITHUB_EVENT_NAME" = push ]; then echo "no ref name in the tag: no trial"
-          else echo "not a ref name"; exit 1; fi
-      - name: Setup (quiet)
-        if: steps.r.outputs.ref != ''
-        env: { T: '${{ secrets.PRIVATE_REPO_TOKEN }}', GIT_LFS_SKIP_SMUDGE: '1' }
-        run: scripts/s5-setup.sh "${{ steps.r.outputs.ref }}" 1
-      - name: Try
-        if: steps.r.outputs.ref != ''
-        run: scripts/xc/try.sh ${{ matrix.scenario }} | tee $RUNNER_TEMP/try.txt
-      - name: Counts to the issue
-        if: always() && github.event_name == 'issues'
-        env: { GH_TOKEN: '${{ github.token }}', N: '${{ github.event.issue.number }}', SC: '${{ matrix.scenario }}' }
-        run: |
-          { echo "**$SC** (${{ job.status }}):"; echo '```'
-            grep -E '^(build secs|ticks:|functions:|TICK_)' $RUNNER_TEMP/try.txt 2>/dev/null | grep -v '| inventory ' || echo "no count lines"
-            echo '```'; } > $RUNNER_TEMP/c.md
-          gh api repos/$GITHUB_REPOSITORY/issues/$N/comments -F body=@$RUNNER_TEMP/c.md > /dev/null
-  close:
-    needs: try
-    if: always() && github.event_name == 'issues' && needs.try.result != 'skipped'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - env: { GH_TOKEN: '${{ github.token }}' }
-        run: gh api -X PATCH repos/$GITHUB_REPOSITORY/issues/${{ github.event.issue.number }} -f state=closed -f state_reason=completed > /dev/null
+  trial:
+    if: contains(github.event.head_commit.message, '[xc-try ')
+    uses: ./.github/workflows/xc-worker.yml
+    with: { n: '1', kinds: 'FN_5BD48A' }
+    secrets: inherit
