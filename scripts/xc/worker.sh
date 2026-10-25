@@ -48,6 +48,14 @@ grep -q . "$XC/scenarios-failing.txt" || { sum "$KIND: not failing in the work l
 # (trial 2026-10-25: 4 functions in one 61-min job, 2 model rounds of ~22 min, against ~18 min per single kind; every
 # kind of a bundle has to pass in the same round, so the default stays at 3)
 KINDS=$(python3 "$D/xc.py" bundle "$WL" "$KIND" "$([ -n "${XC_HAND:-}" ] && echo 1 || echo "${XC_BUNDLE:-1}")" "$XC_NATIVE") && [ -n "$KINDS" ] || KINDS=$KIND
+# trial: every binding the hand branch adds or changes joins its bundle (each of them has to pass), since the scope
+# check admits only the bundle's own binding files
+if [ -n "${XC_HAND:-}" ]; then
+  more=$(gh api "repos/$PROJECT/compare/clean/integration...claude/hand-$(echo "$KIND" | tr 'A-Z_' 'a-z-')" \
+    --jq '.files[].filename' 2> /dev/null | sed -nE 's#^crates/s5xcheck/src/functions/fn_([0-9a-f]+)\.rs$#\1#p' \
+    | tr 'a-f' 'A-F' | sed 's/^/FN_/' | grep -vx "$KIND" | paste -sd, -)
+  [ -n "$more" ] && KINDS=$KIND,$more
+fi
 # the companions' own calling scenarios join the kind-only runs (this kind's first, at most 12 in all)
 if [ "$KINDS" != "$KIND" ]; then
   for k in ${KINDS//,/ }; do python3 "$D/xc.py" scenarios "$WL" "$k" | cut -d' ' -f1-9; done \
