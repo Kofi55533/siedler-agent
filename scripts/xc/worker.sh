@@ -152,6 +152,23 @@ Measured by the per-call differential (crates/s5xcheck capture, $POINT) in the
 recorded scenarios; verified by siedler-agent scripts/xc/verify.sh (scope, kind, no other kind
 regressed, s5clean tests, building tick).
 $summary" || exit 2
+# GitHub refuses a squash merge while it recomputes the mergeability after the base moved: 13 of 68 merges on 2026-10-25,
+# 8 of them merging cleanly in git, each paid a re-verify (~10 min). The verdict's base moves on most merges anyway (the
+# census guards the moved base), so a refusal waits for GitHub and retries; only a PR GitHub calls unmergeable (a real
+# conflict) or a refusal that persists merges the base in and re-verifies
+merge_pr(){
+  local i m out
+  for i in 1 2 3 4; do
+    out=$(gh api -X PUT "repos/$PROJECT/pulls/$1/merge" -f merge_method=squash -f sha="$(git rev-parse HEAD)" 2>&1 >/dev/null) && return 0
+    for _ in 1 2 3 4 5 6; do
+      m=$(gh api "repos/$PROJECT/pulls/$1" --jq '.mergeable // "unknown"' 2>/dev/null); [ "$m" = unknown ] || break; sleep 5
+    done
+    log "merge refused ($(tail -n 1 <<<"$out" | cut -c1-100)), mergeable: $m"
+    [ "$m" = false ] && return 1
+    sleep $((i * 10))
+  done
+  return 1
+}
 for try in 1 2; do
   git push -q -f "$AUTH" "HEAD:refs/heads/$BR" || exit 2
   pr=$(gh api "repos/$PROJECT/pulls?state=open&head=${PROJECT%%/*}:$BR" --jq '.[0].number // empty')
@@ -162,14 +179,14 @@ for try in 1 2; do
 $(grep -vE '^VERDICT' "$XC/verify-$round.txt" | head -20)
 \`\`\`" --jq .number)
   [ -n "$pr" ] || exit 2
-  if gh api -X PUT "repos/$PROJECT/pulls/$pr/merge" -f merge_method=squash -f sha="$(git rev-parse HEAD)" > /dev/null 2>&1; then
+  if merge_pr "$pr"; then
     sum "$KIND: merged $PROJECT#$pr"; MERGED=1; python3 "$D/xc.py" issue "$KIND" merged "$(wl_sha)"
     # no census per merge (it held 8 of the 20 job slots without pause): the watchdog's next census, at most 30 min
     # after the last one, compares every scenario and reverts this merge if another kind broke anywhere
     exit 0
   fi
   [ $try = 2 ] && break
-  log "merge refused (base moved?): merging clean/integration and re-verifying"
+  log "merge still refused: merging clean/integration and re-verifying"
   fetch_base
   git -c user.name=siedler-agent -c user.email=Kofi55533@users.noreply.github.com merge -q --no-edit origin/clean/integration \
     || { git merge --abort; sum "$KIND: conflict with the moved base"; break; }
