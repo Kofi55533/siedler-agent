@@ -34,7 +34,8 @@ def code(src, funcs, addr):
         return None
     with open(src / "code.jsonl", "rb") as f:
         f.seek(entry[0])
-        return json.loads(f.read(entry[1]))["c"].replace("\r\n", "\n").strip()
+        c = json.loads(f.read(entry[1])).get("c")  # some records carry only the asm
+    return c.replace("\r\n", "\n").strip() if c else None
 
 
 BINDING_API = """A binding is one file `crates/s5xcheck/src/functions/fn_{low}.rs` (collected by build.rs into
