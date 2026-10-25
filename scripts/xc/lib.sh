@@ -49,7 +49,9 @@ xc_scenarios(){
 # 2026-10-25, against 0 without them), so those calls would go uncompared and the play takes twice as long
 XC_CMDS_SKIP=${XC_CMDS_SKIP-combat}
 xc_cmds(){
-  local stamp; stamp=$(git -C "$S5_REPO" rev-parse HEAD 2>/dev/null)
+  # stamped by the tree of fixtures-gen, not HEAD: a model commit must not rebuild the files under the base's runs, which
+  # worker.sh plays while the model works
+  local stamp; stamp=$(git -C "$S5_REPO" rev-parse HEAD:fixtures-gen 2>/dev/null || git -C "$S5_REPO" rev-parse HEAD 2>/dev/null)
   stamp="$stamp $XC_CMDS_SKIP"
   [ "$(cat "$XC/cmds/stamp" 2>/dev/null)" = "$stamp" ] && return 0
   rm -rf "$XC/cmds"; mkdir -p "$XC/cmds"
@@ -77,7 +79,8 @@ for line in sys.stdin:
 # address per line; each one the scenario calls becomes a kind FN_<address> (counted, compared once it has a binding)
 xc_inventory(){
   python3 -c 'import json,sys;print("\n".join(json.load(open(sys.argv[1]))["addresses"]["A"]))' \
-    "$(dirname "${BASH_SOURCE[0]}")/../scope_classes.json" > "$XC/inventory.txt"
+    "$(dirname "${BASH_SOURCE[0]}")/../scope_classes.json" > "$XC/inventory.txt.$$" \
+    && mv -f "$XC/inventory.txt.$$" "$XC/inventory.txt"   # a run starting meanwhile reads the old or the new file whole
 }
 
 # build the capture tests of the current $S5_REPO checkout (shares recomp/target with the build cache)

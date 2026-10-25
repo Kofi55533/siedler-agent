@@ -110,6 +110,13 @@ hand-written Debug/PartialEq, no removed fields or tests, the importer crates/s5
 extended (when the original's value lives in a native field the importer does not read yet). Do not copy generated code
 from recomp/. Do not commit, push or open PRs; the pipeline verifies and ships your change. Finish when the check is clean."
 
+# the base's full runs of the failing scenarios (verify.sh compares the change against them, 150-600 s of every verdict on
+# 2026-10-25) play while the model works: its rounds mostly wait on the model's API, and at nice 19 the model's own
+# checks keep the cores. The base build and BASE stay fixed for the kind, so every verdict of it reuses them.
+( renice -n 19 "$BASHPID" > /dev/null
+  xc_scenarios | awk -v s=" $(cat "$XC/scenarios-failing.txt") " 'index(s, " "$1" ")' \
+    | XC_BINS=$XC/base-bin/bins.txt xc_runs "$XC/base/full" ) > /dev/null 2>&1 &
+AHEAD=$!
 ok=0
 rounds=0
 for round in $(seq 1 "$ROUNDS"); do
@@ -122,6 +129,8 @@ for round in $(seq 1 "$ROUNDS"); do
       timeout -k 30 "$((ROUND_MIN * 60))" "${args[@]}" "$PROMPT" ) > "$XC/model-$round.log" 2>&1
   log "model round $round exit=$? ($(wc -l < "$XC/model-$round.log") log lines, private)"
   git -C "$S5_REPO" reset -q --soft "$BASE"   # a model commit is folded back into the working change
+  # the base runs write the same per-run files ($XC/{rc,secs}-<scenario>.*) as the verdict's full runs
+  t=$SECONDS; wait "$AHEAD" 2>/dev/null; [ $((SECONDS - t)) -gt 0 ] && log "waited $((SECONDS - t))s for the base's full runs"
   "$D/verify.sh" "$KIND" > "$XC/verify-$round.txt" 2>&1
   sed 's/^/  /' "$XC/verify-$round.txt" | grep -E 'scope|identical|VERDICT|regression|missing|tests|tick|build|timing' | head -14
   if grep -q 'VERDICT PASS' "$XC/verify-$round.txt"; then ok=1; break; fi
