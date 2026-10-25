@@ -197,7 +197,11 @@ import json, sys
 from pathlib import Path
 kinds, out = sys.argv[2].split(","), {}
 for f in sorted(Path(sys.argv[1]).glob("*/*.json")):
-    for kind, g in json.loads(f.read_text())["groups"].items():
+    try:
+        groups = json.loads(f.read_text()).get("groups", {})
+    except (ValueError, AttributeError):
+        continue
+    for kind, g in groups.items():
         if kind in kinds and g.get("examples"):
             out.setdefault(kind, {})[f"{f.parent.name}/{f.stem}"] = g["examples"][:20]
 print(json.dumps(out, indent=1))
