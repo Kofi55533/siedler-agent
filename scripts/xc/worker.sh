@@ -47,7 +47,7 @@ grep -q . "$XC/scenarios-failing.txt" || { sum "$KIND: not failing in the work l
 # small functions to port, each called most in one of this kind's full-run scenarios, join it (claimed for this job)
 # (trial 2026-10-25: 4 functions in one 61-min job, 2 model rounds of ~22 min, against ~18 min per single kind; every
 # kind of a bundle has to pass in the same round, so the default stays at 3)
-KINDS=$(python3 "$D/xc.py" bundle "$WL" "$KIND" "${XC_BUNDLE:-1}" "$XC_NATIVE") && [ -n "$KINDS" ] || KINDS=$KIND
+KINDS=$(python3 "$D/xc.py" bundle "$WL" "$KIND" "$([ -n "${XC_HAND:-}" ] && echo 1 || echo "${XC_BUNDLE:-1}")" "$XC_NATIVE") && [ -n "$KINDS" ] || KINDS=$KIND
 # the companions' own calling scenarios join the kind-only runs (this kind's first, at most 12 in all)
 if [ "$KINDS" != "$KIND" ]; then
   for k in ${KINDS//,/ }; do python3 "$D/xc.py" scenarios "$WL" "$k" | cut -d' ' -f1-9; done \
@@ -153,10 +153,11 @@ from recomp/. Do not commit, push or open PRs; the pipeline verifies and ships y
 AHEAD=$!
 # model <round>: one opencode session turn on $PROMPT (round 1 starts the session, later ones continue it)
 model(){
-  if [ -n "${XC_HAND:-}" ]; then   # trial: the hand-written change of branch $XC_HAND instead of a model session
-    log "model round $1: hand-written change of $XC_HAND"
-    git fetch -q --depth 2 "$AUTH" "+refs/heads/$XC_HAND:refs/remotes/origin/hand" \
-      && git diff origin/hand~1 origin/hand | git apply --3way --index && git reset -q
+  if [ -n "${XC_HAND:-}" ]; then   # trial: the hand-written change of branch claude/hand-<kind> instead of a model session
+    local hand=claude/hand-$(echo "$KIND" | tr 'A-Z_' 'a-z-')
+    log "model round $1: hand-written change of $hand"
+    gh api -H 'Accept: application/vnd.github.diff' "repos/$PROJECT/compare/clean/integration...$hand" \
+      | git apply --3way --index && git reset -q
     log "model round $1 applied: $(git status --short | wc -l) file(s)"
     return
   fi
@@ -178,6 +179,11 @@ for round in $(seq 1 "$ROUNDS"); do
   t=$SECONDS; wait "$AHEAD" 2>/dev/null; [ $((SECONDS - t)) -gt 0 ] && log "waited $((SECONDS - t))s for the base's full runs"
   "$D/verify.sh" "$KINDS" > "$XC/verify-$round.txt" 2>&1
   sed 's/^/  /' "$XC/verify-$round.txt" | grep -E 'scope|identical|VERDICT|regression|missing|tests|tick|build|timing' | head -14
+  if [ -n "${XC_HAND:-}" ]; then   # trial: the verdict's details go to the private data repo, for the hand port
+    cp "$XC/verify-$round.txt" "$XC/hand-$KIND.txt"
+    gh release view xc-hand -R "$XC_DATA" > /dev/null 2>&1 || gh release create xc-hand -R "$XC_DATA" --prerelease -n "hand-port verdicts" > /dev/null 2>&1
+    gh release upload xc-hand -R "$XC_DATA" "$XC/hand-$KIND.txt" --clobber > /dev/null 2>&1 || log "hand: verdict upload failed"
+  fi
   if grep -q 'VERDICT PASS' "$XC/verify-$round.txt"; then ok=1; break; fi
   PROMPT="The pipeline's verification of your change failed:
 $(grep -v '^VERDICT' "$XC/verify-$round.txt" | head -40)

@@ -97,7 +97,7 @@ jobs:
           OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
           GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
           XC_MODEL: ${{ vars.XC_MODEL || 'opencode/deepseek-v4.1-flash-free' }}
-          XC_HAND: claude/hand-fn-4f7962   # trial: verify the hand-written port
+          XC_HAND: '1'   # trial: verify the hand-written ports (branch claude/hand-<kind>)
           L: ${{ vars.XC_WORKERS || (github.repository == 'Kofi55533/siedler-agent' && '14' || '20') }}
           XC_CLAIM_TOKEN: ${{ github.run_id }}/${{ matrix.kind }}   # also tells the scoreboard which kind this job works now
         run: |
@@ -114,7 +114,7 @@ jobs:
             # 0 merged or nothing to do, 1 attempt recorded (not a job failure), 2 infrastructure
             rc=0; XC_BUDGET_MIN=$(( left < 170 ? left : 170 )) scripts/xc/worker.sh "$kind" || rc=$?
             [ $rc = 2 ] && exit 1
-            break   # trial: one kind, so its log is readable now
+            break   # trial: only the given hand-written kinds
             [ $(( 330 - ($(date +%s) - XC_T0) / 60 )) -ge 90 ] || break
             gh release download xc-worklist -R $XC_DATA -D /opt/s5/xc -p worklist.json --clobber || break
             # L + 1: this job's own slot counts too, its last kind's claim is already released (a wave started in that

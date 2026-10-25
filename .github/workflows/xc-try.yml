@@ -1,5 +1,5 @@
 name: xc-try
-# trial branch: one worker job with this branch's scripts on one kind
+# trial branch: worker jobs with this branch's scripts on the hand-written ports (claude/hand-<kind> in the project)
 on:
   push:
     branches: ['claude/xc-hand-trial']
@@ -8,5 +8,5 @@ jobs:
   trial:
     if: contains(github.event.head_commit.message, '[xc-try ')
     uses: ./.github/workflows/xc-worker.yml
-    with: { n: '1', kinds: 'FN_4F7962' }
+    with: { n: '2', kinds: 'FN_49F358,FN_4EC894' }
     secrets: inherit
