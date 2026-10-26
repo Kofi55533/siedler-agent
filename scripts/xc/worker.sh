@@ -165,7 +165,10 @@ model(){
     local hand=claude/hand-$(echo "$KIND" | tr 'A-Z_' 'a-z-')
     log "model round $1: hand-written change of $hand"
     gh api -H 'Accept: application/vnd.github.diff' "repos/$PROJECT/compare/clean/integration...$hand" \
-      | git apply --3way --index && git reset -q
+      | git apply --3way --index
+    # a hand branch behind clean/integration leaves conflict markers that only show up as a failed build: name them
+    local c; c=$(git diff --name-only --diff-filter=U | wc -l); git reset -q
+    [ "$c" -gt 0 ] && log "CONFLICT: $c file(s) of $hand conflict with clean/integration: merge it into $hand"
     log "model round $1 applied: $(git status --short | wc -l) file(s)"
     return
   fi
