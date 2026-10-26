@@ -1,0 +1,24 @@
+name: xc-own-pool
+# An own-repo pool (scripts/xc_own/README.md in Kofi55533/siedler-agent): copy this one file to .github/workflows/ of a
+# repo of the pool account. Unlike pool/xc-pool.yml it writes nothing in a repo of the main account: it reads the work
+# list and code, works in the pool account's private results repo and leaves each passed change there as branch
+# xc/<kind>; the main account imports and re-verifies them (xc-import.yml).
+# Repository variables: XC_OWN_RESULTS (owner/name of the private results repo, required), XC_WORKERS (jobs at once,
+# 1-4, default 3), XC_OWN_PARTITION (default 1/2), XC_DISABLED=true pauses.
+# Secrets: PRIVATE_REPO_TOKEN (read Kofi55533/siedler-sim-rs, -data, -forschung; write the results repo) and
+# OPENCODE_API_KEY.
+on:
+  schedule:
+    - cron: '17 */3 * * *'   # every 3 h: a wave fills only the free slots, a job takes further kinds itself
+  workflow_dispatch:
+jobs:
+  wave:
+    if: vars.XC_DISABLED != 'true'
+    permissions:
+      contents: read
+    uses: Kofi55533/siedler-agent/.github/workflows/xc-own.yml@main
+    with:
+      n: ${{ vars.XC_WORKERS || '3' }}
+    secrets:
+      PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+      OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}

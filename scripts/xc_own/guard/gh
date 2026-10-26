@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# gh for the jobs of an own-repo pool (xc-own.yml puts this directory first on PATH): its token may only read the
+# main account's repos. Any call that could write (a gh api call with a method other than GET or with fields, any
+# other gh command but release download and auth status) passes only for a repo of XC_OWN_OWNER, the pool's account.
+set -uo pipefail
+here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+real=$(PATH=$(tr ':' '\n' <<<"$PATH" | grep -vxF "$here" | paste -sd:) command -v gh) || { echo "gh-guard: no gh" >&2; exit 127; }
+own=${XC_OWN_OWNER:?gh-guard: XC_OWN_OWNER unset}
+refuse(){ local why=$1; shift; echo "gh-guard: refused ($why): gh $*" >&2; exit 1; }
+case "${1:-}" in
+  api)
+    explicit=""; fields=0; path=""; prev=""
+    for a in "${@:2}"; do
+      case "$prev" in
+        -X|--method) explicit=$a; prev=""; continue ;;
+        -f|-F|--field|--raw-field|--input) fields=1; prev=""; continue ;;
+        -H|--header|-q|--jq|-t|--template|--hostname|--cache|-p|--preview) prev=""; continue ;;
+      esac
+      case "$a" in
+        -X?*) explicit=${a#-X} ;;
+        --method=*) explicit=${a#--method=} ;;
+        -f?*|-F?*|--field=*|--raw-field=*|--input=*) fields=1 ;;
+        -*) ;;
+        *) [ -z "$path" ] && path=$a ;;
+      esac
+      prev=$a
+    done
+    # gh api sends a POST when fields are given without -X
+    method=${explicit:-$([ $fields = 1 ] && echo POST || echo GET)}; method=${method^^}; path=${path#/}
+    if [ "$method" != GET ]; then
+      [[ "$path" == "repos/$own/"* ]] || refuse "$method $path is not a repo of $own" "$@"
+    fi ;;
+  release) [ "${2:-}" = download ] || refuse "gh release ${2:-}" "$@" ;;
+  auth) [ "${2:-}" = status ] || refuse "gh auth ${2:-}" "$@" ;;
+  --version|version) ;;
+  *) refuse "gh ${1:-}" "$@" ;;
+esac
+exec "$real" "$@"
