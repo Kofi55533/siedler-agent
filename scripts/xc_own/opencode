@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# Stand-in for the opencode CLI in an import job (import.sh puts this directory first on PATH): worker.sh calls the
+# model for its round, and this "model" applies the pool's passed change ($XC_IMPORT_PATCH) to the working tree
+# instead, once. worker.sh then verifies, commits, opens the PR and merges exactly as for a model's change. A later
+# call (a conflict with a moved base, see resolve() in worker.sh) changes nothing, so such a conflict ends the job.
+case "${1:-}" in --version|-v) echo "xc-own import stand-in"; exit 0 ;; esac
+p=${XC_IMPORT_PATCH:?XC_IMPORT_PATCH unset}
+repo=${XC_IMPORT_REPO:-siedler-sim-rs}   # worker.sh runs the model in $W, where siedler-sim-rs links to the checkout
+if [ -e "$p.applied" ]; then echo "import stand-in: the pool's change is applied already; nothing further"; exit 0; fi
+: > "$p.applied"
+if git -C "$repo" apply --3way --whitespace=nowarn "$p"; then
+  echo "import stand-in: applied the pool's change ($(git -C "$repo" diff HEAD --stat | tail -n 1))"
+else
+  echo "import stand-in: the pool's change does not apply cleanly"; exit 1
+fi
