@@ -1,0 +1,64 @@
+name: xc-hand
+# Hand-written port path (Codex / Opus): verify a siedler-sim-rs branch on the runners with
+# scripts/xc/verify.sh and on VERDICT PASS squash-merge it into clean/integration. The author
+# of the port never runs `gh pr merge`; this workflow owns the merge (same method as worker.sh).
+# Additive: does not change xc-worker / xc-census / xc-watchdog / xc-try / fleet-* behaviour.
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'siedler-sim-rs branch to verify (e.g. xc/fn-57d214)'
+        required: true
+        type: string
+      kinds:
+        description: 'comma-separated kinds (e.g. FN_57D214,FN_57D10D)'
+        required: true
+        type: string
+      pr:
+        description: 'optional existing PR number into clean/integration'
+        required: false
+        default: ''
+        type: string
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+env:
+  XC_PROJECT: ${{ vars.XC_PROJECT || 'Kofi55533/siedler-sim-rs' }}
+  XC_DATA: ${{ vars.XC_DATA || 'Kofi55533/siedler-data' }}
+  XC_AGENT: ${{ vars.XC_AGENT || 'Kofi55533/siedler-agent' }}
+jobs:
+  hand:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - name: Job start
+        run: echo "XC_T0=$(date +%s)" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4
+        with: { repository: '${{ env.XC_AGENT }}', ref: "${{ github.repository == 'Kofi55533/siedler-agent' && github.sha || 'main' }}" }
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - name: Setup game data, toolchain, build cache (quiet)
+        env: { T: '${{ secrets.PRIVATE_REPO_TOKEN }}', GIT_LFS_SKIP_SMUDGE: '1' }
+        run: |
+          scripts/s5-setup.sh clean/integration 1
+          echo "W=$RUNNER_TEMP/work" >> "$GITHUB_ENV"
+          # no credential stays in a checkout scripts push with GH_TOKEN explicitly
+          git -C /opt/s5/siedler-sim-rs remote set-url origin "https://github.com/$XC_PROJECT.git"
+          mkdir -p /opt/s5/xc && GH_TOKEN=$T gh release download xc-worklist -R $XC_DATA -D /opt/s5/xc -p worklist.json --clobber
+      - name: Verify and merge ${{ inputs.kinds }} from ${{ inputs.ref }}
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          XC_CLAIM_TOKEN: ${{ github.run_id }}/hand-${{ inputs.ref }}
+          REF: ${{ inputs.ref }}
+          KINDS: ${{ inputs.kinds }}
+          PR: ${{ inputs.pr }}
+        run: |
+          # 0 merged / already identical, 1 verify FAIL (commented), 2 infrastructure
+          rc=0
+          if [ -n "$PR" ]; then scripts/xc/hand.sh "$REF" "$KINDS" "$PR" || rc=$?
+          else scripts/xc/hand.sh "$REF" "$KINDS" || rc=$?; fi
+          echo "hand exit=$rc after $(( ($(date +%s) - XC_T0) / 60 )) min" | tee -a "$GITHUB_STEP_SUMMARY"
+          [ $rc = 2 ] && exit 1
+          [ $rc = 1 ] && exit 1
+          exit 0
