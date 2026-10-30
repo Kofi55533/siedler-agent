@@ -8,5 +8,5 @@ jobs:
   trial:
     if: contains(github.event.head_commit.message, '[xc-try ')
     uses: ./.github/workflows/xc-worker.yml
-    with: { n: '1', kinds: 'FN_4B45C8,FN_4B442C' }
+    with: { n: '1', kinds: 'FN_447B43,FN_44738E,FN_4501C3,FN_4511E5,FN_450C4E,FN_450490,FN_44F23B,FN_44CF45' }
     secrets: inherit
