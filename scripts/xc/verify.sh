@@ -56,6 +56,13 @@ xc_scenarios | awk -v s=" $FULL " 'index(s, " "$1" ")' | xc_runs "$XC/new/full" 
 xc_scenarios | awk -v s=" $(cat "$XC/scenarios-all.txt") " -v f=" $FULL " 'index(s, " "$1" ") && !index(f, " "$1" ")' \
   | xc_runs "$XC/new/only" "$KIND"
 wait
+# where a full run lost points (a panic, a timeout): its excerpt for a hand trial's private verdict (worker.sh), kept
+# before a base run of the same scenario reuses the log name; never printed here, the job log is public
+for n in $FULL; do
+  grep -h -B2 -A8 -E "panicked at|has overflowed|Segmentation|no result in" "$XC/run-$n.log" 2> /dev/null | head -n 40 \
+    > "$XC/new/full/$n.crash" || :
+  [ -s "$XC/new/full/$n.crash" ] || rm -f "$XC/new/full/$n.crash"
+done
 t2=$(date +%s)
 # where the run time goes (counts only): the full runs play every point, the kind-only runs one
 secs(){ ls "$XC"/secs-* 2>/dev/null | grep -E "$@" | xargs -r cat | sort -n \
