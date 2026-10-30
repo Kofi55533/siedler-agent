@@ -32,7 +32,9 @@ jobs:
   pick:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    concurrency: { group: xc-pick, cancel-in-progress: false }
+    # a run with given kinds claims them without the work-list pick, so it needs no serialization: its own group keeps
+    # a newer pending pick from replacing it (GitHub keeps one pending job per group)
+    concurrency: { group: "${{ inputs.kinds != '' && format('xc-pick-{0}', github.run_id) || 'xc-pick' }}", cancel-in-progress: false }
     outputs:
       kinds: ${{ steps.p.outputs.kinds }}
     steps:

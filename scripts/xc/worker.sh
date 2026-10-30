@@ -84,8 +84,11 @@ FULL_TURNS=$XC_TURNS; export XC_TURNS=$XC_TURNS_SHORT
 base_only
 if [ -n "$BIND" ] && [ ! -f "$BIND" ]; then
   [ "$(shows entries)" -gt 0 ] || export XC_TURNS=$FULL_TURNS
-  # a bundled function the short play does not call leaves the bundle (its verdict would need the full length)
-  if [ "$XC_TURNS" != "$FULL_TURNS" ] && [ "$KINDS" != "$KIND" ]; then
+  # a bundled function the short play does not call leaves the bundle (its verdict would need the full length); a hand
+  # trial keeps it and plays the full length instead, since the scope check admits only the bundle's binding files
+  if [ "$XC_TURNS" != "$FULL_TURNS" ] && [ "$KINDS" != "$KIND" ] && [ -n "${XC_HAND:-}" ]; then
+    for k in ${KINDS//,/ }; do [ "$(shows entries "$k")" -gt 0 ] || { export XC_TURNS=$FULL_TURNS; break; }; done
+  elif [ "$XC_TURNS" != "$FULL_TURNS" ] && [ "$KINDS" != "$KIND" ]; then
     keep=$KIND; for k in ${KINDS//,/ }; do
       [ "$k" = "$KIND" ] && continue
       if [ "$(shows entries "$k")" -gt 0 ]; then keep=$keep,$k; else unclaim "$k"; fi
