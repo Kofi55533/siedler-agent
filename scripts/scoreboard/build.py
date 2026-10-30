@@ -1063,7 +1063,7 @@ def fleet_v2():
 # at the original's real calls; workers are the fix jobs of
 # xc-worker.yml runs, one job per slot working failing kinds one after another, in the main repo and in pool repos of other accounts that call the same
 # reusable workflow. A slot is a job, not a run. Kinds are tracked by open `[xc] KIND` issues (label xc-kind) in PUB.
-XC_POOLS = [(PUB, "Kofi55533", "XC_WORKERS", 14), ("Dominickofi00/siedler-agent", "Dominickofi00", "XC_POOL_WORKERS", 20)]
+XC_POOLS = [(PUB, "Kofi55533", "XC_WORKERS", 10), ("Dominickofi00/siedler-agent", "Dominickofi00", "XC_POOL_WORKERS", 20)]
 XC_RUNS = ("xc-worker.yml", "xc-pool.yml")
 XC_DATA = "Kofi55533/siedler-data"
 XC_CLAIM_H, XC_ATTEMPTS = 7, 3  # scripts/xc/xc.py CLAIM_H, ATTEMPTS
@@ -1323,6 +1323,11 @@ def overview(data, merges):
     def add(sev, title, detail, todo):
         att.append({"severity": sev, "title": title, "detail": detail, "todo": todo})
     xc = data.get("xc")
+    xf = ((xc or {}).get("worklist") or {}).get("functions") or {}
+    if xf:  # the census verdict (xc.py fn_state: done + covered) replaces the frozen autonomy_v2 count of class A
+        for c in scope:
+            if c["key"] == "A":
+                c["done"] = xf.get("done", 0) + xf.get("covered", 0)
     old = not xc  # the domain-package fleet (tickets, gate, integration) retired 2026-10-23; its warnings only without xc
     hold = (v2.get("domain") or {}).get("provider_hold")
     if hold and old:
@@ -1754,17 +1759,20 @@ def main():
     p8 = next((c["done"] for c in goal.get("scope") or [] if c["key"] == "A"), None)
     xwl = (data.get("xc") or {}).get("worklist") or {}
     p9, p10 = (xwl.get("calls") or {}).get("pct"), xwl.get("sha")
+    xf = xwl.get("functions") or {}  # executed class-A functions identical (done + covered) / executed at all
+    p11, p12 = (xf.get("done", 0) + xf.get("covered", 0), sum(xf.values())) if xf else (None, None)
     last = hist[-1] if hist else {}
     if (not hist or last.get("key") != key or last.get("pct_identical") != p1 or last.get("pct_coverage") != p2
             or last.get("pct_whole_logic") != p3 or last.get("maps_tested") != p5 or last.get("commands_tested") != p6
             or (p7 is not None and (last.get("integrated") != p7 or last.get("integrated_a") != p8))
-            or (p10 and (last.get("xc_sha") != p10 or last.get("xc_pct") != p9))):
+            or (p10 and (last.get("xc_sha") != p10 or last.get("xc_pct") != p9))
+            or (p11 is not None and (last.get("fn_ok") != p11 or last.get("fn_run") != p12))):
         hist.append({"key": key, "time": data["percent"]["identical_turns"].get("as_of"),
                      "matrix_time": data["matrix_source"]["time"] if data["matrix_source"] else None,
                      "sha": data["matrix_source"]["sha"] if data["matrix_source"] else None,
                      "recorded": data["generated_berlin"], "pct_identical": p1, "pct_coverage": p2,
                      "pct_whole_logic": p3, "pct_whole_raw": p4, "maps_tested": p5, "commands_tested": p6,
-                     "integrated": p7, "integrated_a": p8, "xc_pct": p9, "xc_sha": p10,
+                     "integrated": p7, "integrated_a": p8, "xc_pct": p9, "xc_sha": p10, "fn_ok": p11, "fn_run": p12,
                      "xc_scenarios": {x["name"]: [x["samples"], x["failing"]] for x in xwl.get("scenarios") or []},
                      "values": {r["name"]: {"turn": r["turn"], "identical": r["identical"]} for r in rows if r["measured"]}})
     data["history"] = hist[-200:]

@@ -265,6 +265,21 @@ behaviour and yours. Change nothing else, do not commit; run $W/check and finish
   git rev-parse -q --verify MERGE_HEAD > /dev/null || return 1   # the model committed or aborted the merge itself
   git add -- $files && git -c user.name=siedler-agent -c user.email=Kofi55533@users.noreply.github.com commit -q --no-edit
 }
+# a moved base can hold a change that compiles alone but not beside this one (2026-10-25: #1344 and #1345 each added the
+# same World method, and clean/integration stopped compiling for every job and census): the merge result's s5clean has
+# to compile first (cargo check of the library and its tests, its own target directory: ~1 min, incremental after)
+compiles_on_base(){
+  local rc=0
+  fetch_base
+  [ "$(git rev-parse origin/clean/integration)" = "$BASE" ] && return 0
+  git -c user.name=siedler-agent -c user.email=Kofi55533@users.noreply.github.com merge -q --no-commit --no-ff \
+    origin/clean/integration > /dev/null 2>&1 || { git merge --abort 2>/dev/null; log "conflict with the moved base"; return 1; }
+  CARGO_TARGET_DIR=$XC/check-target timeout 900 cargo check -q --tests -j "${CARGO_BUILD_JOBS:-3}" \
+    --manifest-path crates/s5clean/Cargo.toml > "$XC/merge-check.log" 2>&1 || rc=1
+  git merge --abort
+  [ $rc = 0 ] || log "the merge with the moved base does not compile ($(grep -c '^error' "$XC/merge-check.log") errors)"
+  return $rc
+}
 for try in 1 2; do
   git push -q -f "$AUTH" "HEAD:refs/heads/$BR" || exit 2
   pr=$(gh api "repos/$PROJECT/pulls?state=open&head=${PROJECT%%/*}:$BR" --jq '.[0].number // empty')
@@ -275,7 +290,7 @@ for try in 1 2; do
 $(grep -vE '^VERDICT' "$XC/verify-$round.txt" | head -20)
 \`\`\`" --jq .number)
   [ -n "$pr" ] || exit 2
-  if merge_pr "$pr"; then
+  if compiles_on_base && merge_pr "$pr"; then
     sum "$KINDS: merged $PROJECT#$pr"; MERGED=1
     for k in ${KINDS//,/ }; do python3 "$D/xc.py" issue "$k" merged "$(wl_sha)"; done
     # no census per merge (it held 8 of the 20 job slots without pause): the watchdog's next census, at most 30 min
@@ -283,7 +298,7 @@ $(grep -vE '^VERDICT' "$XC/verify-$round.txt" | head -20)
     exit 0
   fi
   [ $try = 2 ] && break
-  log "merge still refused: merging clean/integration and re-verifying"
+  log "not merged: merging clean/integration and re-verifying"
   fetch_base
   git -c user.name=siedler-agent -c user.email=Kofi55533@users.noreply.github.com merge -q --no-edit origin/clean/integration \
     || resolve || { git merge --abort; sum "$KINDS: conflict with the moved base"; break; }

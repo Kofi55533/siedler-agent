@@ -32,6 +32,7 @@
                                       the lines of shard i of n: with XC_WEIGHTS (JSON scenario -> run seconds of the
                                       previous census) the heaviest first onto the lightest shard, else every n-th line
   xc.py branch <kind>                 the fix branch of a kind
+  xc.py trial-waiting                 exit 0 while an xc-try run of the main repo waits for a job slot
   xc.py issue <kind> <op> [sha]       tracking issue of a kind: claim | unclaim | attempt <census sha> |
                                       merged <census sha> | close
 
@@ -259,6 +260,24 @@ def jobs(issues, now, pool=None):
     return len({c[3] if len(c) > 3 else i for i, c in enumerate(live)})
 
 
+def trial_waiting(repo=None):
+    """a hand or ref trial (xc-try.yml) of the main account waits for a job slot: the fleet makes way for it (the
+    watchdog starts no wave, a worker job takes no further kind), so a trial never queues behind the fix jobs"""
+    rs = (gh(f"repos/{repo or AGENT}/actions/workflows/xc-try.yml/runs?per_page=20") or {}).get("workflow_runs", [])
+    now = time.time()
+    for r in rs:
+        # a push without the trial tag skips its job within seconds; a young run is not yet known to wait
+        if now - datetime.fromisoformat(r["created_at"].replace("Z", "+00:00")).timestamp() < 60:
+            continue
+        if r["status"] in ("queued", "waiting", "pending", "requested"):
+            return True
+        if r["status"] == "in_progress":
+            js = (gh(f"repos/{repo or AGENT}/actions/runs/{r['id']}/jobs?per_page=50") or {}).get("jobs", [])
+            if any(j["status"] in ("queued", "waiting", "pending", "requested") for j in js):
+                return True
+    return False
+
+
 def tracking():
     """open tracking issues: kind -> (number, body)"""
     out = {}
@@ -380,9 +399,22 @@ def small_port(kind, k, ins):
     return kind.startswith("FN_") and fn_state(k) == "port" and 0 < ins.get(int(address(kind) or "0", 16), 0) <= BUNDLE_INS
 
 
+def late(name):
+    """a later window of the bc recording (lib.sh XC_BC_WINDOWS): the native replay of the skipped turns costs every run
+    of it 145-403 s (probe 2026-10-25), so a job plays one only for a kind that no other scenario shows"""
+    return name.startswith("bc-")
+
+
+def cheap(names):
+    """names without the late bc windows, or all of them when nothing else is left"""
+    return [n for n in names if not late(n)] or names
+
+
 def calling(k):
-    """the scenarios that call an unbound function, the most calls first (the order of scenarios())"""
-    return [name for name, v in sorted(k["scenarios"].items(), key=lambda kv: (-kv[1]["entries"], kv[0])) if v["entries"]]
+    """the scenarios that call an unbound function, the most calls first (the order of scenarios()), the late bc windows
+    only when no other scenario calls it"""
+    return cheap([name for name, v in sorted(k["scenarios"].items(), key=lambda kv: (-kv[1]["entries"], kv[0]))
+                  if v["entries"]])
 
 
 def bundle(worklist, kind, n, native):
@@ -409,11 +441,16 @@ def scenarios(worklist, kind, only_failing=False):
     """a function without binding yet: the scenarios that call it, the most calls first (all of them its work)"""
     k = load(worklist)["kinds"].get(kind, {"scenarios": {}})
     if k.get("unbound"):
-        items = sorted(k["scenarios"].items(), key=lambda kv: (-kv[1]["entries"], kv[0]))
-        print(" ".join(name for name, v in items if v["entries"]))
+        print(" ".join(calling(k)))
         return
     items = sorted(k["scenarios"].items(), key=lambda kv: (-kv[1]["failing"], kv[0]))
-    print(" ".join(name for name, v in items if v["samples"] and (v["failing"] or not only_failing)))
+    failing = cheap([name for name, v in items if v["samples"] and v["failing"]])
+    clean = [name for name, v in items if v["samples"] and not v["failing"]]
+    # a late bc window joins only when the kind shows in no other scenario: a merge that breaks one is reverted by the
+    # next census like any other regression, and a kind failing only there is picked again with it
+    if any(not late(n) for n in failing + clean):
+        clean = [n for n in clean if not late(n)]
+    print(" ".join(failing if only_failing else failing + clean))
 
 
 def suspect(wk, scen, groups, kinds):
@@ -552,6 +589,8 @@ def main(argv):
         print("".join(l + "\n" for l in shard(int(argv[2]), int(argv[3]), [l.rstrip("\n") for l in sys.stdin if l.strip()], w)), end="")
     elif cmd == "branch":
         print(branch(argv[2]))
+    elif cmd == "trial-waiting":
+        return 0 if trial_waiting() else 1
     else:
         raise SystemExit(__doc__)
     return 0

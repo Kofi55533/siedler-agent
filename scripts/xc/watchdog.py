@@ -99,8 +99,9 @@ def main():
     queued = [r for r in runs("xc-worker.yml") if r["status"] in ("queued", "waiting", "pending", "requested")]
     busy = xc.jobs(xc.tracking(), now, R)  # this repo's slots only (a job's bundle shares one claim token)
     limit = int(os.environ.get("XC_WORKERS") or 20)
-    print(f"{len(kinds)} kinds pickable, {busy} claimed, {len(queued)} waves queued")
-    if kinds and not queued and busy < limit:
+    trial = R == MAIN and xc.trial_waiting()  # a waiting xc-try trial goes first: no wave queues ahead of it
+    print(f"{len(kinds)} kinds pickable, {busy} claimed, {len(queued)} waves queued, trial waiting: {trial}")
+    if kinds and not queued and not trial and busy < limit:
         dispatch("xc-worker.yml", n=limit - busy)
 
     if R == MAIN and kinds:

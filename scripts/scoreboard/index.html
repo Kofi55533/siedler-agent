@@ -245,10 +245,10 @@ fetch("data.json?t="+NOW).then(r=>r.json()).then(d=>{
   const inv=goal.inventory||1,S=goal.scope||[];
   const col={A:["var(--s1)","var(--s1-soft)"],B:["var(--neutral)","var(--neutral)"],C:["var(--neutral2)","var(--neutral2)"],D:["var(--track)","var(--track)"]};
   let st="";for(const c of S){const done=c.key==="A"?c.done:0;
-    if(done)st+=`<i style="width:${100*done/inv}%;min-width:3px;background:${col.A[0]}" data-tip="Simulation: <b>${fmt(done)}</b> integriert"></i>`;
+    if(done)st+=`<i style="width:${100*done/inv}%;min-width:3px;background:${col.A[0]}" data-tip="Simulation: <b>${fmt(done)}</b> geprüft identisch"></i>`;
     st+=`<i style="flex:${(c.total-done)/inv} 1 0;background:${col[c.key][1]}" data-tip="${esc(c.label)}: ${fmt(c.total-(done||0))} Funktionen ${c.key==="A"?"offen":"– "+esc(c.what)}"></i>`;}
   $("stack").innerHTML=st;
-  $("stackleg").innerHTML=`<span><i class="sw" style="background:var(--s1)"></i>Simulation integriert</span><span><i class="sw" style="background:var(--s1-soft)"></i>Simulation offen</span><span><i class="sw" style="background:var(--neutral)"></i>Darstellung (später)</span><span><i class="sw" style="background:var(--neutral2)"></i>Bibliotheken (ersetzt)</span><span><i class="sw" style="background:var(--track);border:1px solid var(--line)"></i>Online (entfällt)</span>`;
+  $("stackleg").innerHTML=`<span><i class="sw" style="background:var(--s1)"></i>Simulation geprüft identisch</span><span><i class="sw" style="background:var(--s1-soft)"></i>Simulation offen</span><span><i class="sw" style="background:var(--neutral)"></i>Darstellung (später)</span><span><i class="sw" style="background:var(--neutral2)"></i>Bibliotheken (ersetzt)</span><span><i class="sw" style="background:var(--track);border:1px solid var(--line)"></i>Online (entfällt)</span>`;
   $("classes").innerHTML=S.map(c=>`<div class="cls"><div class="t"><span><b>${esc(c.key)} · ${esc(c.label)}</b>${c.now?`<span class="tag">jetzt dran</span>`:""}</span><span class="num mute">${fmt(c.done)} / ${fmt(c.total)}</span></div>
      <div class="meter" style="margin-top:5px"><i style="width:${c.total?Math.max(c.done?1:0,100*c.done/c.total):0}%;background:${c.now?"var(--s1)":"var(--neutral)"}"></i></div>
      <div class="w">${esc(c.what)}</div></div>`).join("");
@@ -310,11 +310,18 @@ fetch("data.json?t="+NOW).then(r=>r.json()).then(d=>{
      <div class="meter"><i style="width:${100*c.count/rmax}%;background:var(--s1)"></i></div><div class="f">${esc(c.fix)}</div></div>`).join(""):`<div class="mute small">Nichts in Nacharbeit.</div>`;
 
   // charts
-  const hk=XW?"xc_pct":"pct_identical";
-  if(XW){$("ch1h").textContent="Gleiche Aufrufe";$("ch1s").textContent="Anteil der verglichenen Aufrufe aller Szenarien, die exakt wie im Original laufen (je Messung).";}
-  const hp=(d.history||[]).filter(x=>x[hk]!=null&&x.recorded).map(x=>({t:berlin(x.recorded),v:x[hk],label:esc(x.recorded)})).filter(p=>!isNaN(p.t));
-  const f1=(v,dd)=>v.toLocaleString("de-DE",{maximumFractionDigits:dd||0})+" %";
-  $("ch1").innerHTML=lineChart(hp,{fmtY:f1});wireCross($("ch1"),hp,100);
+  const hpts=k=>(d.history||[]).filter(x=>x[k]!=null&&x.recorded).map(x=>({t:berlin(x.recorded),v:x[k],label:esc(x.recorded)})).filter(p=>!isNaN(p.t));
+  const fo=hpts("fn_ok");
+  if(XW&&fo.length>=2){ // the main measure: executed class-A functions identical (done + covered), per census
+    const mx=Math.max(500,Math.ceil(Math.max(...fo.map(p=>p.v))*1.25/500)*500);
+    $("ch1h").textContent="Funktionen identisch";$("ch1s").textContent=`Simulations-Funktionen, die an echten Aufrufen gleich wie im Original laufen (selbst geprüft + mit abgedeckt), je Messung; Ziel ${fmt(A.total)}.`;
+    $("ch1").innerHTML=lineChart(fo,{fmtY:v=>fmt(Math.round(v)),max:mx});wireCross($("ch1"),fo,mx);
+  }else{
+    const hk=XW?"xc_pct":"pct_identical",hp=hpts(hk);
+    if(XW){$("ch1h").textContent="Gleiche Aufrufe";$("ch1s").textContent="Anteil der verglichenen Aufrufe aller Szenarien, die exakt wie im Original laufen (je Messung).";}
+    const f1=(v,dd)=>v.toLocaleString("de-DE",{maximumFractionDigits:dd||0})+" %";
+    $("ch1").innerHTML=lineChart(hp,{fmtY:f1});wireCross($("ch1"),hp,100);
+  }
   $("ch2").innerHTML=barChart(ig.per_day||[]);
 
   $("recent").innerHTML=(ig.recent||[]).length?ig.recent.map(m=>`<li><span>${m.pr?`<a href="${esc(m.url)}">#${m.pr}</a> `:""}${(m.title?esc(stripSub(m.title)):`<span class="mute">Einzel-Merge über das Gate</span>`)}</span><span class="r">${ago(Date.parse(m.time))}</span></li>`).join(""):`<li class="mute">In den letzten 14 Tagen nichts integriert.</li>`;
@@ -323,7 +330,7 @@ fetch("data.json?t="+NOW).then(r=>r.json()).then(d=>{
   if(XW){
     $("xcsc").hidden=false;
     $("xcsum").textContent=`· ${XS.filter(x=>!x.failing).length} von ${XS.length} identisch · Stand ${XW.sha}${XW.partial?" (unvollständig)":""}`;
-    $("xcrows").innerHTML=XS.map(x=>{const f=x.samples?(x.samples-x.failing)/x.samples:0;return`<tr><td class="nm">${esc(x.name)}</td>
+    $("xcrows").innerHTML=XS.map(x=>{const f=x.samples?(x.samples-x.failing)/x.samples:0;return`<tr><td class="nm">${esc(x.name)}${/^bc-\d+$/.test(x.name)?`<div class="small mute">BC-Aufnahme ab Zug ${fmt(+x.name.slice(3))}</div>`:""}</td>
       <td>${!x.samples?`<span class="st"><span class="dot info"></span>nichts verglichen</span>`:x.failing?`<span class="st"><span class="dot warning"></span>weicht ab</span> <span class="small mute">${x.kinds_failing} Art${x.kinds_failing==1?"":"en"}</span>`:`<span class="st"><span class="dot good"></span>Identisch</span>`}</td>
       <td class="prog"><div class="meter" data-tip="${esc(x.name)}: ${x.samples-x.failing} von ${x.samples} Aufrufen gleich"><i style="width:${100*f}%;background:${x.failing?"var(--s1)":"var(--good)"}"></i></div>
         <div class="small mute num">${fmt(x.samples-x.failing)} von ${fmt(x.samples)}</div></td>
