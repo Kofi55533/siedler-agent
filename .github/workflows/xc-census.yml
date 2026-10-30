@@ -22,9 +22,9 @@ env:
   XC_PROJECT: ${{ vars.XC_PROJECT || 'Kofi55533/siedler-sim-rs' }}
   XC_DATA: ${{ vars.XC_DATA || 'Kofi55533/siedler-data' }}
   XC_AGENT: ${{ vars.XC_AGENT || 'Kofi55533/siedler-agent' }}
-  # 10 shards of ~3 scenarios: the account's 20 job slots are split 10 for the census and 10 for the fix jobs
-  # (XC_WORKERS), so a census runs at once and in ~1/3 of the 4-shard time (its ~4 min setup per shard aside)
-  SHARDS: '10'
+  # 16 shards of ~2 scenarios: the main account runs no fix jobs (XC_WORKERS 0), so the census takes 16 of its 20 job
+  # slots and the other 4 stay free for trials, hand runs, the watchdog and the scoreboard
+  SHARDS: '16'
 jobs:
   pin:
     # every shard measures the same commit, even when clean/integration moves during the census
@@ -53,7 +53,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
