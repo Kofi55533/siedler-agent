@@ -39,5 +39,5 @@ jobs:
           GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
           DISPATCH_TOKEN: ${{ github.token }}
           R: ${{ github.repository }}
-          XC_WORKERS: ${{ vars.XC_WORKERS || (github.repository == 'Kofi55533/siedler-agent' && '10' || '20') }}
+          XC_WORKERS: ${{ vars.XC_WORKERS || (github.repository != 'Kofi55533/siedler-agent' && '20' || '0') }}
         run: python3 scripts/xc/watchdog.py
