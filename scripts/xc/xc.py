@@ -593,8 +593,10 @@ def check(base, new, kind, worklist=None, full=None):
         # the groups come from the original's side, so one that vanished means its capture run crashed, unless all
         # of its calls ran inside the newly bound kinds: a sampled call runs to its return in one piece (capture.rs
         # capture_bound), so the functions called only there are not entered (2026-10-31: 4A5D06 under the one
-        # sampled call of 4CA90E in wsecon)
-        inside = set(kinds)
+        # sampled call of 4CA90E in wsecon); a branch can bind more kinds than the ones it names (2026-10-31: the
+        # AI pass 444C9C bound beside 44CF45 hid 57 callees in ai-builds-oldkings)
+        inside = set(kinds) | {other for other, g in ng.items()
+                               if not g.get("unbound") and bg.get(other, {}).get("unbound", True)}
         while True:
             more = {other for other, g in bg.items() if other not in ng and other not in inside and g.get("callers")
                     and all(c in inside for c in g["callers"])}
