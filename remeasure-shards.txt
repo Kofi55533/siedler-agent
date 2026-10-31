@@ -1,1 +1,2 @@
 map-frontiercompanions campaign-01-newbeginning campaign-01-restoringthefaith
+campaign-08-unexploredland map-winterrealm map-arcanum gen-attack-pos
