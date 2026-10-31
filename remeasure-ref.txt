@@ -1,1 +1,1 @@
-claude/lua-default
+clean/integration
