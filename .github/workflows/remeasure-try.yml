@@ -1,7 +1,8 @@
 name: remeasure-try
 # push-triggered scenario re-measure (gate-baseline remeasure without workflow_dispatch rights): each line of
 # remeasure-shards.txt is one job, a space-separated fixture list measured live on clean/integration (s5-remeasure.sh;
-# the log names only fixtures and turn numbers). No board post: the results are read from the job logs.
+# the log names only fixtures and turn numbers). No board post: the results are read from the job logs; the first
+# diverging fields of each scenario go to the private siedler-data release xc-hand (live-<fixture>.txt), never to a log.
 on:
   push:
     branches: ['claude/remeasure-try']
@@ -27,7 +28,21 @@ jobs:
         with: { python-version: '3.11' }
       - name: Setup (quiet)
         env: { T: '${{ secrets.PRIVATE_REPO_TOKEN }}' }
-        run: scripts/s5-setup.sh codex/clean-commands 1
+        run: scripts/s5-setup.sh clean/integration 1
       - name: Re-measure on clean/integration (no LLM)
         env: { GH_TOKEN: '${{ secrets.PRIVATE_REPO_TOKEN }}', FX: '${{ matrix.fx }}', S5_REMEASURE_BOARD: '0' }
         run: S5_LIVE_TIMEOUT=3600 timeout 130m scripts/s5-remeasure.sh $FX
+      - name: Upload divergence details (private release, nothing printed)
+        if: always()
+        env: { GH_TOKEN: '${{ secrets.PRIVATE_REPO_TOKEN }}', FX: '${{ matrix.fx }}' }
+        run: |
+          source scripts/s5-env.sh; mkdir -p /tmp/up; n=0
+          for x in $FX; do
+            l=$S5/live/$x.log; o=/tmp/up/live-$x.txt
+            { echo "fixture $x on clean/integration @$(git -C $S5_REPO rev-parse --short=10 HEAD)"
+              if [ -f "$l" ]; then grep -m2 "clean image import\|^Error\|panicked" "$l"
+                grep -m1 -A42 -E ": (DIVERGENT|IDENTICAL)" "$l" || tail -n 20 "$l"
+              else echo "no live log (not installable?)"; grep -m3 "^$x:" $S5/remeasure/install.txt; fi
+            } > "$o" 2>/dev/null || true; n=$((n+1))
+          done
+          gh release upload xc-hand -R Kofi55533/siedler-data --clobber /tmp/up/live-*.txt > /dev/null 2>&1 && echo "uploaded $n" || echo "upload failed ($n files)"
