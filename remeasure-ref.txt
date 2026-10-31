@@ -1,1 +1,1 @@
-claude/lua-nb2
+claude/lua-nb2-trace
