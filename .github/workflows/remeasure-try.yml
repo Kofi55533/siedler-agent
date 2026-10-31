@@ -1,0 +1,33 @@
+name: remeasure-try
+# push-triggered scenario re-measure (gate-baseline remeasure without workflow_dispatch rights): each line of
+# remeasure-shards.txt is one job, a space-separated fixture list measured live on clean/integration (s5-remeasure.sh;
+# the log names only fixtures and turn numbers). No board post: the results are read from the job logs.
+on:
+  push:
+    branches: ['claude/remeasure-try']
+permissions: { contents: read }
+jobs:
+  shards:
+    runs-on: ubuntu-latest
+    outputs: { list: '${{ steps.s.outputs.list }}' }
+    steps:
+      - uses: actions/checkout@v4
+      - id: s
+        run: echo "list=$(grep -v '^#' remeasure-shards.txt | grep . | jq -R . | jq -sc .)" >> "$GITHUB_OUTPUT"
+  remeasure:
+    needs: shards
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix: { fx: '${{ fromJSON(needs.shards.outputs.list) }}' }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - name: Setup (quiet)
+        env: { T: '${{ secrets.PRIVATE_REPO_TOKEN }}' }
+        run: scripts/s5-setup.sh codex/clean-commands 1
+      - name: Re-measure on clean/integration (no LLM)
+        env: { GH_TOKEN: '${{ secrets.PRIVATE_REPO_TOKEN }}', FX: '${{ matrix.fx }}', S5_REMEASURE_BOARD: '0' }
+        run: S5_LIVE_TIMEOUT=3600 timeout 130m scripts/s5-remeasure.sh $FX

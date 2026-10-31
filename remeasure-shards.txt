@@ -1,0 +1,2 @@
+castrum 01-thalgrund colorsofbelief map-arcanum gen-serf-repair
+ai-builds-active genb-abilities gen-sabotage-bomb gen-leader-aggressive combat-big
