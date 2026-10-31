@@ -48,7 +48,7 @@ jobs:
             { echo "fixture $x on $ref @$(git -C $S5_REPO rev-parse --short=10 HEAD)"
               if [ -f "$l" ]; then grep -m2 "clean image import\|^Error\|panicked" "$l"
                 grep -m1 -A42 -E ": (DIVERGENT|IDENTICAL)" "$l" || tail -n 20 "$l"
-                grep "^trace " "$l" | tail -n 300
+                grep "^trace " "$l" | tail -n 300; grep "^dbg " "$l" | tail -n 400
               else echo "no live log (not installable?)"; grep -m3 "^$x:" $S5/remeasure/install.txt; fi
             } > "$o" 2>/dev/null || true; n=$((n+1))
           done

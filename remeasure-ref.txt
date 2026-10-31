@@ -1,2 +1,1 @@
-# siedler-sim-rs branch to measure (default clean/integration)
-claude/live-trace
+claude/clean-debug-trace
