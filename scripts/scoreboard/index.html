@@ -311,8 +311,12 @@ fetch("data.json?t="+NOW).then(r=>r.json()).then(d=>{
 
   // charts
   const hpts=k=>(d.history||[]).filter(x=>x[k]!=null&&x.recorded).map(x=>({t:berlin(x.recorded),v:x[k],label:esc(x.recorded)})).filter(p=>!isNaN(p.t));
-  const fo=hpts("fn_ok");
-  if(XW&&fo.length>=2){ // the main measure: executed class-A functions identical (done + covered), per census
+  const fd=hpts("fn_done"),fo=hpts("fn_ok");
+  if(XW&&fd.length>=2){ // the progress measure: ported (bound) functions identical at their real calls, grows with each merge
+    const mx=Math.max(500,Math.ceil(Math.max(...fd.map(p=>p.v))*1.25/500)*500),lo=fo.length?fo[fo.length-1].v:null;
+    $("ch1h").textContent="Funktionen nachgebaut";$("ch1s").textContent=`Simulations-Funktionen mit eigener Rust-Version, die an echten Aufrufen gleich wie im Original laufen, je Messung${lo!=null?`; mit den mit abgedeckten zusammen ${fmt(lo)} identisch`:""}; Ziel ${fmt(A.total)}.`;
+    $("ch1").innerHTML=lineChart(fd,{fmtY:v=>fmt(Math.round(v)),max:mx});wireCross($("ch1"),fd,mx);
+  }else if(XW&&fo.length>=2){ // the main measure: executed class-A functions identical (done + covered), per census
     const mx=Math.max(500,Math.ceil(Math.max(...fo.map(p=>p.v))*1.25/500)*500);
     $("ch1h").textContent="Funktionen identisch";$("ch1s").textContent=`Simulations-Funktionen, die an echten Aufrufen gleich wie im Original laufen (selbst geprüft + mit abgedeckt), je Messung; Ziel ${fmt(A.total)}.`;
     $("ch1").innerHTML=lineChart(fo,{fmtY:v=>fmt(Math.round(v)),max:mx});wireCross($("ch1"),fo,mx);
