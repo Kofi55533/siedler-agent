@@ -89,6 +89,26 @@ class BundleTest(unittest.TestCase):
         self.assertEqual(rc, 1, out)
 
 
+    def test_callee_of_a_new_binding_is_no_crash(self):
+        g = {"entries": 3, "samples": 3, "failing": 0, "observed": 3}
+        groups(self.tmp / "base/full/s1.json", {
+            "FN_A": {"entries": 1, "samples": 0, "failing": 0, "unbound": True, "callers": {"ROOT": 1}},
+            "FN_M": {"entries": 2, "samples": 0, "failing": 0, "unbound": True, "callers": {"FN_A": 2}},
+            "FN_N": dict(g, callers={"FN_M": 3}),
+            "FN_O": dict(g, callers={"FN_A": 1, "FN_X": 2})})
+        groups(self.tmp / "new/full/s1.json", {"FN_A": {"entries": 1, "samples": 1, "failing": 0, "observed": 1,
+                                                       "callers": {"ROOT": 1}}})
+        rc, out = self.check("FN_A")
+        self.assertEqual(rc, 1, out)
+        self.assertIn("1 kinds without result after the change (crash?), e.g. FN_O", out)
+        groups(self.tmp / "base/full/s1.json", {
+            "FN_A": {"entries": 1, "samples": 0, "failing": 0, "unbound": True, "callers": {"ROOT": 1}},
+            "FN_M": {"entries": 2, "samples": 0, "failing": 0, "unbound": True, "callers": {"FN_A": 2}},
+            "FN_N": dict(g, callers={"FN_M": 3})})
+        rc, out = self.check("FN_A")
+        self.assertEqual(rc, 0, out)
+
+
 class CoveredTest(unittest.TestCase):
     def test_recursion_runs_inside_the_outer_call(self):
         fns = {"FN_V": {"samples": 2, "failing": 0, "observed": 1},
