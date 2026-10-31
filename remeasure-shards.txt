@@ -1,15 +1,5 @@
-# one job per line: fixtures measured live on clean/integration (all 107 scoreboard scenarios)
-bc-full wintersturm campaign-08-unexploredland gen-campaign gen-leader-aggressive gen-player-commands genb-waves-assault map-fouronone
-bc-0804 wintersturm-mapstart castrum gen-cancel-research gen-leader-attach gen-recruit-attack genb-wi-mixed map-frontiercompanions
-build map-winterisland colorsofbelief gen-cannon-place gen-leader-buy-soldier gen-sabotage-bomb genb-wi-mixed-long map-highland-siege
-production late-ai gen-49b46d-event14004 gen-civilian-death gen-leader-defend gen-sabotage-serfcommands genb-wi-move map-trade4technology
-late-economy 01-revenge gen-a-dunkelforst gen-construct-site gen-leader-guard gen-serf-repair genc-campcrawford map-winterrealm
-camp-crawford 01-thalgrund gen-a-dunkelforst-long gen-conversion-commands gen-leader-hold gen-siege-cannon genc-campcrawford-5000 production-long
-combat ai-builds-active gen-a-wintersturm gen-diplomacy-tribute gen-leader-patrol gen-tribute-diplomacy genc-combatwaves-5000 saveload
-combat-long ai-builds-oldkings gen-a-wintersturm-long gen-enter-building-0x1500d gen-leader-stance gen-upgrade-building-category genc-winterisland saveload-settled
-combat-big build-long gen-attack-building gen-formation-command gen-maptools-resource gen-upgrade-research genc-winterisland-5000 saveload-settled-long
-combat-waves campaign-01-newbeginning gen-attack-pos gen-foundry-summon gen-market-trade gen-weather-time genc-wsecon
-ai-long campaign-01-restoringthefaith gen-barracks-autofill gen-hero-activation gen-mine-depletion gen-weather-time-short genc-wsecon-5000
-economy campaign-03-darknessuprise gen-barracks-recruit gen-hero-npc gen-mp-resources genb-abilities genc-wsecon-long-full
-economy-mapstart campaign-03-divineanger gen-camp-placement gen-invalid-placement gen-overtime-occupied genb-ailong-mixed late-ai-long
-wsecon campaign-04-wolfslair gen-camp-placement-base gen-keep-buy gen-placer-tools genb-combat-ops map-arcanum
+# AI pass branch: the scenarios whose first divergence is an AI tick
+castrum colorsofbelief 01-thalgrund map-arcanum
+campaign-01-newbeginning campaign-01-restoringthefaith campaign-03-darknessuprise campaign-03-divineanger
+campaign-04-wolfslair campaign-08-unexploredland ai-builds-active map-winterrealm
+ai-builds-oldkings ai-long map-fouronone genb-ailong-mixed
