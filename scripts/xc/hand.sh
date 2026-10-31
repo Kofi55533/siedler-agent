@@ -83,7 +83,7 @@ log "base measured in $(( $(date +%s) - t0 ))s, work at $XC_TURNS turns"
 # base full runs of the failing scenarios while the hand diff is applied (instant) and verify starts
 ( renice -n 19 "$BASHPID" > /dev/null
   xc_scenarios | awk -v s=" $(cat "$XC/scenarios-failing.txt") " 'index(s, " "$1" ")' \
-    | XC_BINS=$XC/base-bin/bins.txt xc_runs "$XC/base/full" ) > /dev/null 2>&1 &
+    | XC_BINS=$XC/base-bin/bins.txt XC_TIMEOUT=$XC_TIMEOUT_FULL xc_runs "$XC/base/full" ) > /dev/null 2>&1 &
 AHEAD=$!
 
 log "apply clean/integration...$REF"

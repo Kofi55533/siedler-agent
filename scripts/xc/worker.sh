@@ -149,7 +149,7 @@ from recomp/. Do not commit, push or open PRs; the pipeline verifies and ships y
 # checks keep the cores. The base build and BASE stay fixed for the kind, so every verdict of it reuses them.
 ( renice -n 19 "$BASHPID" > /dev/null
   xc_scenarios | awk -v s=" $(cat "$XC/scenarios-failing.txt") " 'index(s, " "$1" ")' \
-    | XC_BINS=$XC/base-bin/bins.txt xc_runs "$XC/base/full" ) > /dev/null 2>&1 &
+    | XC_BINS=$XC/base-bin/bins.txt XC_TIMEOUT=$XC_TIMEOUT_FULL xc_runs "$XC/base/full" ) > /dev/null 2>&1 &
 AHEAD=$!
 # model <round>: one opencode session turn on $PROMPT (round 1 starts the session, later ones continue it)
 model(){
