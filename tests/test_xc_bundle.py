@@ -11,9 +11,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "xc"))
 import xc  # noqa: E402
 
 
-def groups(path, g):
+def groups(path, g, **run):
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({"groups": g}))
+    path.write_text(json.dumps({"groups": g, **run}))
 
 
 class BundleTest(unittest.TestCase):
@@ -96,15 +96,29 @@ class BundleTest(unittest.TestCase):
             "FN_M": {"entries": 2, "samples": 0, "failing": 0, "unbound": True, "callers": {"FN_A": 2}},
             "FN_N": dict(g, callers={"FN_M": 3}),
             "FN_O": dict(g, callers={"FN_A": 1, "FN_X": 2})})
-        groups(self.tmp / "new/full/s1.json", {"FN_A": {"entries": 1, "samples": 1, "failing": 0, "observed": 1,
-                                                       "callers": {"ROOT": 1}}})
+        a = {"FN_A": {"entries": 1, "samples": 1, "failing": 0, "observed": 1, "callers": {"ROOT": 1}}}
+        groups(self.tmp / "new/full/s1.json", a, missing_points=["p"])
         rc, out = self.check("FN_A")
         self.assertEqual(rc, 1, out)
         self.assertIn("1 kinds without result after the change (crash?), e.g. FN_O", out)
+        # a whole play (every point, all turns): FN_O's calls may all have come through the sampled call of FN_A
+        groups(self.tmp / "new/full/s1.json", a)
+        rc, out = self.check("FN_A")
+        self.assertEqual(rc, 0, out)
+        # but a kind below no new binding still vanished: a crash
+        groups(self.tmp / "base/full/s1.json", {
+            "FN_A": {"entries": 1, "samples": 0, "failing": 0, "unbound": True, "callers": {"ROOT": 1}},
+            "FN_X": dict(g, callers={"ROOT": 1}),
+            "FN_K": dict(g, callers={"FN_X": 2})})
+        groups(self.tmp / "new/full/s1.json", dict(a, FN_X=dict(g, callers={"ROOT": 1})))
+        rc, out = self.check("FN_A")
+        self.assertEqual(rc, 1, out)
+        self.assertIn("1 kinds without result after the change (crash?), e.g. FN_K", out)
         groups(self.tmp / "base/full/s1.json", {
             "FN_A": {"entries": 1, "samples": 0, "failing": 0, "unbound": True, "callers": {"ROOT": 1}},
             "FN_M": {"entries": 2, "samples": 0, "failing": 0, "unbound": True, "callers": {"FN_A": 2}},
             "FN_N": dict(g, callers={"FN_M": 3})})
+        groups(self.tmp / "new/full/s1.json", a, missing_points=["p"])
         rc, out = self.check("FN_A")
         self.assertEqual(rc, 0, out)
 

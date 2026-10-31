@@ -595,11 +595,21 @@ def check(base, new, kind, worklist=None, full=None):
         # capture_bound), so the functions called only there are not entered (2026-10-31: 4A5D06 under the one
         # sampled call of 4CA90E in wsecon); a branch can bind more kinds than the ones it names (2026-10-31: the
         # AI pass 444C9C bound beside 44CF45 hid 57 callees in ai-builds-oldkings)
+        # (a bound group carries no "unbound" key, so only a kind missing from the base or unbound there is new)
         inside = set(kinds) | {other for other, g in ng.items()
-                               if not g.get("unbound") and bg.get(other, {}).get("unbound", True)}
+                               if not g.get("unbound") and (other not in bg or bg[other].get("unbound"))}
+        # a play that ran to its end with every point (no crash, no timeout) is the same native play as the base's, so a
+        # kind below the new bindings is hidden also when it has callers outside them or is still called elsewhere: in
+        # this scenario all of its calls may have come through the sampled calls (2026-10-31: 4C7D87 under 4B442C in
+        # ai-builds-oldkings, 4 kinds lost beside 48/48 identical AI pass calls); a crash still fails below
+        whole = not load(f).get("missing_points") and load(f).get("turns", 0) >= load(b).get("turns", 0)
         while True:
-            more = {other for other, g in bg.items() if other not in ng and other not in inside and g.get("callers")
-                    and all(c in inside for c in g["callers"])}
+            if whole:
+                more = {other for other, g in bg.items() if other not in inside
+                        and any(c in inside for c in g.get("callers", {}))}
+            else:
+                more = {other for other, g in bg.items() if other not in ng and other not in inside and g.get("callers")
+                        and all(c in inside for c in g["callers"])}
             if not more:
                 break
             inside |= more
