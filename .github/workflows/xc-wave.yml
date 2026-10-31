@@ -1,0 +1,32 @@
+name: xc-wave
+# A worker wave started by a push to claude/xc-wave: the kinds listed in xc-wave-kinds.txt (comma-separated) go to
+# xc-worker.yml of this ref, one job each (counts and verdicts only in the log, as in xc-worker).
+on:
+  push:
+    branches: ['claude/xc-wave']
+    paths: ['xc-wave-kinds.txt']
+permissions:
+  contents: read
+  issues: write
+jobs:
+  kinds:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      kinds: ${{ steps.k.outputs.kinds }}
+      n: ${{ steps.k.outputs.n }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { sparse-checkout: xc-wave-kinds.txt }
+      - id: k
+        run: |
+          k=$(tr -d ' \n' < xc-wave-kinds.txt)
+          echo "kinds=$k" >> "$GITHUB_OUTPUT"
+          echo "n=$(tr ',' '\n' <<<"$k" | grep -c .)" >> "$GITHUB_OUTPUT"
+  wave:
+    needs: kinds
+    uses: ./.github/workflows/xc-worker.yml
+    with:
+      n: ${{ needs.kinds.outputs.n }}
+      kinds: ${{ needs.kinds.outputs.kinds }}
+    secrets: inherit
