@@ -164,10 +164,21 @@ def covered(fns):
     and children_open (the functions still to port called inside it), the top-down order of the rest."""
     verified = {kind for kind, k in fns.items()
                 if fn_state(k) == "done" or (kind in COVERED and k["samples"] and not k["failing"])}
+    # a recursive function's inner calls run inside its outer call (the innermost enclosing function of a self call
+    # is the function itself; mutual recursion likewise), so a cycle of unbound functions counts as one unit: covered
+    # when every call into it from outside runs inside verified functions (2026-10-31: 21 recursive helpers such as
+    # 0x4C532C stayed "port" only because of their self calls)
+    cycle = cycles({kind for kind, k in fns.items() if k.get("unbound")}, fns)
     cov = set()
     while True:
-        new = {kind for kind, k in fns.items() if k.get("unbound") and kind not in cov and k.get("callers")
-               and all(c in verified or c in cov for c in k["callers"])}
+        new = set()
+        for kind, k in fns.items():
+            if not k.get("unbound") or kind in cov or kind in new:
+                continue
+            unit = cycle.get(kind, {kind})
+            outside = [c for u in unit for c in fns[u].get("callers", {}) if c not in unit]
+            if outside and all(c in verified or c in cov for c in outside):
+                new |= unit
         if not new:
             break
         cov |= new
@@ -183,6 +194,41 @@ def covered(fns):
             for c in k.get("callers", {}):
                 if open_(c):
                     fns[c]["children_open"] = fns[c].get("children_open", 0) + 1
+
+
+def cycles(unbound, fns):
+    """kind -> its strongly connected component (a set of kinds) in the caller graph among the unbound kinds, for the
+    kinds on a cycle (a self call included); iterative Tarjan, the caller chains are thousands deep"""
+    index, low, stack, on, out, n = {}, {}, [], set(), {}, 0
+    for root in unbound:
+        if root in index:
+            continue
+        work = [(root, iter(fns[root].get("callers", {})))]
+        index[root] = low[root] = n; n += 1; stack.append(root); on.add(root)
+        while work:
+            v, it = work[-1]
+            for c in it:
+                if c not in unbound:
+                    continue
+                if c not in index:
+                    index[c] = low[c] = n; n += 1; stack.append(c); on.add(c)
+                    work.append((c, iter(fns[c].get("callers", {}))))
+                    break
+                if c in on:
+                    low[v] = min(low[v], index[c])
+            else:
+                work.pop()
+                if work:
+                    low[work[-1][0]] = min(low[work[-1][0]], low[v])
+                if low[v] == index[v]:
+                    comp = set()
+                    while True:
+                        u = stack.pop(); on.discard(u); comp.add(u)
+                        if u == v:
+                            break
+                    if len(comp) > 1 or v in fns[v].get("callers", {}):
+                        out.update(dict.fromkeys(comp, comp))
+    return out
 
 
 def pairs(doc):
