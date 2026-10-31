@@ -590,8 +590,18 @@ def check(base, new, kind, worklist=None, full=None):
             if other not in kinds and g["failing"] and other in bg and bg[other]["samples"] and not bg[other]["failing"]:
                 ok = False
                 lines.append(f"regression: {other} now differs in {f.stem} ({g['failing']}/{g['samples']})")
-        # the groups come from the original's side, so one that vanished means its capture run crashed
-        gone = [other for other in bg if bg[other]["samples"] and other not in ng]
+        # the groups come from the original's side, so one that vanished means its capture run crashed, unless all
+        # of its calls ran inside the newly bound kinds: a sampled call runs to its return in one piece (capture.rs
+        # capture_bound), so the functions called only there are not entered (2026-10-31: 4A5D06 under the one
+        # sampled call of 4CA90E in wsecon)
+        inside = set(kinds)
+        while True:
+            more = {other for other, g in bg.items() if other not in ng and other not in inside and g.get("callers")
+                    and all(c in inside for c in g["callers"])}
+            if not more:
+                break
+            inside |= more
+        gone = [other for other in bg if bg[other]["samples"] and other not in ng and other not in inside]
         if gone and timed_out_short(b, f):
             # the play ran past XC_TIMEOUT and fell back to fewer turns (lib.sh xc_run_point): the kinds the base
             # showed later in the play have no result, not a crash (2026-10-31: 4 identical hand trials failed on the
