@@ -1,1 +1,1 @@
-claude/lua-nb
+claude/lua-nb2
