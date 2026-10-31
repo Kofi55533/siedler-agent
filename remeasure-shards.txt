@@ -1,2 +1,1 @@
-gen-attack-building gen-recruit-attack combat-big map-highland-siege
-gen-leader-defend gen-leader-guard gen-leader-hold gen-attack-pos
+gen-leader-aggressive gen-leader-stance gen-leader-patrol gen-leader-attach
