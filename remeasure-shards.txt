@@ -1,5 +1,10 @@
-# AI pass branch: the scenarios whose first divergence is an AI tick
-castrum colorsofbelief 01-thalgrund map-arcanum
-campaign-01-newbeginning campaign-01-restoringthefaith campaign-03-darknessuprise campaign-03-divineanger
-campaign-04-wolfslair campaign-08-unexploredland ai-builds-active map-winterrealm
-ai-builds-oldkings ai-long map-fouronone genb-ailong-mixed
+# import fixes (observer cursor, tiling list) + data-release fixtures without install
+gen-campaign
+saveload-settled-long gen-weather-time
+gen-diplomacy-tribute genc-wsecon-long-full
+map-arcanum gen-maptools-resource gen-mine-depletion gen-tribute-diplomacy
+map-frontiercompanions map-fouronone map-winterrealm campaign-08-unexploredland
+ai-builds-active ai-builds-oldkings bc-full combat
+economy gen-a-wintersturm-long gen-a-wintersturm gen-market-trade
+gen-upgrade-research gen-weather-time-short genb-abilities genc-winterisland
+genc-wsecon saveload-settled saveload wintersturm-mapstart wintersturm

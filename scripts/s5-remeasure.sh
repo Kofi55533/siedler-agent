@@ -16,7 +16,9 @@ FX="$*"
 [ -n "$FX" ] || FX=$( { curl -fsSL -m 60 https://raw.githubusercontent.com/Kofi55533/siedler-agent/gh-pages/data.json 2>/dev/null || gh api -H "Accept: application/vnd.github.raw" "repos/Kofi55533/siedler-agent/contents/data.json?ref=gh-pages" 2>/dev/null; } |
                       python3 -c "import json,sys;print(' '.join(s['name'] for s in json.load(sys.stdin).get('scenarios',[]) if s['name'].startswith(('genb-','genc-'))))")
 "$D/s5-build.sh" >/dev/null || { echo "build failed on ${bs:0:8}"; exit 1; }
-ok=""; for x in $FX; do "$D/s5-fixture-install.sh" "$x" >> "$W/install.txt" 2>/dev/null && ok="$ok $x"; done
+# a fixture of the data release (codex-verify-infra or new-fixtures) needs no install: s5-live.sh reads it directly
+known(){ local b=${1%-mapstart}; [ -f "$S5_V/fixtures/$b/scenario.json" ] || [ -f "$S5_NF/fixtures/$b/scenario.json" ]; }
+ok=""; for x in $FX; do { "$D/s5-fixture-install.sh" "$x" >> "$W/install.txt" 2>/dev/null || known "$x"; } && ok="$ok $x"; done
 cat "$W/install.txt"
 PAR=${S5_GATE_PARALLEL:-}; if [ -z "$PAR" ]; then m=$(awk '/MemAvailable/{print int($2/1048576)}' /proc/meminfo); PAR=$(( m / 3 )); [ $PAR -gt $(nproc) ] && PAR=$(nproc); [ $PAR -lt 1 ] && PAR=1; fi
 export D W
