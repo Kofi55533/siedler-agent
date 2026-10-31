@@ -1,1 +1,1 @@
-claude/clean-debug-trace
+claude/lua-default
