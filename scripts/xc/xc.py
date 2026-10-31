@@ -40,6 +40,7 @@ The JSON files hold game state (diff lines); they stay on the runner or in the p
 """
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -485,6 +486,18 @@ def stub(worklist, kind, out, names):
             Path(out, f"{name}.json").write_text(json.dumps({"groups": groups}))
 
 
+def timed_out_short(base, new):
+    """<new> (a full run's JSON) played fewer turns than <base> because every failed attempt at full length was a
+    timeout (exit 124): its <name>.crash excerpt (verify.sh) names only timeouts (a crash at full length exits 101 or
+    134 there; a panic line alone can be the shorter play's failing comparison, which still writes its document)"""
+    crash = Path(new).with_suffix(".crash")
+    if load(new).get("turns", 0) >= load(base).get("turns", 0) or not crash.is_file():
+        return False
+    text = crash.read_text(errors="replace")
+    codes = re.findall(r"no result in \d+ turns \(exit (\d+)\)", text)
+    return bool(codes) and set(codes) == {"124"}
+
+
 def check(base, new, kind, worklist=None, full=None):
     """base/new: directories with per-scenario JSONs (the kind-only runs plus full runs of the failing scenarios; a
     scenario with a full run has no kind-only run, its full run holds the kind too). <kind> may be a bundle
@@ -533,7 +546,13 @@ def check(base, new, kind, worklist=None, full=None):
                 lines.append(f"regression: {other} now differs in {f.stem} ({g['failing']}/{g['samples']})")
         # the groups come from the original's side, so one that vanished means its capture run crashed
         gone = [other for other in bg if bg[other]["samples"] and other not in ng]
-        if gone:
+        if gone and timed_out_short(b, f):
+            # the play ran past XC_TIMEOUT and fell back to fewer turns (lib.sh xc_run_point): the kinds the base
+            # showed later in the play have no result, not a crash (2026-10-31: 4 identical hand trials failed on the
+            # long ai-builds/camp scenarios); the kinds of the shorter play are still compared above
+            lines.append(f"full run of {f.stem}: timed out, played {load(f)['turns']} of {load(b)['turns']} turns, "
+                         f"{len(gone)} later kinds not compared")
+        elif gone:
             ok = False
             lines.append(f"full run of {f.stem}: {len(gone)} kinds without result after the change (crash?), e.g. {gone[0]}")
     for name in (full if worklist else [f.stem for f in sorted(Path(base, "full").glob("*.json"))]):
