@@ -8,8 +8,10 @@
 set -uo pipefail
 D=$(cd "$(dirname "$0")" && pwd); source "$D/s5-env.sh"
 W=$S5/remeasure; rm -rf "$W"; mkdir -p "$W/r"
-cd "$S5_REPO" && git fetch -q origin "+refs/heads/clean/integration:refs/remotes/origin/clean/integration" && git checkout -q --detach origin/clean/integration || { echo "checkout failed"; exit 1; }
-bs=$(git rev-parse origin/clean/integration)
+# S5_REMEASURE_REF: measure another siedler-sim-rs branch instead (a change before its merge; never posted to the board)
+REF=${S5_REMEASURE_REF:-clean/integration}; [ "$REF" = clean/integration ] || S5_REMEASURE_BOARD=0
+cd "$S5_REPO" && git fetch -q origin "+refs/heads/$REF:refs/remotes/origin/$REF" && git checkout -q --detach "origin/$REF" || { echo "checkout failed"; exit 1; }
+bs=$(git rev-parse "origin/$REF")
 FX="$*"
 [ -n "$FX" ] || FX=$( { curl -fsSL -m 60 https://raw.githubusercontent.com/Kofi55533/siedler-agent/gh-pages/data.json 2>/dev/null || gh api -H "Accept: application/vnd.github.raw" "repos/Kofi55533/siedler-agent/contents/data.json?ref=gh-pages" 2>/dev/null; } |
                       python3 -c "import json,sys;print(' '.join(s['name'] for s in json.load(sys.stdin).get('scenarios',[]) if s['name'].startswith(('genb-','genc-'))))")
