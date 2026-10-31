@@ -1,0 +1,2 @@
+# S5_TRACE for s5verify: <from turn>:<entity ids>
+100:0x11a0b,0x11a0c

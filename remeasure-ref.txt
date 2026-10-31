@@ -1,2 +1,2 @@
 # siedler-sim-rs branch to measure (default clean/integration)
-claude/leader-aggressive
+claude/live-trace

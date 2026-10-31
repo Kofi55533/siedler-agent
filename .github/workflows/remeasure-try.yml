@@ -33,6 +33,8 @@ jobs:
         env: { GH_TOKEN: '${{ secrets.PRIVATE_REPO_TOKEN }}', FX: '${{ matrix.fx }}', S5_REMEASURE_BOARD: '0' }
         run: |
           ref=$(grep -v '^#' remeasure-ref.txt 2>/dev/null | grep -m1 . || echo clean/integration)
+          # remeasure-trace.txt (optional): S5_TRACE for s5verify, <from turn>:<entity ids>
+          export S5_TRACE=$(grep -v '^#' remeasure-trace.txt 2>/dev/null | grep -m1 . || true)
           echo "ref $ref"; S5_REMEASURE_REF=$ref S5_LIVE_TIMEOUT=3600 timeout 130m scripts/s5-remeasure.sh $FX
       - name: Upload divergence details (private release, nothing printed)
         if: always()
@@ -46,6 +48,7 @@ jobs:
             { echo "fixture $x on $ref @$(git -C $S5_REPO rev-parse --short=10 HEAD)"
               if [ -f "$l" ]; then grep -m2 "clean image import\|^Error\|panicked" "$l"
                 grep -m1 -A42 -E ": (DIVERGENT|IDENTICAL)" "$l" || tail -n 20 "$l"
+                grep "^trace " "$l" | tail -n 300
               else echo "no live log (not installable?)"; grep -m3 "^$x:" $S5/remeasure/install.txt; fi
             } > "$o" 2>/dev/null || true; n=$((n+1))
           done
