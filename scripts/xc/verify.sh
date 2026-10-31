@@ -52,7 +52,7 @@ t1=$(date +%s)
 rm -rf "$XC/new" "$XC"/secs-*
 # full runs of the failing scenarios (they hold the kind too) beside kind-only runs of the other scenarios
 FULL=$(cat "$XC/scenarios-failing.txt")
-xc_scenarios | awk -v s=" $FULL " 'index(s, " "$1" ")' | xc_runs "$XC/new/full" &
+xc_scenarios | awk -v s=" $FULL " 'index(s, " "$1" ")' | XC_TIMEOUT=$XC_TIMEOUT_FULL xc_runs "$XC/new/full" &
 xc_scenarios | awk -v s=" $(cat "$XC/scenarios-all.txt") " -v f=" $FULL " 'index(s, " "$1" ") && !index(f, " "$1" ")' \
   | xc_runs "$XC/new/only" "$KIND"
 wait
@@ -67,7 +67,7 @@ SUS=$(python3 "$D/xc.py" suspects "$XC/worklist.json" "$XC/new/full" "$KIND")
 NEED=$(for s in $SUS; do [ -s "$XC/base/full/$s.json" ] || echo "$s"; done | xargs)
 if [ -n "$SUS" ]; then
   echo "regression check: base measured in $(wc -w <<<"$SUS") scenario(s), $(wc -w <<<"$NEED") of them now"
-  [ -z "$NEED" ] || xc_scenarios | awk -v s=" $NEED " 'index(s, " "$1" ")' | XC_BINS=$XC/base-bin/bins.txt xc_runs "$XC/base/full"
+  [ -z "$NEED" ] || xc_scenarios | awk -v s=" $NEED " 'index(s, " "$1" ")' | XC_BINS=$XC/base-bin/bins.txt XC_TIMEOUT=$XC_TIMEOUT_FULL xc_runs "$XC/base/full"
 fi
 t3=$(date +%s)
 python3 "$D/xc.py" check "$XC/base" "$XC/new" "$KIND" "$XC/worklist.json" $FULL > "$XC/verdict.txt"

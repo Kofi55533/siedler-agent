@@ -17,6 +17,10 @@ XC_MAX=${XC_MAX:-4} XC_STRIDE=${XC_STRIDE:-5}
 # census: whole shards in 85-172 s), 1200 turns ~20 % more, and the ticks run plays the scenario once per class, so a
 # run still going after 20 min hangs; the old 40 min limit held the whole census on one hanging scenario
 XC_TIMEOUT=${XC_TIMEOUT:-1200}
+# the verdict's full runs of the failing scenarios (verify.sh, the base runs ahead of it) compare every bound
+# function: ai-builds-active took 970-1070 s at 120 turns (2026-10-31 hand trials), so one more binding ran past
+# XC_TIMEOUT and its points were read as a crash
+XC_TIMEOUT_FULL=${XC_TIMEOUT_FULL:-2400}
 
 # images the census leaves out: no running game to compare (new-fixtures index.json not_produced/rejected_captures,
 # 2026-10-23 census: no capture result). Menu only, the map never started (turn 0): camp-bigcity, camp-extra1,
@@ -152,7 +156,8 @@ xc_run_point(){
     r=$?
     # a failing comparison exits 101 with its document written; without one the point is tried once more, shorter
     [ -s "$out.$bin.part" ] && { r=0; break; }
-    [ "$t" = "$short" ] || [ "$short" -ge "$turns" ] && break
+    # the excerpt (verify.sh) names a timeout or crash also when no shorter retry is left
+    [ "$t" = "$short" ] || [ "$short" -ge "$turns" ] && { echo "no result in $t turns (exit $r)" >> "$log"; break; }
     echo "no result in $t turns (exit $r): again with $short" >> "$log"
     [ "$r" != 124 ] || : > "$out.long"
   done
