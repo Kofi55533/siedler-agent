@@ -89,5 +89,19 @@ class BundleTest(unittest.TestCase):
         self.assertEqual(rc, 1, out)
 
 
+class CoveredTest(unittest.TestCase):
+    def test_recursion_runs_inside_the_outer_call(self):
+        fns = {"FN_V": {"samples": 2, "failing": 0, "observed": 1},
+               "FN_R": {"unbound": True, "callers": {"FN_V": 3, "FN_R": 9}},  # self recursion
+               "FN_A": {"unbound": True, "callers": {"FN_V": 1, "FN_B": 2}},  # A <-> B
+               "FN_B": {"unbound": True, "callers": {"FN_A": 2}},
+               "FN_C": {"unbound": True, "callers": {"FN_R": 1}},
+               "FN_O": {"unbound": True, "callers": {"FN_O": 1, "ROOT": 1}},  # called from the turn itself
+               "FN_P": {"unbound": True, "callers": {"FN_P": 4}}}  # no call from outside
+        xc.covered(fns)
+        self.assertEqual({k for k, v in fns.items() if v.get("covered")}, {"FN_R", "FN_A", "FN_B", "FN_C"})
+        self.assertEqual(xc.fn_state(fns["FN_O"]), "port")
+
+
 if __name__ == "__main__":
     unittest.main()

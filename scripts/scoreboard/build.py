@@ -1761,18 +1761,20 @@ def main():
     p9, p10 = (xwl.get("calls") or {}).get("pct"), xwl.get("sha")
     xf = xwl.get("functions") or {}  # executed class-A functions identical (done + covered) / executed at all
     p11, p12 = (xf.get("done", 0) + xf.get("covered", 0), sum(xf.values())) if xf else (None, None)
+    p13 = xf.get("done") if xf else None  # bound (ported) functions identical at their real calls: grows with each merge
     last = hist[-1] if hist else {}
     if (not hist or last.get("key") != key or last.get("pct_identical") != p1 or last.get("pct_coverage") != p2
             or last.get("pct_whole_logic") != p3 or last.get("maps_tested") != p5 or last.get("commands_tested") != p6
             or (p7 is not None and (last.get("integrated") != p7 or last.get("integrated_a") != p8))
             or (p10 and (last.get("xc_sha") != p10 or last.get("xc_pct") != p9))
-            or (p11 is not None and (last.get("fn_ok") != p11 or last.get("fn_run") != p12))):
+            or (p11 is not None and (last.get("fn_ok") != p11 or last.get("fn_run") != p12))
+            or (p13 is not None and last.get("fn_done") != p13)):
         hist.append({"key": key, "time": data["percent"]["identical_turns"].get("as_of"),
                      "matrix_time": data["matrix_source"]["time"] if data["matrix_source"] else None,
                      "sha": data["matrix_source"]["sha"] if data["matrix_source"] else None,
                      "recorded": data["generated_berlin"], "pct_identical": p1, "pct_coverage": p2,
                      "pct_whole_logic": p3, "pct_whole_raw": p4, "maps_tested": p5, "commands_tested": p6,
-                     "integrated": p7, "integrated_a": p8, "xc_pct": p9, "xc_sha": p10, "fn_ok": p11, "fn_run": p12,
+                     "integrated": p7, "integrated_a": p8, "xc_pct": p9, "xc_sha": p10, "fn_ok": p11, "fn_run": p12, "fn_done": p13,
                      "xc_scenarios": {x["name"]: [x["samples"], x["failing"]] for x in xwl.get("scenarios") or []},
                      "values": {r["name"]: {"turn": r["turn"], "identical": r["identical"]} for r in rows if r["measured"]}})
     data["history"] = hist[-200:]

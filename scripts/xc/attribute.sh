@@ -15,21 +15,41 @@ git fetch -q --deepen 300 origin clean/integration 2>/dev/null || true
 git merge-base --is-ancestor "$OLD" "$HEAD0" 2>/dev/null || { echo "old census $OLD not an ancestor of ${HEAD0:0:8}"; exit 2; }
 mapfile -t cands < <(git log --format='%H %s' "$OLD..$HEAD0" | awk '$2 == "xc:" {print $1}' | head -n "$MAXC")
 echo "attribute: $(python3 -c 'import json,sys;print(len(json.load(open(sys.argv[1]))))' "$REG") regressions, ${#cands[@]} xc merges in ${OLD:0:8}..${HEAD0:0:8}"
-declare -A culprit
+declare -A culprit repro
+pairs=$(python3 -c 'import json,sys
+for r in json.load(open(sys.argv[1])): print(r["kind"], r["scenario"], sep="\t")' "$REG")
+# clean <kind> <scenario line>: 1 when a kind-only run of the current build compares <kind> clean there
+clean(){
+  rm -rf "$XC/attr"; echo "$2" | xc_runs "$XC/attr" "$1" >&2
+  python3 -c 'import json,sys
+g=json.load(open(sys.argv[1]))["groups"].get(sys.argv[2],{"failing":1,"samples":0})
+print(int(g["samples"]>0 and g["failing"]==0))' "$XC/attr/${2%% *}.json" "$1" 2>/dev/null
+}
+# each candidate is judged by a kind-only run: a pair that is clean in one at HEAD already would blame the newest
+# candidate whatever it changed, so only a pair that differs there is attributed (2026-10-30: FN_583FC8 in combat
+# and wsecon, identical in its kind-only runs, got the same placement-check merge reverted twice)
+git reset -q --hard "$HEAD0"
+if xc_build; then
+  while IFS=$'\t' read -r kind scen; do
+    line=$(xc_scenarios | awk -v n="$scen" '$1 == n')
+    [ -n "$line" ] && [ "$(clean "$kind" "$line")" != 1 ] && repro["$kind $scen"]=1
+  done <<<"$pairs"
+else
+  while IFS=$'\t' read -r kind scen; do repro["$kind $scen"]=1; done <<<"$pairs"
+fi
 while IFS=$'\t' read -r kind scen; do
   line=$(xc_scenarios | awk -v n="$scen" '$1 == n')
   [ -n "$line" ] || continue
+  if [ -z "${repro["$kind $scen"]:-}" ]; then
+    echo "$kind in $scen: compares clean in a kind-only run at ${HEAD0:0:8}, not attributed"; continue
+  fi
   found=""
   for c in "${cands[@]}"; do
     [ -n "${culprit[$c]:-}" ] && { found=$c; break; }   # an already identified culprit is reverted anyway
     git reset -q --hard "$HEAD0"
     git revert --no-commit "$c" > /dev/null 2>&1 || { git revert --abort > /dev/null 2>&1; continue; }
     xc_build || continue
-    rm -rf "$XC/attr"; echo "$line" | xc_runs "$XC/attr" "$kind"
-    f=$(python3 -c 'import json,sys
-g=json.load(open(sys.argv[1]))["groups"].get(sys.argv[2],{"failing":1,"samples":0})
-print(int(g["samples"]>0 and g["failing"]==0))' "$XC/attr/$scen.json" "$kind" 2>/dev/null)
-    if [ "$f" = 1 ]; then found=$c; break; fi
+    if [ "$(clean "$kind" "$line")" = 1 ]; then found=$c; break; fi
   done
   git reset -q --hard "$HEAD0"
   if [ -n "$found" ]; then
@@ -40,8 +60,7 @@ print(int(g["samples"]>0 and g["failing"]==0))' "$XC/attr/$scen.json" "$kind" 2>
     gh api "repos/$AGENT/issues" -f title="[xc-regression] $kind in $scen since ${OLD:0:8}" \
       -f body="The census found task kind \`$kind\` differing in scenario \`$scen\` on $PROJECT@${HEAD0:0:12}; it compared clean on ${OLD:0:12}. No xc merge in the range explains it (another change did). Counts only; the diffs are in the private work list (siedler-data release xc-worklist)." > /dev/null || true
   fi
-done < <(python3 -c 'import json,sys
-for r in json.load(open(sys.argv[1])): print(r["kind"], r["scenario"], sep="\t")' "$REG")
+done <<<"$pairs"
 
 rc=0
 for c in "${!culprit[@]}"; do
