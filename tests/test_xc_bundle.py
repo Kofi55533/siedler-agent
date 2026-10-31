@@ -108,6 +108,22 @@ class BundleTest(unittest.TestCase):
         rc, out = self.check("FN_A")
         self.assertEqual(rc, 0, out)
 
+    def test_callee_of_an_unnamed_new_binding_is_no_crash(self):
+        g = {"entries": 3, "samples": 3, "failing": 0, "observed": 3}
+        groups(self.tmp / "base/full/s1.json", {
+            "FN_A": {"entries": 1, "samples": 0, "failing": 0, "unbound": True, "callers": {"ROOT": 1}},
+            "FN_B": dict(g, callers={"FN_A": 3}),
+            "FN_C": dict(g, callers={"ROOT": 3})})
+        groups(self.tmp / "new/full/s1.json", {
+            "FN_A": {"entries": 1, "samples": 1, "failing": 0, "observed": 1, "callers": {"ROOT": 1}},
+            "FN_C": dict(g, callers={"ROOT": 3})})
+        rc, out = self.check("FN_C")
+        self.assertEqual(rc, 0, out)
+        groups(self.tmp / "new/full/s1.json", {"FN_A": {"entries": 1, "samples": 0, "failing": 0, "unbound": True,
+                                                       "callers": {"ROOT": 1}}, "FN_C": dict(g, callers={"ROOT": 3})})
+        rc, out = self.check("FN_C")
+        self.assertEqual(rc, 1, out)
+
 
 class CoveredTest(unittest.TestCase):
     def test_recursion_runs_inside_the_outer_call(self):
