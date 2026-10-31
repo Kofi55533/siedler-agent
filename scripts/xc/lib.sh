@@ -32,8 +32,10 @@ XC_LONG=${XC_LONG-"ai-builds-triggered"}
 
 # later windows of the bc recording (~23,900 turns), by their skipped turns: the 2026-10-25 probe (xc-probe-bc, 1200
 # turns each) found 35-89 class-A functions per window that no census scenario reaches, at 145-403 s per point for the
-# native replay up to the window (16000: 403 s); 23000 took 930 s per point (past the recording's end, close to XC_TIMEOUT)
-XC_BC_WINDOWS=${XC_BC_WINDOWS-"8000 12000 16000 20000"}
+# native replay up to the window (16000: 403 s); 23000 took 930 s per point (past the recording's end, close to XC_TIMEOUT).
+# The first census with all four (2026-10-25 22:43Z) found 116 functions only they reach; 12000 (1637 s per census)
+# added none that 8000, 16000 or 20000 miss, so it is dropped; 8000 keeps 3 of its own for 843 s.
+XC_BC_WINDOWS=${XC_BC_WINDOWS-"8000 16000 20000"}
 
 # scenarios: "name image skip turns" lines. bc replays its recorded commands (commands.bin beside the image); every
 # other image runs autonomously (AI players, armies, campaign scripts), which is still the original behaviour, plus

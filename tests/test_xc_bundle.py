@@ -70,5 +70,24 @@ class BundleTest(unittest.TestCase):
             xc.ended = old
 
 
+    def test_timed_out_full_run_is_no_crash(self):
+        g = {"entries": 3, "samples": 3, "failing": 0, "observed": 3}
+        (self.tmp / "base/full").mkdir(parents=True)
+        (self.tmp / "new/full").mkdir(parents=True)
+        (self.tmp / "base/full/s1.json").write_text(json.dumps({"turns": 1200, "groups": {"FN_A": g, "FN_B": g}}))
+        (self.tmp / "new/full/s1.json").write_text(json.dumps({"turns": 120, "groups": {"FN_A": g}}))
+        rc, out = self.check("FN_A")
+        self.assertEqual(rc, 1, out)
+        self.assertIn("without result after the change (crash?)", out)
+        crash = self.tmp / "new/full/s1.crash"
+        crash.write_text("thread 'x' panicked at\nno result in 1200 turns (exit 124): again with 120\n")
+        rc, out = self.check("FN_A")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("timed out, played 120 of 1200 turns, 1 later kinds not compared", out)
+        crash.write_text("no result in 1200 turns (exit 101): again with 120\n")
+        rc, out = self.check("FN_A")
+        self.assertEqual(rc, 1, out)
+
+
 if __name__ == "__main__":
     unittest.main()

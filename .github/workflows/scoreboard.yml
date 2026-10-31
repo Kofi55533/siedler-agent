@@ -57,7 +57,7 @@ jobs:
           ENC: ${{ runner.temp }}/apicache.enc
           FLEET_V2_ENABLED: ${{ vars.FLEET_V2_ENABLED }}  # repo variables (not secrets): slot limits for the Fleet v2 view
           FLEET_V2_WORKER_LIMIT: ${{ vars.FLEET_V2_WORKER_LIMIT }}
-          XC_WORKERS: ${{ vars.XC_WORKERS }}  # xc fix jobs of the main account (default 10)
+          XC_WORKERS: ${{ vars.XC_WORKERS }}  # xc fix jobs of the main account (default 0)
         run: |
           K=$(printf 'siedler-scoreboard-cache:%s' "$GH_TOKEN" | sha256sum | cut -c1-64); export K
           mkdir -p "$API_CACHE"

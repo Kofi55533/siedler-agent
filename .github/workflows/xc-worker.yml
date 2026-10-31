@@ -46,8 +46,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
           N: ${{ inputs.n || '20' }}
-          # the main account keeps 10 of its 20 concurrent jobs free for the census (10 shards), trials and the watchdog
-          L: ${{ vars.XC_WORKERS || (github.repository == 'Kofi55533/siedler-agent' && '10' || '20') }}
+          # the main account runs no fix jobs: its 20 concurrent jobs go to the census (16 shards), trials and the watchdog
+          L: ${{ vars.XC_WORKERS || (github.repository != 'Kofi55533/siedler-agent' && '20' || '0') }}
           KINDS: ${{ inputs.kinds }}
           # the fix jobs claim their next kinds outside this serialized job: a claim another writer replaced is dropped
           XC_CLAIM_TOKEN: ${{ github.run_id }}-pick

@@ -1,0 +1,27 @@
+name: xc-stop
+# Cancels the queued and running runs of one xc workflow of this repository (default: the fix jobs, xc-worker.yml),
+# e.g. after its job limit was lowered: a running fix job keeps the limit it started with. A cancelled fix job
+# releases its claimed kind itself (xc-worker.yml, "Release the claim").
+on:
+  workflow_dispatch:
+    inputs:
+      workflow: { description: 'workflow file whose runs are cancelled', default: 'xc-worker.yml' }
+permissions:
+  actions: write
+jobs:
+  stop:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          W: ${{ inputs.workflow }}
+          R: ${{ github.repository }}
+        run: |
+          n=0
+          for s in queued in_progress waiting pending requested; do
+            for id in $(gh api "repos/$R/actions/workflows/$W/runs?status=$s&per_page=100" --jq '.workflow_runs[].id'); do
+              gh api -X POST "repos/$R/actions/runs/$id/cancel" > /dev/null && n=$((n + 1)) || true
+            done
+          done
+          echo "$n runs of $W cancelled" | tee -a "$GITHUB_STEP_SUMMARY"
