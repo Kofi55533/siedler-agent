@@ -1,6 +1,8 @@
 name: xc-wave
 # A worker wave started by a push to claude/xc-wave: the kinds listed in xc-wave-kinds.txt (comma-separated) go to
-# xc-worker.yml of this ref, one job each (counts and verdicts only in the log, as in xc-worker).
+# xc-worker.yml of this ref, one job each (counts and verdicts only in the log, as in xc-worker). A bare number N
+# instead starts N workers on kinds picked from the census work list, with N as the wave's claim limit (the fix jobs
+# then keep claiming next kinds while fewer than N are claimed).
 on:
   push:
     branches: ['claude/xc-wave']
@@ -15,18 +17,24 @@ jobs:
     outputs:
       kinds: ${{ steps.k.outputs.kinds }}
       n: ${{ steps.k.outputs.n }}
+      limit: ${{ steps.k.outputs.limit }}
     steps:
       - uses: actions/checkout@v4
         with: { sparse-checkout: xc-wave-kinds.txt }
       - id: k
         run: |
           k=$(tr -d ' \n' < xc-wave-kinds.txt)
-          echo "kinds=$k" >> "$GITHUB_OUTPUT"
-          echo "n=$(tr ',' '\n' <<<"$k" | grep -c .)" >> "$GITHUB_OUTPUT"
+          if [[ $k =~ ^[0-9]+$ ]]; then
+            echo "kinds=" >> "$GITHUB_OUTPUT"; echo "n=$k" >> "$GITHUB_OUTPUT"; echo "limit=$k" >> "$GITHUB_OUTPUT"
+          else
+            echo "kinds=$k" >> "$GITHUB_OUTPUT"
+            echo "n=$(tr ',' '\n' <<<"$k" | grep -c .)" >> "$GITHUB_OUTPUT"
+          fi
   wave:
     needs: kinds
     uses: ./.github/workflows/xc-worker.yml
     with:
       n: ${{ needs.kinds.outputs.n }}
       kinds: ${{ needs.kinds.outputs.kinds }}
+      limit: ${{ needs.kinds.outputs.limit }}
     secrets: inherit

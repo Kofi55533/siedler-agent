@@ -1063,6 +1063,8 @@ def fleet_v2():
 # at the original's real calls; workers are the fix jobs of
 # xc-worker.yml runs, one job per slot working failing kinds one after another, in the main repo and in pool repos of other accounts that call the same
 # reusable workflow. A slot is a job, not a run. Kinds are tracked by open `[xc] KIND` issues (label xc-kind) in PUB.
+# A wave pushed to claude/xc-wave with a bare number N claims up to N kinds on the main account despite its default
+# limit 0 (xc-worker input `limit`); its jobs show as live claims above that limit.
 XC_POOLS = [(PUB, "Kofi55533", "XC_WORKERS", 0), ("Dominickofi00/siedler-agent", "Dominickofi00", "XC_POOL_WORKERS", 20)]
 XC_RUNS = ("xc-worker.yml", "xc-pool.yml")
 XC_DATA = "Kofi55533/siedler-data"
