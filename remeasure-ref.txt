@@ -1,2 +1,2 @@
 # siedler-sim-rs branch to measure (default clean/integration)
-claude/hand-fn-44cf45
+claude/import-diff-fields

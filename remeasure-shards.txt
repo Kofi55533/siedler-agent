@@ -1,5 +1,1 @@
-# AI pass branch: the scenarios whose first divergence is an AI tick
-castrum colorsofbelief 01-thalgrund map-arcanum
-campaign-01-newbeginning campaign-01-restoringthefaith campaign-03-darknessuprise campaign-03-divineanger
-campaign-04-wolfslair campaign-08-unexploredland ai-builds-active map-winterrealm
-ai-builds-oldkings ai-long map-fouronone genb-ailong-mixed
+map-frontiercompanions campaign-01-newbeginning campaign-01-restoringthefaith
