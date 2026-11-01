@@ -234,7 +234,7 @@ fetch("data.json?t="+NOW).then(r=>r.json()).then(d=>{
   ];
   const XW=(pl.xc||{}).worklist,XS=(XW||{}).scenarios||[],XC=(XW||{}).calls||{};
   if(XW){ // the census replaces the retired gate matrix as the measurement
-    kp[1]={l:"Szenarien ohne Abweichung",v:`${XS.filter(x=>!x.failing).length}<small> / ${XS.length}</small>`,h:`alte Gate-Messung: ${sc.base_identical??"–"} von ${sc.base_total??"–"} Basis-Szenarien`};
+    kp[1]={l:"Szenarien ohne Abweichung",v:`${XS.filter(x=>!x.failing).length}<small> / ${XS.length}</small>`,h:`${d.live_remeasure?"Live-Messung":"alte Gate-Messung"}: ${sc.base_identical??"–"} von ${sc.base_total??"–"} Basis-Szenarien`};
     const XF=XW.functions,xn=XF?Object.values(XF).reduce((a,b)=>a+b,0):0;
     if(xn)kp[0]={l:"Funktionen identisch",v:`${pct((XF.done||0)+(XF.covered||0),xn,1)} %`,h:`${fmt((XF.done||0)+(XF.covered||0))} von ${fmt(xn)} ausgeführten Simulations-Funktionen identisch: ${fmt(XF.done)} selbst an echten Aufrufen geprüft, ${fmt(XF.covered||0)} nur innerhalb geprüfter Funktionen aufgerufen · ${fmt(XF.port)} noch zu portieren`};
     kp[2]={l:"Gleiche Aufrufe",v:`${XC.pct!=null?XC.pct.toLocaleString("de-DE"):"–"} %`,h:`${fmt(XC.identical)} von ${fmt(XC.samples)} verglichenen Aufrufen · gemessen ${ago(Date.parse(XW.updated))}`};
@@ -339,8 +339,9 @@ fetch("data.json?t="+NOW).then(r=>r.json()).then(d=>{
       <td class="prog"><div class="meter" data-tip="${esc(x.name)}: ${x.samples-x.failing} von ${x.samples} Aufrufen gleich"><i style="width:${100*f}%;background:${x.failing?"var(--s1)":"var(--good)"}"></i></div>
         <div class="small mute num">${fmt(x.samples-x.failing)} von ${fmt(x.samples)}</div></td>
       <td class="hide-m small mute num">${fmt(x.turns)} Züge<br>${fmt(x.calls)} Aufrufe${x.commands?`<br>${fmt(x.commands)} Spielerbefehle`:""}${x.import_errors?`<br>${fmt(x.import_errors)} Aufrufe nicht einlesbar`:""}${x.secs?`<br>${fmt(Math.max(1,Math.round(x.secs/60)))} min Messzeit`:""}</td></tr>`}).join("");
-    $("baseold").textContent=$("genold").textContent="· alte Gate-Messung, wird nicht mehr aktualisiert";
   }
+  const LR=d.live_remeasure;  // scheduled live re-measure of clean/integration (remeasure-live.yml); without it the old gate values
+  $("baseold").textContent=$("genold").textContent=LR?`· Live-Messung ${LR.time} Berlin @${LR.sha.slice(0,8)} · ${LR.scenarios} Szenarien`:XW?"· alte Gate-Messung, wird nicht mehr aktualisiert":"";
   const SC=d.scenarios||[];
   const state=s=>!s.measured?`<span class="st"><span class="dot info"></span>nicht gemessen</span>`:s.identical?`<span class="st"><span class="dot good"></span>Identisch</span>`:`<span class="st"><span class="dot warning"></span>weicht ab</span>`;
   const frac=s=>s.identical?1:(s.turn!=null&&s.total)?Math.max(0,Math.min(1,(s.turn-((s.start!=null&&s.turn>=s.start)?s.start:0))/s.total)):0;

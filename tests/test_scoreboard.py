@@ -121,5 +121,24 @@ class Overview(unittest.TestCase):
         self.assertEqual(sum(d["count"] for d in ig["per_day"]), 3)
 
 
+class LiveRemeasure(unittest.TestCase):
+    TXT = "sha 0123456789abcdef time 2026-11-01T10:00:00Z\ncastrum: DIVERGENT turn 291\nbuild: IDENTICAL 24000\nnoise line\n"
+
+    def test_parse_keeps_only_verdict_lines(self):
+        lr = b.parse_live_remeasure(self.TXT)
+        self.assertEqual((lr["sha"], lr["verdicts"]), ("0123456789abcdef", ["castrum: DIVERGENT turn 291", "build: IDENTICAL 24000"]))
+        self.assertIsNone(b.parse_live_remeasure("no header\ncastrum: DIVERGENT turn 3"))
+        self.assertIsNone(b.parse_live_remeasure("sha 0123456 time 2026-11-01T10:00:00Z\n"))
+
+    def test_synthetic_entry_is_the_newest_clean_value(self):
+        board = "## 2026-10-23 12:00 Berlin — Muse CI re-measure\n- castrum: DIVERGENT turn 119\n- build: DIVERGENT turn 650\n"
+        entries = b.board_entries(board)
+        entries.append(b.live_entry(b.parse_live_remeasure(self.TXT), len(board.splitlines()) + 1))
+        v = b.board_value(entries, "castrum", total=1000)
+        self.assertEqual((v["turn"], v["identical"], v["agent"], v["time"]), (291, False, "Live", "2026-11-01 11:00"))
+        v = b.board_value(entries, "build", total=2000)
+        self.assertEqual((v["turn"], v["identical"]), (2000, True))
+
+
 if __name__ == "__main__":
     unittest.main()

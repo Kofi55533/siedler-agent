@@ -1081,6 +1081,47 @@ def xc_todo(k, v):
     return bool(v.get("failing")) or (k.startswith("FN_") and bool(v.get("unbound")) and not v.get("covered"))
 
 
+LIVE_VERDICT = re.compile(r"^([a-z0-9][a-z0-9-]*): (?:DIVERGENT turn (\d+)|IDENTICAL (\d+))$")
+
+
+def parse_live_remeasure(text):
+    """verdicts.txt of the remeasure-live release: 'sha <sha> time <UTC>' then '<fixture>: DIVERGENT turn N' /
+    '<fixture>: IDENTICAL N' lines (fixture names and turn numbers only) -> {sha, time, verdicts} or None."""
+    lines = [l.strip() for l in (text or "").splitlines()]
+    m = re.match(r"^sha ([0-9a-f]{7,40}) time (\S+)$", lines[0]) if lines else None
+    if not m:
+        return None
+    verdicts = [l for l in lines[1:] if LIVE_VERDICT.match(l)]
+    return {"sha": m.group(1), "time": parse_ts(m.group(2)), "verdicts": verdicts} if verdicts else None
+
+
+def live_remeasure():
+    """Newest scheduled live re-measure of clean/integration (.github/workflows/remeasure-live.yml, siedler-data release
+    remeasure-live), or None."""
+    try:
+        rel = api(f"repos/{XC_DATA}/releases/tags/remeasure-live")
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            return None  # no run published yet
+        raise
+    asset = next((a for a in rel.get("assets", []) if a["name"] == "verdicts.txt"), None)
+    if not asset:
+        return None
+    req = urllib.request.Request(asset["url"], headers={"Accept": "application/octet-stream", "Authorization": "Bearer " + TOKEN,
+                                                        "User-Agent": "siedler-scoreboard"})
+    with urllib.request.urlopen(req, timeout=60) as r:
+        return parse_live_remeasure(r.read().decode("utf-8", "replace"))
+
+
+def live_entry(lr, line):
+    """The live re-measure as the newest board entry: board_value reads its '<fixture>: ...' lines like any measurement on
+    clean/integration (it measured the pinned clean/integration commit, so no PR/head rule applies)."""
+    when = lr["time"].astimezone(BERLIN).strftime("%Y-%m-%d %H:%M")
+    head = f"{when} Berlin — Live re-measure of clean/integration @{lr['sha'][:8]}"
+    return {"line": line, "time": when, "agent": "Live", "head": head,
+            "text": head + "\n" + "\n".join("- " + v for v in lr["verdicts"])}
+
+
 def xc_worklist():
     """Counts of the private work list (siedler-data release xc-worklist); the file itself holds game state."""
     rel = api(f"repos/{XC_DATA}/releases/tags/xc-worklist")
@@ -1447,6 +1488,9 @@ def main():
     if not board:
         skip_publish("AGENT_BOARD unreadable (" + "; ".join(ERRORS[:3]) + ")")
     entries = board_entries(board)
+    LIVE = safe(live_remeasure, None, "remeasure-live")  # scheduled live re-measure: newest clean/integration values
+    if LIVE and LIVE["time"] <= NOW + timedelta(minutes=5):
+        entries.append(live_entry(LIVE, len(board.splitlines()) + 1))
     for page in range(1, 15):  # PR states: after-values of unmerged PRs are not clean/integration values
         pl = safe(lambda: api(f"repos/{PRIV}/pulls?state=all&per_page=100&page={page}"), [], "pr states")
         for pr in pl:
@@ -1471,6 +1515,8 @@ def main():
     GATE = gate_values()
     data = {"generated_utc": NOW.strftime("%Y-%m-%dT%H:%M:%SZ"), "generated_berlin": iso(NOW),
             "branch": BRANCH}
+    if LIVE:
+        data["live_remeasure"] = {"sha": LIVE["sha"][:10], "time": iso(LIVE["time"]), "scenarios": len(LIVE["verdicts"])}
 
     # 1. live matrix
     live = None
