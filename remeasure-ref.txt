@@ -1,1 +1,2 @@
+# measured: claude/nb7 @ 2afc13a02 (serf battle handlers + Lua drop fix)
 claude/nb7
