@@ -1,0 +1,66 @@
+name: census-mem
+# Diagnosis only: four census shards (scripts/xc/census.sh, as xc-census) with a memory/disk probe every 15 s, to find
+# why census shards end with "runner received a shutdown signal". Logs numbers only; the shards are not uploaded.
+on:
+  push:
+    branches: [claude/census-mem]
+permissions:
+  contents: read
+env:
+  XC_PROJECT: ${{ vars.XC_PROJECT || 'Kofi55533/siedler-sim-rs' }}
+  XC_DATA: ${{ vars.XC_DATA || 'Kofi55533/siedler-data' }}
+  XC_AGENT: ${{ vars.XC_AGENT || 'Kofi55533/siedler-agent' }}
+  SHARDS: '16'
+jobs:
+  pin:
+    if: github.repository == 'Kofi55533/siedler-agent'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      sha: ${{ steps.p.outputs.sha }}
+      weights: ${{ steps.p.outputs.weights }}
+    steps:
+      - id: p
+        env: { GH_TOKEN: '${{ secrets.PRIVATE_REPO_TOKEN }}' }
+        run: |
+          echo "sha=$(gh api repos/$XC_PROJECT/commits/clean/integration --jq .sha)" >> "$GITHUB_OUTPUT"
+          w=$(gh release download xc-worklist -R $XC_DATA -D $RUNNER_TEMP -p worklist.json > /dev/null 2>&1 \
+            && jq -c '[.scenarios // {} | to_entries[] | select(.value.secs != null) | {(.key): .value.secs}] | add // {}' \
+              $RUNNER_TEMP/worklist.json) || w=""
+          [ -n "$w" ] || w='{}'
+          echo "weights=$w" >> "$GITHUB_OUTPUT"
+  shard:
+    needs: pin
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [4, 6, 11, 12]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - name: Machine
+        run: |
+          nproc; free -m | sed -n 2,3p; df -BG --output=size,avail / /mnt 2>/dev/null; swapon --show=SIZE --noheadings || true
+      - name: Setup (quiet)
+        env: { T: '${{ secrets.PRIVATE_REPO_TOKEN }}', GIT_LFS_SKIP_SMUDGE: '1' }
+        run: scripts/s5-setup.sh clean/integration 1
+      - name: Census shard ${{ matrix.shard }} with probe (numbers only)
+        env: { XC_WEIGHTS: '${{ needs.pin.outputs.weights }}' }
+        run: |
+          ( while sleep 15; do
+              m=$(free -m | awk '/Mem:/{printf "used=%d avail=%d", $3, $7} /Swap:/{printf " swap=%d", $3}')
+              d=$(df -BM --output=avail / | tail -1 | tr -d ' ')
+              top=$(ps -eo rss=,comm= --sort=-rss | head -4 | awk '{printf "%s:%d ", $2, $1/1024}')
+              echo "probe $(date -u +%H:%M:%S) $m disk_avail=$d top=$top"
+            done ) &
+          source scripts/s5-env.sh
+          SHA=${{ needs.pin.outputs.sha }}
+          git -C $S5_REPO cat-file -e "$SHA^{commit}" 2>/dev/null || git -C $S5_REPO fetch -q --depth 1 origin "$SHA"
+          git -C $S5_REPO checkout -q --detach "$SHA"
+          df -BG --output=avail / | tail -1
+          scripts/xc/census.sh ${{ matrix.shard }} $SHARDS $RUNNER_TEMP/census; rc=$?
+          echo "census rc=$rc; oom kills: $(sudo dmesg 2>/dev/null | grep -ci 'killed process')"
+          du -sh $RUNNER_TEMP/census 2>/dev/null | cut -f1
