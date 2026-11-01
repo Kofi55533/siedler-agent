@@ -1,6 +1,7 @@
 name: census-mem
 # Diagnosis only: four census shards (scripts/xc/census.sh, as xc-census) with a memory/disk probe every 15 s, to find
 # why census shards end with "runner received a shutdown signal". Logs numbers only; the shards are not uploaded.
+# Re-run after siedler-sim-rs #2037 (Lua state frees its reference cycles on drop) to confirm the fix.
 on:
   push:
     branches: [claude/census-mem]
