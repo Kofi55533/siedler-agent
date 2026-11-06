@@ -22,3 +22,15 @@ jobs:
         run: scripts/s5-setup.sh claude/direct-calls 1
       - name: Direct
         run: scripts/xc/direct.sh ${{ matrix.scenario }}
+      - name: Upload (private)
+        if: always()
+        env: { GH_TOKEN: '${{ secrets.PRIVATE_REPO_TOKEN }}' }
+        run: |
+          source scripts/s5-env.sh; source scripts/xc/lib.sh; n=0
+          for f in direct live; do
+            [ -s "$XC/$f.json" ] || continue
+            gzip -9c "$XC/$f.json" > "$RUNNER_TEMP/$f-${{ matrix.scenario }}.json.gz"; n=$((n + 1))
+          done
+          [ $n -gt 0 ] || { echo "nothing to upload"; exit 0; }
+          gh release view direct-check -R Kofi55533/siedler-data > /dev/null 2>&1 || gh release create direct-check -R Kofi55533/siedler-data -t direct-check -n "direct-call check results" > /dev/null
+          gh release upload direct-check -R Kofi55533/siedler-data --clobber "$RUNNER_TEMP"/*-${{ matrix.scenario }}.json.gz > /dev/null && echo "uploaded $n files"

@@ -29,7 +29,7 @@ read -r name img skip turns < <(xc_scenarios | awk -v n="$1" '$1==n')
 cmds=; xc_cmds; [ -s "$XC/cmds/$name.bin" ] && cmds=$XC/cmds/$name.bin
 t=$(date +%s)
 ( cd "$S5_REPO" && env S5_XCHECK_IMAGE="$img" ${cmds:+S5_XCHECK_COMMANDS="$cmds"} S5_DIRECT_AT="${S5_DIRECT_AT:-$skip,$((skip + 100))}" \
-    S5_DIRECT_JSON="$XC/direct.json" timeout -k 30 "${XC_DIRECT_TIMEOUT:-3600}" "$(xc_bin direct-functions)" \
+    S5_DIRECT_JSON="$XC/direct.json" S5_DIRECT_LIVE="$XC/live.json" timeout -k 30 "${XC_DIRECT_TIMEOUT:-3600}" "$(xc_bin direct-functions)" \
     --nocapture --test-threads=1 ) < /dev/null > "$XC/direct.log" 2>&1
 echo "direct: exit $? secs=$(( $(date +%s) - t)) json=$([ -s "$XC/direct.json" ] && echo yes || echo no)"
 # panics name a source line of sim-rs, never game state
@@ -44,10 +44,16 @@ g = d.get("groups", {})
 ok = sum(1 for x in g.values() if x.get("samples") and not x.get("failing"))
 bad = sum(1 for x in g.values() if x.get("failing"))
 none = sum(1 for x in g.values() if not x.get("samples"))
-print(f"virtual bound: {len(d.get('functions', []))}, groups {len(g)}: identical {ok}, differ {bad}, no sample {none}")
+bound = {int(x, 16) for x in d.get("function", "").split(",") if x}
+print(f"virtual bound: {len(bound)}, groups {len(g)}: identical {ok}, differ {bad}, no sample {none}")
 print(f"samples {sum(x.get('samples', 0) for x in g.values())}, differing {sum(x.get('failing', 0) for x in g.values())}, "
       f"observed {sum(x.get('observed', 0) or 0 for x in g.values())}")
 sk = d.get("skipped", {})
 print(f"skipped calls {sum(len(v) for v in sk.values())} in {len(sk)} functions, not virtual {len(d.get('not_virtual', []))}, "
       f"import errors {len(d.get('import_errors', []))}")
+live = p.with_name("live.json")
+if live.is_file() and live.stat().st_size:
+    L = json.loads(live.read_text())
+    print(f"live virtual methods {len(L)}, of them bound {sum(1 for k in L if int(k[3:], 16) in bound)}, "
+          f"objects {sum(v.get('objects', 0) for v in L.values())}")
 P
