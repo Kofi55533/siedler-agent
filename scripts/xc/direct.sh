@@ -10,13 +10,18 @@ t0=$(date +%s)
   CARGO_TARGET_DIR=${XC_TARGET:-$S5_REPO/recomp/target} cargo test --release --no-run -j "${CARGO_BUILD_JOBS:-3}" \
     --manifest-path crates/s5xcheck/Cargo.toml --test direct-functions --message-format=json 2> "$XC/build.log" \
   | python3 -c 'import sys,json
+err=open(sys.argv[1],"w")
 for l in sys.stdin:
     d=json.loads(l)
-    if d.get("reason")=="compiler-artifact" and d.get("executable"): print(d["target"]["name"], d["executable"])' > "$XC/bins.txt"
+    if d.get("reason")=="compiler-artifact" and d.get("executable"): print(d["target"]["name"], d["executable"])
+    m=d.get("message") or {}
+    if d.get("reason")=="compiler-message" and m.get("level")=="error":
+        # the headline and the sim-rs source line only, no code
+        sp=[s for s in m.get("spans",[]) if s.get("is_primary")][:1]
+        err.write(m.get("message","").splitlines()[0][:200]+"".join(f" at {s['file_name']}:{s['line_start']}" for s in sp)+"\n")' "$XC/errors.txt" > "$XC/bins.txt"
   rc=${PIPESTATUS[0]}; rm -f crates/s5xcheck/Cargo.lock; exit $rc ) || {
   echo "build failed ($(grep -c '^error' "$XC/build.log") errors)"
-  # compiler messages name only sim-rs source lines (no game data)
-  grep -E '^(error|warning: unused)' -A6 "$XC/build.log" | grep -E '^(error|  -->)' | head -40; exit 2; }
+  head -20 "$XC/errors.txt"; exit 2; }
 echo "build secs=$(( $(date +%s) - t0 ))"
 read -r name img skip turns < <(xc_scenarios | awk -v n="$1" '$1==n')
 [ -n "${img:-}" ] || { echo "no scenario $1"; exit 2; }
