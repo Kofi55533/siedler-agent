@@ -1,2 +1,2 @@
-# measured: claude/nb8 @ 844dbb3a3 (clean/integration 825bac931 + GetDiplomacyState)
-claude/nb8
+# measured: claude/hand-fn-44e94b @ ed7fc4097 (nb8 + army node link to member order targets)
+claude/hand-fn-44e94b
