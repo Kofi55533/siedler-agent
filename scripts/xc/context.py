@@ -8,6 +8,7 @@ a function FN_<address>: that function, plus how to write its binding) with thei
 direct callees (code.jsonl, read by offset through functions.jsonl), and where the clean code handles the kind today.
 """
 import json
+import os
 import re
 import subprocess
 import sys
@@ -98,7 +99,18 @@ def function_pack(kind, base, src, repo, funcs):
             md += ["", f"### {f.stem} turn {ex['turn']}: {ex['label']}", "```diff",
                    ("\n".join(ex["diff"]) if isinstance(ex["diff"], list) else ex["diff"]).strip()[:4000], "```"]
     md.append("")
+    md += field_map(addr)
     return md, {name: f"{addr:#010x}"}, [f"{addr:#x}"], shown
+
+
+def field_map(addr):
+    """The Bauplan section (bauplan.py) when $XC_BAUPLAN names the private bauplan.json.gz."""
+    path = os.environ.get("XC_BAUPLAN")
+    if not path or not Path(path).is_file():
+        return []
+    import gzip
+    import bauplan
+    return bauplan.pack(json.load(gzip.open(path)), addr)
 
 
 def main(kind, base, src, repo, out):

@@ -90,6 +90,9 @@ jobs:
           git -C $RUNNER_TEMP/forschung remote set-url origin https://github.com/Kofi55533/siedler-forschung.git
           git -C /opt/s5/siedler-sim-rs remote set-url origin "https://github.com/$XC_PROJECT.git"
           mkdir -p /opt/s5/xc && GH_TOKEN=$T gh release download xc-worklist -R $XC_DATA -D /opt/s5/xc -p worklist.json --clobber
+          # the Bauplan (scripts/xc/bauplan.py): native object bytes -> clean fields, for the context pack; optional
+          GH_TOKEN=$T gh release download field-atlas -R $XC_DATA -D /opt/s5/xc -p bauplan.json.gz --clobber \
+            && echo "XC_BAUPLAN=/opt/s5/xc/bauplan.json.gz" >> "$GITHUB_ENV" || echo "no bauplan"
       - name: Install opencode
         run: npm i -g opencode-ai > /dev/null 2>&1 && opencode --version
       - name: Work on ${{ matrix.kind }}, then on further kinds (model output private; counts and verdicts only)

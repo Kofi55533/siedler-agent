@@ -1,0 +1,73 @@
+name: xc-atlas
+# The field atlas and the Bauplan (private, release field-atlas of siedler-data): per native entity class, which byte of
+# the reference object feeds which field of the clean import (crates/s5clean tests/field_atlas.rs, one job per
+# scenario), merged into byte ranges per class with the vtables' method -> class map (scripts/xc/bauplan.py). The
+# worker's context pack shows the field map of the object a ported method works on. Logs carry counts only.
+on:
+  workflow_dispatch:
+    inputs:
+      ref: { description: 'siedler-sim-rs ref with tests/field_atlas.rs', default: 'clean/integration' }
+      atlas: { description: 'measure the atlases (else only rebuild the Bauplan from the uploaded ones)', type: boolean, default: true }
+permissions: { contents: read }
+concurrency: { group: xc-atlas, cancel-in-progress: false }
+jobs:
+  atlas:
+    if: github.event_name == 'workflow_dispatch' && inputs.atlas
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        scenario: [bc, combat, economy]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - name: Setup (quiet)
+        env: { T: '${{ secrets.PRIVATE_REPO_TOKEN }}', GIT_LFS_SKIP_SMUDGE: '1' }
+        run: scripts/s5-setup.sh "${{ inputs.ref }}" 0
+      - name: Atlas
+        run: |
+          source scripts/xc/lib.sh
+          read -r name img skip turns < <(xc_scenarios | awk -v n="${{ matrix.scenario }}" '$1==n')
+          cd "$S5_REPO"; t=$(date +%s)
+          CARGO_TARGET_DIR=$S5/atlas-target cargo test --release -q -j 4 --manifest-path crates/s5clean/Cargo.toml --test field_atlas --no-run > $S5/atlas-build.log 2>&1 \
+            || { echo "build failed ($(grep -c '^error' $S5/atlas-build.log) errors)"; exit 2; }
+          echo "build secs=$(( $(date +%s) - t ))"; t=$(date +%s)
+          S5_ATLAS_IMAGE="$img" S5_ATLAS_JSON=$S5/atlas-${{ matrix.scenario }}.json timeout 7000 \
+            env CARGO_TARGET_DIR=$S5/atlas-target cargo test --release -q --manifest-path crates/s5clean/Cargo.toml --test field_atlas -- --nocapture > $S5/atlas.log 2>&1
+          echo "atlas: exit $? secs=$(( $(date +%s) - t ))"
+          # counts and the sim-rs source line of a panic only
+          grep -E '^atlas:' $S5/atlas.log | head -5; grep -oE 'panicked at [^ ]+' $S5/atlas.log | head -3
+      - name: Upload (private)
+        env: { GH_TOKEN: '${{ secrets.PRIVATE_REPO_TOKEN }}' }
+        run: |
+          source scripts/s5-env.sh; f=$S5/atlas-${{ matrix.scenario }}.json
+          [ -s "$f" ] || { echo "no atlas"; exit 1; }
+          gzip -9 "$f"
+          gh release view field-atlas -R Kofi55533/siedler-data > /dev/null 2>&1 || gh release create field-atlas -R Kofi55533/siedler-data -t field-atlas -n "importer field atlas" > /dev/null
+          gh release upload field-atlas -R Kofi55533/siedler-data --clobber "$f.gz" > /dev/null && echo "uploaded $(stat -c %s "$f.gz") bytes"
+  bauplan:
+    needs: atlas
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env: { GH_TOKEN: '${{ secrets.PRIVATE_REPO_TOKEN }}' }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - name: Bauplan (private)
+        run: |
+          B=$RUNNER_TEMP/bauplan; mkdir -p $B/dl $B/game
+          # the game executable only (its vtables), never printed
+          gh release download data-v2 -R Kofi55533/siedler-data -D $B/dl -p 'game.tzst*' > /dev/null
+          cat $B/dl/game.tzst.* | zstd -dcq | tar -xf - -C $B/game --wildcards '*SettlersHoK.exe'
+          exe=$(find $B/game -name SettlersHoK.exe | head -1); [ -n "$exe" ] || { echo "no executable"; exit 1; }
+          rm -rf $B/dl
+          python3 scripts/xc/vtables.py "$exe" $B/vtables.json
+          gh release download field-atlas -R Kofi55533/siedler-data -D $B -p 'atlas-*.json.gz' > /dev/null
+          echo "atlases: $(ls $B/atlas-*.json.gz | wc -l)"
+          python3 scripts/xc/bauplan.py $B/bauplan.json.gz $B/vtables.json $B/atlas-*.json.gz
+          gh release upload field-atlas -R Kofi55533/siedler-data --clobber $B/bauplan.json.gz > /dev/null \
+            && echo "uploaded $(stat -c %s $B/bauplan.json.gz) bytes"
