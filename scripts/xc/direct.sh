@@ -18,7 +18,8 @@ for l in sys.stdin:
     if d.get("reason")=="compiler-message" and m.get("level")=="error":
         # the headline and the sim-rs source line only, no code
         sp=[s for s in m.get("spans",[]) if s.get("is_primary")][:1]
-        err.write(m.get("message","").splitlines()[0][:200]+"".join(f" at {s['file_name']}:{s['line_start']}" for s in sp)+"\n")' "$XC/errors.txt" > "$XC/bins.txt"
+        at="".join(" at %s:%s" % (s.get("file_name"), s.get("line_start")) for s in sp)
+        err.write(m.get("message","").splitlines()[0][:200]+at+"\n")' "$XC/errors.txt" > "$XC/bins.txt"
   rc=${PIPESTATUS[0]}; rm -f crates/s5xcheck/Cargo.lock; exit $rc ) || {
   echo "build failed ($(grep -c '^error' "$XC/build.log") errors)"
   head -20 "$XC/errors.txt"; exit 2; }
