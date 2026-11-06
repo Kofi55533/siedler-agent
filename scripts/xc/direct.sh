@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# direct.sh <scenario>: the direct-call check (crates/s5xcheck tests/direct-functions.rs) on one scenario of the current
+# $S5_REPO checkout: every bound virtual method called on a few live objects at the turn offsets of $S5_DIRECT_AT.
+# Prints counts only; the JSON stays under $XC (private).
+set -uo pipefail
+D=$(cd "$(dirname "$0")" && pwd); source "$D/lib.sh"
+t0=$(date +%s)
+( cd "$S5_REPO" || exit 1
+  [ -f crates/s5xcheck/Cargo.lock ] || cp recomp/Cargo.lock crates/s5xcheck/Cargo.lock
+  CARGO_TARGET_DIR=${XC_TARGET:-$S5_REPO/recomp/target} cargo test --release --no-run -j "${CARGO_BUILD_JOBS:-3}" \
+    --manifest-path crates/s5xcheck/Cargo.toml --test direct-functions --message-format=json 2> "$XC/build.log" \
+  | python3 -c 'import sys,json
+for l in sys.stdin:
+    d=json.loads(l)
+    if d.get("reason")=="compiler-artifact" and d.get("executable"): print(d["target"]["name"], d["executable"])' > "$XC/bins.txt"
+  rc=${PIPESTATUS[0]}; rm -f crates/s5xcheck/Cargo.lock; exit $rc ) || {
+  echo "build failed ($(grep -c '^error' "$XC/build.log") errors)"
+  # compiler messages name only sim-rs source lines (no game data)
+  grep -E '^(error|warning: unused)' -A6 "$XC/build.log" | grep -E '^(error|  -->)' | head -40; exit 2; }
+echo "build secs=$(( $(date +%s) - t0 ))"
+read -r name img skip turns < <(xc_scenarios | awk -v n="$1" '$1==n')
+[ -n "${img:-}" ] || { echo "no scenario $1"; exit 2; }
+cmds=; xc_cmds; [ -s "$XC/cmds/$name.bin" ] && cmds=$XC/cmds/$name.bin
+t=$(date +%s)
+( cd "$S5_REPO" && env S5_XCHECK_IMAGE="$img" ${cmds:+S5_XCHECK_COMMANDS="$cmds"} S5_DIRECT_AT="${S5_DIRECT_AT:-$skip,$((skip + 100))}" \
+    S5_DIRECT_JSON="$XC/direct.json" timeout -k 30 "${XC_DIRECT_TIMEOUT:-3600}" "$(xc_bin direct-functions)" \
+    --nocapture --test-threads=1 ) < /dev/null > "$XC/direct.log" 2>&1
+echo "direct: exit $? secs=$(( $(date +%s) - t)) json=$([ -s "$XC/direct.json" ] && echo yes || echo no)"
+# panics name a source line of sim-rs, never game state
+grep -E "^thread '.*' panicked at|^error|Killed|memory allocation" "$XC/direct.log" | sed 's/:.*panicked at /: panicked at /' | head -5
+python3 - "$XC/direct.json" <<'P'
+import json, sys
+from pathlib import Path
+p = Path(sys.argv[1])
+if not p.is_file() or not p.stat().st_size: sys.exit(0)
+d = json.loads(p.read_text())
+g = d.get("groups", {})
+ok = sum(1 for x in g.values() if x.get("samples") and not x.get("failing"))
+bad = sum(1 for x in g.values() if x.get("failing"))
+none = sum(1 for x in g.values() if not x.get("samples"))
+print(f"virtual bound: {len(d.get('functions', []))}, groups {len(g)}: identical {ok}, differ {bad}, no sample {none}")
+print(f"samples {sum(x.get('samples', 0) for x in g.values())}, differing {sum(x.get('failing', 0) for x in g.values())}, "
+      f"observed {sum(x.get('observed', 0) or 0 for x in g.values())}")
+sk = d.get("skipped", {})
+print(f"skipped calls {sum(len(v) for v in sk.values())} in {len(sk)} functions, not virtual {len(d.get('not_virtual', []))}, "
+      f"import errors {len(d.get('import_errors', []))}")
+P

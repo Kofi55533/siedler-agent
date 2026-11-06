@@ -1,0 +1,24 @@
+name: xc-direct-try
+# TEMP trial of the direct-call check (scripts/xc/direct.sh) on a sim-rs ref; removed before merging. Counts only.
+on:
+  push:
+    branches: ['claude/direct-try']
+permissions: { contents: read }
+concurrency: { group: xc-direct-try, cancel-in-progress: true }
+jobs:
+  try:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        scenario: [bc, combat, economy]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - name: Setup (quiet)
+        env: { T: '${{ secrets.PRIVATE_REPO_TOKEN }}', GIT_LFS_SKIP_SMUDGE: '1' }
+        run: scripts/s5-setup.sh claude/direct-calls 1
+      - name: Direct
+        run: scripts/xc/direct.sh ${{ matrix.scenario }}
