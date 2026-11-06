@@ -3,9 +3,9 @@
   "start": "2026-11-06",
   "phases": [
     {"key": "lanes", "title": "Zwei DeepSeek-Sitzungen pro Runner", "what": "Die Kerne warten sonst auf die API: doppelter Durchsatz der Agent-Worker.", "from": 0, "to": 0, "status": "running"},
-    {"key": "atlas", "title": "Bauplan: Speicher-Layout aller Klassen", "what": "Ein Skript liest jeden Feldzugriff aller 39.740 Funktionen und erzeugt die Rust-Structs einmal; danach fügen Ports nur noch Methoden hinzu und kommen sich nicht in die Quere.", "from": 0, "to": 1, "status": "open"},
+    {"key": "atlas", "title": "Bauplan: Speicher-Layout aller Klassen", "what": "Gemessen statt geraten: jedes Byte der Original-Objekte wird gekippt und gezeigt, welches Feld des sauberen Imports es speist. Steht für 6 Entity-Klassen (5.689 Bereiche) im Kontext jedes Workers; als Nächstes die Verhaltens- und KI-Objekte.", "from": 0, "to": 1, "status": "running"},
     {"key": "pattern", "title": "Musterübersetzer (Skript, ohne Modell)", "what": "Getter, Setter, Weiterleitungen, Konstruktoren und Thunks: 6.947 der 10.734 Simulations-Funktionen haben höchstens 64 Bytes.", "from": 1, "to": 2, "status": "open"},
-    {"key": "direct", "title": "Direktaufruf-Prüfung", "what": "Original und Port rechnen auf demselben Spielstand mit echten Objekten als Argumente; kein Szenario muss die Funktion erreichen, eine Prüfung dauert Millisekunden.", "from": 1, "to": 2, "status": "open"},
+    {"key": "direct", "title": "Direktaufruf-Prüfung", "what": "Original und Port rechnen auf demselben Spielstand mit echten Objekten als Argumente; kein Szenario muss die Funktion erreichen, eine Prüfung dauert Millisekunden.", "from": 1, "to": 2, "status": "running"},
     {"key": "line", "title": "DeepSeek-Fließband pro Klasse", "what": "Viele Klassen gleichzeitig per API, bauen, prüfen; nur Fehlschläge gehen mit ihrer Abweichung zurück, der hartnäckige Rest an die Agent-Worker.", "from": 2, "to": 2, "status": "open"},
     {"key": "pilot", "title": "Pilot mit 100 schon geprüften Funktionen", "what": "Misst die echte Erfolgsquote von Skript und Fließband, bevor alles durchläuft.", "from": 2, "to": 2, "status": "open"},
     {"key": "a", "title": "Simulation (A) komplett durchlaufen", "what": "Alle 10.734 Simulations-Funktionen portiert und geprüft identisch.", "from": 3, "to": 6, "status": "open"},
