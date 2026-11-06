@@ -19,7 +19,9 @@ MAX_LEAVES = 2
 
 def leaves(fields):
     fields = [f for f in fields if f != "!error"]
-    return tuple(sorted(f for f in fields if not any(g != f and g.startswith(f + ".") for g in fields)))
+    # a parent is a dotted prefix of another field (linear: a type id byte feeds thousands of fields)
+    parents = {g[:i] for g in fields for i, c in enumerate(g) if c == "."}
+    return tuple(sorted(f for f in set(fields) if f not in parents))
 
 
 def split(name):
