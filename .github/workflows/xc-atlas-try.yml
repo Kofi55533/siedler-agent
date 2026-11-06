@@ -26,11 +26,11 @@ jobs:
           source scripts/xc/lib.sh
           read -r name img skip turns < <(xc_scenarios | awk -v n="${{ matrix.scenario }}" '$1==n')
           cd "$S5_REPO"; t=$(date +%s)
-          CARGO_TARGET_DIR=$S5/atlas-target cargo test --release -q -j 4 -p s5clean --test field_atlas --no-run > $S5/atlas-build.log 2>&1 \
+          CARGO_TARGET_DIR=$S5/atlas-target cargo test --release -q -j 4 --manifest-path crates/s5clean/Cargo.toml --test field_atlas --no-run > $S5/atlas-build.log 2>&1 \
             || { echo "build failed ($(grep -c '^error' $S5/atlas-build.log) errors)"; grep -E '^error|^  -->' $S5/atlas-build.log | head -20; exit 2; }
           echo "build secs=$(( $(date +%s) - t ))"; t=$(date +%s)
           S5_ATLAS_IMAGE="$img" S5_ATLAS_JSON=$S5/atlas-${{ matrix.scenario }}.json timeout 7000 \
-            env CARGO_TARGET_DIR=$S5/atlas-target cargo test --release -q -p s5clean --test field_atlas -- --nocapture > $S5/atlas.log 2>&1
+            env CARGO_TARGET_DIR=$S5/atlas-target cargo test --release -q --manifest-path crates/s5clean/Cargo.toml --test field_atlas -- --nocapture > $S5/atlas.log 2>&1
           echo "atlas: exit $? secs=$(( $(date +%s) - t ))"
           grep -E '^atlas:|panicked at' $S5/atlas.log | sed 's/panicked at \(.*\)$/panicked at \1/' | head -5
       - name: Upload (private)
