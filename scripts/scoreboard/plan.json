@@ -2,7 +2,7 @@
   "about": "The whole-game plan the scoreboard tracks (section 'Der Plan'). Days count from start; status: done, running, open. Kept by hand at every phase change.",
   "start": "2026-11-06",
   "phases": [
-    {"key": "lanes", "title": "Zwei DeepSeek-Sitzungen pro Runner", "what": "Die Kerne warten sonst auf die API: doppelter Durchsatz der Agent-Worker.", "from": 0, "to": 0, "status": "running"},
+    {"key": "lanes", "title": "Zwei DeepSeek-Sitzungen pro Runner", "what": "Gemessen und verworfen: die zweite Sitzung pro Runner bricht nach kurzer Zeit ab, die Worker mit einer Sitzung liefern unverändert weiter. Eine Sitzung pro Runner bleibt.", "from": 0, "to": 0, "status": "done"},
     {"key": "atlas", "title": "Bauplan: Speicher-Layout aller Klassen", "what": "Gemessen statt geraten: jedes Byte der Original-Objekte wird gekippt und gezeigt, welches Feld des sauberen Imports es speist. Steht für 6 Entity-Klassen (5.689 Bereiche) im Kontext jedes Workers; als Nächstes die Verhaltens- und KI-Objekte.", "from": 0, "to": 1, "status": "running"},
     {"key": "pattern", "title": "Musterübersetzer (Skript, ohne Modell)", "what": "Getter, Setter, Weiterleitungen, Konstruktoren und Thunks: 6.947 der 10.734 Simulations-Funktionen haben höchstens 64 Bytes.", "from": 1, "to": 2, "status": "open"},
     {"key": "direct", "title": "Direktaufruf-Prüfung", "what": "Original und Port rechnen auf demselben Spielstand mit echten Objekten als Argumente; kein Szenario muss die Funktion erreichen, eine Prüfung dauert Millisekunden.", "from": 1, "to": 2, "status": "running"},
