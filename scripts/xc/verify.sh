@@ -14,7 +14,7 @@ D=$(cd "$(dirname "$0")" && pwd); source "$D/lib.sh"
 KIND=$1; BASE=$(cat "$XC/base.sha"); cd "$S5_REPO"
 fail(){ echo "$*"; echo "VERDICT FAIL"; exit 1; }
 BIND=$(xc_binding "$KIND"); ALT=$(paste -sd'|' <<<"$BIND")
-bad=$(xc_changed | grep -vE "^(crates/s5clean/|docs/${ALT:+|($ALT)\$})" | head -3 | tr '\n' ' ')
+bad=$(xc_changed | grep -vE "^(crates/s5clean/|docs/${XC_HAND:+|crates/s5xcheck/src/capture\\.rs\$}${ALT:+|($ALT)\$})" | head -3 | tr '\n' ' ')
 [ -n "$bad" ] && fail "scope: changes outside crates/s5clean, docs${BIND:+ and $(xargs <<<"$BIND")}: $bad (revert them)"
 for BIND in $BIND; do
   [ -f "$BIND" ] || continue

@@ -43,6 +43,8 @@ git rev-parse HEAD > "$XC/base.sha"; BASE=$(cat "$XC/base.sha")
 # all); the next census compares every scenario and reverts a merge that broke one of the others
 python3 "$D/xc.py" scenarios "$WL" "$KIND" | cut -d' ' -f1-9 > "$XC/scenarios-all.txt"
 python3 "$D/xc.py" failing "$WL" "$KIND" | cut -d' ' -f1-3 > "$XC/scenarios-failing.txt"
+# a hand trial of a kind no scenario fails (bound but unobserved): its first scenarios stand in for the failing ones
+[ -n "${XC_HAND:-}" ] && ! grep -q . "$XC/scenarios-failing.txt" && tr ' ' '\n' < "$XC/scenarios-all.txt" | awk NF | head -3 | xargs > "$XC/scenarios-failing.txt"
 grep -q . "$XC/scenarios-failing.txt" || { sum "$KIND: not failing in the work list"; exit 0; }
 # small functions to port, each called most in one of this kind's full-run scenarios, join it (claimed for this job)
 # (trial 2026-10-25: 4 functions in one 61-min job, 2 model rounds of ~22 min, against ~18 min per single kind; every
