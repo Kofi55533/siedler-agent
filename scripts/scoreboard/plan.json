@@ -1,0 +1,16 @@
+{
+  "about": "The whole-game plan the scoreboard tracks (section 'Der Plan'). Days count from start; status: done, running, open. Kept by hand at every phase change.",
+  "start": "2026-11-06",
+  "phases": [
+    {"key": "lanes", "title": "Zwei DeepSeek-Sitzungen pro Runner", "what": "Die Kerne warten sonst auf die API: doppelter Durchsatz der Agent-Worker.", "from": 0, "to": 0, "status": "running"},
+    {"key": "atlas", "title": "Bauplan: Speicher-Layout aller Klassen", "what": "Ein Skript liest jeden Feldzugriff aller 39.740 Funktionen und erzeugt die Rust-Structs einmal; danach fügen Ports nur noch Methoden hinzu und kommen sich nicht in die Quere.", "from": 0, "to": 1, "status": "open"},
+    {"key": "pattern", "title": "Musterübersetzer (Skript, ohne Modell)", "what": "Getter, Setter, Weiterleitungen, Konstruktoren und Thunks: 6.947 der 10.734 Simulations-Funktionen haben höchstens 64 Bytes.", "from": 1, "to": 2, "status": "open"},
+    {"key": "direct", "title": "Direktaufruf-Prüfung", "what": "Original und Port rechnen auf demselben Spielstand mit echten Objekten als Argumente; kein Szenario muss die Funktion erreichen, eine Prüfung dauert Millisekunden.", "from": 1, "to": 2, "status": "open"},
+    {"key": "line", "title": "DeepSeek-Fließband pro Klasse", "what": "Viele Klassen gleichzeitig per API, bauen, prüfen; nur Fehlschläge gehen mit ihrer Abweichung zurück, der hartnäckige Rest an die Agent-Worker.", "from": 2, "to": 2, "status": "open"},
+    {"key": "pilot", "title": "Pilot mit 100 schon geprüften Funktionen", "what": "Misst die echte Erfolgsquote von Skript und Fließband, bevor alles durchläuft.", "from": 2, "to": 2, "status": "open"},
+    {"key": "a", "title": "Simulation (A) komplett durchlaufen", "what": "Alle 10.734 Simulations-Funktionen portiert und geprüft identisch.", "from": 3, "to": 6, "status": "open"},
+    {"key": "systems", "title": "Systeme: Lua, Trigger, Befehle, Spielschleife", "what": "Was keine Einzelfunktion zeigt; macht Claude selbst.", "from": 0, "to": 6, "status": "running"},
+    {"key": "b", "title": "Darstellung (B): Grafik, Sound, Menüs", "what": "Dasselbe Fließband, geprüft über die Aufrufe an Grafik und Ton.", "from": 6, "to": 10, "status": "open"},
+    {"key": "whole", "title": "Gesamtvergleich: ganze Spiele Zug für Zug", "what": "Alle 107 Szenarien laufen Zug für Zug wie das Original.", "from": 8, "to": 10, "status": "open"}
+  ]
+}
