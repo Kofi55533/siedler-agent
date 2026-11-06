@@ -8,8 +8,6 @@ on:
     inputs:
       ref: { description: 'siedler-sim-rs ref with tests/field_atlas.rs', default: 'clean/integration' }
       atlas: { description: 'measure the atlases (else only rebuild the Bauplan from the uploaded ones)', type: boolean, default: true }
-  push:
-    branches: ['claude/bauplan']   # TEMP: trial of the Bauplan job before merge
 permissions: { contents: read }
 concurrency: { group: xc-atlas, cancel-in-progress: false }
 jobs:
