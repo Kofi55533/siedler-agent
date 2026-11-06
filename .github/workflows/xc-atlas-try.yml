@@ -1,0 +1,44 @@
+name: xc-atlas-try
+# TEMP trial of the field atlas (s5clean tests/field_atlas.rs) of a sim-rs ref; removed before merging. The log
+# shows counts only; the atlas goes to the private siedler-data release field-atlas.
+on:
+  push:
+    branches: ['claude/atlas-try']
+permissions: { contents: read }
+concurrency: { group: xc-atlas-try, cancel-in-progress: true }
+jobs:
+  atlas:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        scenario: [bc, combat, economy]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - name: Setup (quiet)
+        env: { T: '${{ secrets.PRIVATE_REPO_TOKEN }}', GIT_LFS_SKIP_SMUDGE: '1' }
+        run: scripts/s5-setup.sh claude/field-atlas 0
+      - name: Atlas
+        run: |
+          source scripts/xc/lib.sh
+          read -r name img skip turns < <(xc_scenarios | awk -v n="${{ matrix.scenario }}" '$1==n')
+          cd "$S5_REPO"; t=$(date +%s)
+          CARGO_TARGET_DIR=$S5/atlas-target cargo test --release -q -j 4 -p s5clean --test field_atlas --no-run > $S5/atlas-build.log 2>&1 \
+            || { echo "build failed ($(grep -c '^error' $S5/atlas-build.log) errors)"; grep -E '^error|^  -->' $S5/atlas-build.log | head -20; exit 2; }
+          echo "build secs=$(( $(date +%s) - t ))"; t=$(date +%s)
+          S5_ATLAS_IMAGE="$img" S5_ATLAS_JSON=$S5/atlas-${{ matrix.scenario }}.json timeout 7000 \
+            env CARGO_TARGET_DIR=$S5/atlas-target cargo test --release -q -p s5clean --test field_atlas -- --nocapture > $S5/atlas.log 2>&1
+          echo "atlas: exit $? secs=$(( $(date +%s) - t ))"
+          grep -E '^atlas:|panicked at' $S5/atlas.log | sed 's/panicked at \(.*\)$/panicked at \1/' | head -5
+      - name: Upload (private)
+        if: always()
+        env: { GH_TOKEN: '${{ secrets.PRIVATE_REPO_TOKEN }}' }
+        run: |
+          source scripts/s5-env.sh; f=$S5/atlas-${{ matrix.scenario }}.json
+          [ -s "$f" ] || { echo "no atlas"; exit 0; }
+          gzip -9 "$f"
+          gh release view field-atlas -R Kofi55533/siedler-data > /dev/null 2>&1 || gh release create field-atlas -R Kofi55533/siedler-data -t field-atlas -n "importer field atlas" > /dev/null
+          gh release upload field-atlas -R Kofi55533/siedler-data --clobber "$f.gz" > /dev/null && echo "uploaded $(stat -c %s "$f.gz") bytes"
