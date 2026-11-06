@@ -1,2 +1,2 @@
-# measured: claude/nb7 @ 2afc13a02 (serf battle handlers + Lua drop fix)
-claude/nb7
+# measured: claude/nb8 @ 844dbb3a3 (clean/integration 825bac931 + GetDiplomacyState)
+claude/nb8
