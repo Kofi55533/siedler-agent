@@ -1061,7 +1061,7 @@ def fleet_v2():
 # ---------------- xc per-call differential (scripts/xc, since 2026-10-23) ----------------
 # The census (xc-census.yml) measures every task kind (ExecuteTask) and the entity ticks per type (TICK_<CLASS>_<type>)
 # at the original's real calls; workers are the fix jobs of
-# xc-worker.yml runs, one job per slot working failing kinds one after another, in the main repo and in pool repos of other accounts that call the same
+# xc-worker.yml runs, one job per slot working failing kinds one after another in XC_LANES parallel lanes (scripts/xc/lanes.sh), in the main repo and in pool repos of other accounts that call the same
 # reusable workflow. A slot is a job, not a run. Kinds are tracked by open `[xc] KIND` issues (label xc-kind) in PUB.
 XC_POOLS = [(PUB, "Kofi55533", "XC_WORKERS", 10), ("Dominickofi00/siedler-agent", "Dominickofi00", "XC_POOL_WORKERS", 20)]
 XC_RUNS = ("xc-worker.yml", "xc-pool.yml")
@@ -1156,7 +1156,8 @@ def xc_pipeline(main_runs):
         ERRORS.append(f"xc worklist: {type(e).__name__}")
     sha = (wl or {}).get("sha")
     track = {i["title"].removeprefix("[xc] "): xc_fields(i.get("body")) for i in issues}
-    # a fix job works several kinds in a row; its claims carry the token <run>/<first kind> (xc-worker.yml XC_CLAIM_TOKEN)
+    # a fix job works several kinds in a row in each of its lanes; its claims carry the token <run>/<first kind>
+    # (xc-worker.yml XC_CLAIM_TOKEN, shared by the lanes)
     # a bundle of small functions shares the token: its first claim is the kind the job took, the later ones ride along
     now_kind = {}
     for k, f in track.items():

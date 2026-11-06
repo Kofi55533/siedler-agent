@@ -14,7 +14,12 @@ set -uo pipefail
 D=$(cd "$(dirname "$0")" && pwd); source "$D/lib.sh"
 KIND=$1; BR=$(python3 "$D/xc.py" branch "$KIND"); WL=$XC/worklist.json
 PROJECT=${XC_PROJECT:-Kofi55533/siedler-sim-rs}; AGENT=${XC_AGENT:-Kofi55533/siedler-agent}
-MODEL=${XC_MODEL:-opencode/deepseek-v4.1-flash-free}; ROUNDS=${XC_ROUNDS:-3}; ROUND_MIN=${XC_ROUND_MIN:-40}
+MODEL=${XC_MODEL:-opencode/deepseek-v4.1-flash-free}; ROUNDS=${XC_ROUNDS:-2}; ROUND_MIN=${XC_ROUND_MIN:-40}
+# two rounds, not three: of 359 rounds in 60 jobs (2026-10-27..29) round 1 passed 90 of 197 (0.54 runner-h per pass),
+# round 2 15 of 96 (1.3 h), round 3 4 of 66 (10.7 h per pass): a fresh kind gets the third round's time
+# a session that has written at most DEAD_LINES log lines after DEAD_MIN minutes never reached the model (59 of the
+# 359 rounds; 28 of them held the slot for the full ROUND_MIN): it ends, and the kind goes back unattempted (exit 2)
+DEAD_MIN=${XC_DEAD_MIN:-4}; DEAD_LINES=${XC_DEAD_LINES:-5}
 # no new model round once it could not end inside this budget (minutes since start): of 168 jobs (2026-10-24) none that
 # ran past 3 h merged, the latest merge came after 162 min, so a fresh kind gets the slot instead
 BUDGET_MIN=${XC_BUDGET_MIN:-170}
@@ -151,13 +156,25 @@ from recomp/. Do not commit, push or open PRs; the pipeline verifies and ships y
   xc_scenarios | awk -v s=" $(cat "$XC/scenarios-failing.txt") " 'index(s, " "$1" ")' \
     | XC_BINS=$XC/base-bin/bins.txt XC_TIMEOUT=$XC_TIMEOUT_FULL xc_runs "$XC/base/full" ) > /dev/null 2>&1 &
 AHEAD=$!
+kill_tree(){ local c; for c in $(pgrep -P "$1"); do kill_tree "$c"; done; kill "$1" 2>/dev/null; }
 # model <round>: one opencode session turn on $PROMPT (round 1 starts the session, later ones continue it)
 model(){
   log "model round $1"
   local args=(opencode run -m "$MODEL"); [ "$1" != 1 ] && args+=(--continue)
-  ( cd "$W" && env -u GH_TOKEN -u GITHUB_TOKEN -u T -u OPENCODE_API_KEY -u PRIVATE_REPO_TOKEN \
-      timeout -k 30 "$((ROUND_MIN * 60))" "${args[@]}" "$PROMPT" ) > "$XC/model-$1.log" 2>&1
-  log "model round $1 exit=$? ($(wc -l < "$XC/model-$1.log") log lines, private)"
+  local out=$XC/model-$1.log rc t=0
+  ( cd "$W" && exec env -u GH_TOKEN -u GITHUB_TOKEN -u T -u OPENCODE_API_KEY -u PRIVATE_REPO_TOKEN \
+      timeout -k 30 "$((ROUND_MIN * 60))" "${args[@]}" "$PROMPT" ) > "$out" 2>&1 &
+  local pid=$!
+  while [ $t -lt $((DEAD_MIN * 60)) ] && kill -0 "$pid" 2>/dev/null; do sleep 5; t=$((t + 5)); done
+  if kill -0 "$pid" 2>/dev/null && [ "$(wc -l < "$out")" -le "$DEAD_LINES" ]; then
+    kill -TERM "$pid" 2>/dev/null
+  fi
+  wait "$pid"; rc=$?
+  log "model round $1 exit=$rc ($(wc -l < "$out") log lines, private)"
+  if [ "$(wc -l < "$out")" -le "$DEAD_LINES" ] && [ -z "$(xc_changed | head -1)" ]; then
+    sum "$KINDS: the model session wrote nothing (round $1, exit $rc): handed back, the lane pauses"
+    kill_tree "$AHEAD"; exit 2
+  fi
 }
 ok=0
 rounds=0

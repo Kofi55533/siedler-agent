@@ -1,0 +1,14 @@
+name: xc-lanes-try
+# TEMPORARY (removed before merge): one xc-worker job of this branch (two lanes) as a trial of scripts/xc/lanes.sh
+on:
+  push:
+    branches: ['claude/xc-faster']
+jobs:
+  wave:
+    if: contains(github.event.head_commit.message, '[xc-lanes-try]')
+    permissions: { contents: read, issues: write }
+    uses: ./.github/workflows/xc-worker.yml
+    with: { n: '1' }
+    secrets:
+      PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+      OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
