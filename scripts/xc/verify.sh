@@ -7,6 +7,7 @@
 #  2. <kind> (every kind of a bundle) identical at every sampled call in every scenario where it runs ($XC/scenarios-all.txt).
 #  3. the full comparison of the scenarios where <kind> failed shows no other kind newly differing (against the base's
 #     full runs, measured only for the scenarios where the work list suggests a regression).
+#  In XC_MODE=direct, 2 and 3 are the direct-call check instead (direct.sh: the kind called on its live objects).
 #  4. crates/s5clean unit tests and the building-tick capture stay green.
 # Prints counts and VERDICT PASS|FAIL only.
 set -uo pipefail
@@ -49,28 +50,41 @@ git reset -q
 t0=$(date +%s)
 xc_build || fail "build failed"
 t1=$(date +%s)
-rm -rf "$XC/new" "$XC"/secs-*
-# full runs of the failing scenarios (they hold the kind too) beside kind-only runs of the other scenarios
-FULL=$(cat "$XC/scenarios-failing.txt")
-xc_scenarios | awk -v s=" $FULL " 'index(s, " "$1" ")' | XC_TIMEOUT=$XC_TIMEOUT_FULL xc_runs "$XC/new/full" &
-xc_scenarios | awk -v s=" $(cat "$XC/scenarios-all.txt") " -v f=" $FULL " 'index(s, " "$1" ") && !index(f, " "$1" ")' \
-  | xc_runs "$XC/new/only" "$KIND"
-wait
-t2=$(date +%s)
-# where the run time goes (counts only): the full runs play every point, the kind-only runs one
-secs(){ ls "$XC"/secs-* 2>/dev/null | grep -E "$@" | xargs -r cat | sort -n \
-  | awk '{s += $1; m = $1; n++} END {printf "%d points, sum %ds, max %ds", n, s, m}'; }
-echo "timing runs: full $(secs -v -- '-only\.'), kind-only $(secs -- '-only\.')"
-# the base's full runs where another kind seems to break against the work list (base build kept by worker.sh); worker.sh
-# played them ahead for the failing scenarios while the model worked, so only a suspect without one plays here
-SUS=$(python3 "$D/xc.py" suspects "$XC/worklist.json" "$XC/new/full" "$KIND")
-NEED=$(for s in $SUS; do [ -s "$XC/base/full/$s.json" ] || echo "$s"; done | xargs)
-if [ -n "$SUS" ]; then
-  echo "regression check: base measured in $(wc -w <<<"$SUS") scenario(s), $(wc -w <<<"$NEED") of them now"
-  [ -z "$NEED" ] || xc_scenarios | awk -v s=" $NEED " 'index(s, " "$1" ")' | XC_BINS=$XC/base-bin/bins.txt XC_TIMEOUT=$XC_TIMEOUT_FULL xc_runs "$XC/base/full"
+if [ "${XC_MODE:-}" = direct ]; then
+  # the direct-call check: <kind> called on live objects at fixed turns of every scenario that holds them (direct.sh);
+  # no census runs, no regression part (the clean code runs only inside the bound call)
+  rm -rf "$XC/new"; mkdir -p "$XC/new/only"
+  for s in $(cat "$XC/scenarios-all.txt"); do
+    S5_CAPTURE_ONLY=$KIND XC_DIRECT_BUILT=1 XC_DIRECT_OUT=$XC/new/only/$s.json XC_DIRECT_LIVE= \
+      bash "$D/direct.sh" "$s" 2>&1 | grep -E '^direct:|panicked' | sed "s/^/$s /" &
+  done
+  wait
+  t2=$(date +%s); t3=$t2
+  python3 "$D/xc.py" check "$XC/base" "$XC/new" "$KIND" > "$XC/verdict.txt"
+else
+  rm -rf "$XC/new" "$XC"/secs-*
+  # full runs of the failing scenarios (they hold the kind too) beside kind-only runs of the other scenarios
+  FULL=$(cat "$XC/scenarios-failing.txt")
+  xc_scenarios | awk -v s=" $FULL " 'index(s, " "$1" ")' | XC_TIMEOUT=$XC_TIMEOUT_FULL xc_runs "$XC/new/full" &
+  xc_scenarios | awk -v s=" $(cat "$XC/scenarios-all.txt") " -v f=" $FULL " 'index(s, " "$1" ") && !index(f, " "$1" ")' \
+    | xc_runs "$XC/new/only" "$KIND"
+  wait
+  t2=$(date +%s)
+  # where the run time goes (counts only): the full runs play every point, the kind-only runs one
+  secs(){ ls "$XC"/secs-* 2>/dev/null | grep -E "$@" | xargs -r cat | sort -n \
+    | awk '{s += $1; m = $1; n++} END {printf "%d points, sum %ds, max %ds", n, s, m}'; }
+  echo "timing runs: full $(secs -v -- '-only\.'), kind-only $(secs -- '-only\.')"
+  # the base's full runs where another kind seems to break against the work list (base build kept by worker.sh); worker.sh
+  # played them ahead for the failing scenarios while the model worked, so only a suspect without one plays here
+  SUS=$(python3 "$D/xc.py" suspects "$XC/worklist.json" "$XC/new/full" "$KIND")
+  NEED=$(for s in $SUS; do [ -s "$XC/base/full/$s.json" ] || echo "$s"; done | xargs)
+  if [ -n "$SUS" ]; then
+    echo "regression check: base measured in $(wc -w <<<"$SUS") scenario(s), $(wc -w <<<"$NEED") of them now"
+    [ -z "$NEED" ] || xc_scenarios | awk -v s=" $NEED " 'index(s, " "$1" ")' | XC_BINS=$XC/base-bin/bins.txt XC_TIMEOUT=$XC_TIMEOUT_FULL xc_runs "$XC/base/full"
+  fi
+  t3=$(date +%s)
+  python3 "$D/xc.py" check "$XC/base" "$XC/new" "$KIND" "$XC/worklist.json" $FULL > "$XC/verdict.txt"
 fi
-t3=$(date +%s)
-python3 "$D/xc.py" check "$XC/base" "$XC/new" "$KIND" "$XC/worklist.json" $FULL > "$XC/verdict.txt"
 grep -v '^VERDICT' "$XC/verdict.txt"
 grep -q 'VERDICT PASS' "$XC/verdict.txt" || fail "comparison failed"
 # the release profile (no overflow checks, no debug assertions: the semantics the clean code is held to) at opt-level 0 for
