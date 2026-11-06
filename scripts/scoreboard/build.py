@@ -1276,6 +1276,88 @@ def repair_cause(t):
     return "Sonstiges", "Einzelfall: Ticket ansehen."
 
 
+HERE = os.path.dirname(os.path.abspath(__file__))
+
+
+def port_progress():
+    """Counts the port pipeline publishes (siedler-data release port-progress, progress.json); None until it runs."""
+    try:
+        rel = api(f"repos/{XC_DATA}/releases/tags/port-progress")
+    except Exception:
+        return None
+    asset = next((a for a in rel.get("assets") or [] if a["name"] == "progress.json"), None)
+    if not asset:
+        return None
+    req = urllib.request.Request(asset["url"], headers={"Accept": "application/octet-stream", "Authorization": "Bearer " + TOKEN,
+                                                        "User-Agent": "siedler-scoreboard"})
+    with urllib.request.urlopen(req, timeout=60) as r:
+        return json.loads(r.read())
+
+
+def rate_per_day(points, hours=72):
+    """Least-squares slope (units per day) of [(datetime, value)] over the last `hours`; None below two points or a 6 h span."""
+    if not points:
+        return None
+    end = max(t for t, _ in points)
+    pts = sorted((t, v) for t, v in points if v is not None and (end - t).total_seconds() <= hours * 3600)
+    if len(pts) < 2:
+        return None
+    xs = [(t - pts[0][0]).total_seconds() / 86400 for t, _ in pts]
+    if xs[-1] < 0.25:
+        return None
+    mx, my = sum(xs) / len(xs), sum(v for _, v in pts) / len(pts)
+    den = sum((x - mx) ** 2 for x in xs)
+    return sum((x - mx) * (v - my) for x, (_, v) in zip(xs, pts)) / den
+
+
+def plan_view(data, hist, plan=None, classes=None, progress=None):
+    """The whole-game plan (plan.json): phases with planned dates, all functions per scope class (verified / ported but not
+    verified yet / open), the measured pace of verified functions over the last 72 h and the finish date it gives."""
+    if plan is None:
+        with open(os.path.join(HERE, "plan.json")) as f:
+            plan = json.load(f)
+    if classes is None:
+        with open(os.path.join(HERE, "..", "scope_classes.json")) as f:
+            classes = {k: len(v) for k, v in json.load(f)["addresses"].items()}
+    now = NOW.astimezone(BERLIN)
+    start = datetime.fromisoformat(plan["start"]).replace(tzinfo=BERLIN)
+    day = (now - start).days
+    on = lambda d: (start + timedelta(days=d)).strftime("%Y-%m-%d")
+    phases = [{**{k: p.get(k) for k in ("key", "title", "what", "status")}, "from": on(p["from"]), "to": on(p["to"]),
+               "late": p.get("status") != "done" and day > p["to"]} for p in plan["phases"]]
+    xf = ((data.get("xc") or {}).get("worklist") or {}).get("functions") or {}
+    pc = (progress or {}).get("classes") or {}
+    rows = []
+    for k, total in classes.items():
+        label, what = SCOPE_LABELS.get(k, (k, ""))
+        if k in pc:  # verified: identical to the original; ported: has a Rust port (verified or not)
+            ver, ported = pc[k].get("verified", 0), pc[k].get("ported", 0)
+        elif k == "A" and xf:  # until the pipeline reports: the census (identical = done + covered; fix + observe ported, not yet)
+            ver = xf.get("done", 0) + xf.get("covered", 0)
+            ported = ver + xf.get("fix", 0) + xf.get("observe", 0)
+        else:
+            ver = ported = 0
+        rows.append({"key": k, "label": label, "what": what, "total": total, "verified": ver,
+                     "unverified": max(ported - ver, 0), "open": max(total - max(ported, ver), 0), "port": k in ("A", "B")})
+    a = next(r for r in rows if r["key"] == "A")
+    pts = [(datetime.strptime(h["recorded"], "%Y-%m-%d %H:%M").replace(tzinfo=BERLIN), h.get("plan_a", h.get("fn_ok")))
+           for h in hist if h.get("recorded") and h.get("plan_a", h.get("fn_ok")) is not None]
+    pts.append((now, a["verified"]))
+    rate = rate_per_day(pts)
+    eta = {}
+    for key, want in (("A", ("A",)), ("AB", ("A", "B"))):
+        left = sum(r["total"] - r["verified"] for r in rows if r["key"] in want)
+        days = left / rate if rate and rate > 0 else None
+        eta[key] = {"left": left, "days": round(days, 1) if days is not None else None,
+                    "date": (now + timedelta(days=days)).strftime("%Y-%m-%d") if days is not None and days < 36500 else None}
+    due = {p["key"]: p["to"] for p in phases}
+    return {"start": plan["start"], "day": day, "phases": phases, "classes": rows,
+            "stages": (progress or {}).get("stages"), "progress_updated": (progress or {}).get("updated"),
+            "source": "pipeline" if pc else "census", "rate_per_day": round(rate, 1) if rate is not None else None,
+            "eta": eta, "planned": {"A": due.get("a"), "AB": due.get("b"), "all": due.get("whole")},
+            "curve": [[t.strftime("%Y-%m-%d %H:%M"), v] for t, v in sorted(pts)[-200:]]}
+
+
 def overview(data, merges):
     av = (fleet_state() or {}).get("autonomy_v2") or {}
     tickets = list((av.get("tickets") or {}).values())
@@ -1762,19 +1844,24 @@ def main():
     xf = xwl.get("functions") or {}  # executed class-A functions identical (done + covered) / executed at all
     p11, p12 = (xf.get("done", 0) + xf.get("covered", 0), sum(xf.values())) if xf else (None, None)
     p13 = xf.get("done") if xf else None  # bound (ported) functions identical at their real calls: grows with each merge
+    progress = safe(port_progress, None, "port progress")
+    pl = data["plan"] = safe(lambda: plan_view(data, hist, progress=progress), None, "plan")
+    p14 = next((c["verified"] for c in pl["classes"] if c["key"] == "A"), None) if pl and pl["source"] == "pipeline" else None
     last = hist[-1] if hist else {}
     if (not hist or last.get("key") != key or last.get("pct_identical") != p1 or last.get("pct_coverage") != p2
             or last.get("pct_whole_logic") != p3 or last.get("maps_tested") != p5 or last.get("commands_tested") != p6
             or (p7 is not None and (last.get("integrated") != p7 or last.get("integrated_a") != p8))
             or (p10 and (last.get("xc_sha") != p10 or last.get("xc_pct") != p9))
             or (p11 is not None and (last.get("fn_ok") != p11 or last.get("fn_run") != p12))
-            or (p13 is not None and last.get("fn_done") != p13)):
+            or (p13 is not None and last.get("fn_done") != p13)
+            or (p14 is not None and last.get("plan_a") != p14)):
         hist.append({"key": key, "time": data["percent"]["identical_turns"].get("as_of"),
                      "matrix_time": data["matrix_source"]["time"] if data["matrix_source"] else None,
                      "sha": data["matrix_source"]["sha"] if data["matrix_source"] else None,
                      "recorded": data["generated_berlin"], "pct_identical": p1, "pct_coverage": p2,
                      "pct_whole_logic": p3, "pct_whole_raw": p4, "maps_tested": p5, "commands_tested": p6,
                      "integrated": p7, "integrated_a": p8, "xc_pct": p9, "xc_sha": p10, "fn_ok": p11, "fn_run": p12, "fn_done": p13,
+                     **({"plan_a": p14} if p14 is not None else {}),
                      "xc_scenarios": {x["name"]: [x["samples"], x["failing"]] for x in xwl.get("scenarios") or []},
                      "values": {r["name"]: {"turn": r["turn"], "identical": r["identical"]} for r in rows if r["measured"]}})
     data["history"] = hist[-200:]

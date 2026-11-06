@@ -121,5 +121,51 @@ class Overview(unittest.TestCase):
         self.assertEqual(sum(d["count"] for d in ig["per_day"]), 3)
 
 
+class Plan(unittest.TestCase):
+    PLAN = {"start": "2026-11-01", "phases": [
+        {"key": "a", "title": "A", "from": 0, "to": 2, "status": "running"},
+        {"key": "b", "title": "B", "from": 2, "to": 400, "status": "open"},
+        {"key": "whole", "title": "W", "from": 3, "to": 400, "status": "open"}]}
+    CLASSES = {"A": 1000, "B": 500, "C": 300, "D": 10}
+
+    def at(self, hours, v):
+        return {"recorded": (b.NOW - b.timedelta(hours=hours)).astimezone(b.BERLIN).strftime("%Y-%m-%d %H:%M"), "fn_ok": v}
+
+    def test_census_counts_rate_and_eta(self):
+        data = {"xc": {"worklist": {"functions": {"done": 150, "covered": 50, "fix": 10, "observe": 40, "port": 5}}}}
+        hist = [self.at(48, 0), self.at(24, 100)]  # 100 a day up to now's 200
+        p = b.plan_view(data, hist, plan=self.PLAN, classes=self.CLASSES)
+        a = p["classes"][0]
+        self.assertEqual((a["verified"], a["unverified"], a["open"]), (200, 50, 750))
+        self.assertEqual(p["source"], "census")
+        self.assertAlmostEqual(p["rate_per_day"], 100, delta=1)
+        self.assertAlmostEqual(p["eta"]["A"]["days"], 8, delta=0.1)
+        self.assertEqual(p["eta"]["AB"]["left"], 1300)
+        self.assertTrue(p["phases"][0]["late"])  # day 2 is past (start 2026-11-01)
+        self.assertFalse(p["phases"][1]["late"])
+
+    def test_pipeline_progress_wins_and_no_pace_without_history(self):
+        prog = {"updated": "x", "classes": {"A": {"verified": 300, "ported": 400}, "B": {"verified": 1, "ported": 1}},
+                "stages": {"script": {"ported": 350, "verified": 280}}}
+        p = b.plan_view({}, [], plan=self.PLAN, classes=self.CLASSES, progress=prog)
+        a, bb = p["classes"][0], p["classes"][1]
+        self.assertEqual((a["verified"], a["unverified"], a["open"]), (300, 100, 600))
+        self.assertEqual((bb["verified"], bb["open"]), (1, 499))
+        self.assertEqual(p["source"], "pipeline")
+        self.assertIsNone(p["rate_per_day"])
+        self.assertIsNone(p["eta"]["A"]["date"])
+        self.assertEqual(p["stages"]["script"]["verified"], 280)
+
+    def test_rate_ignores_points_older_than_72h(self):
+        t = b.NOW
+        pts = [(t - b.timedelta(hours=200), 0), (t - b.timedelta(hours=48), 1000), (t, 1100)]
+        self.assertAlmostEqual(b.rate_per_day(pts), 50, delta=0.5)
+
+    def test_shipped_plan_and_classes_load(self):
+        p = b.plan_view({}, [])
+        self.assertEqual(sum(c["total"] for c in p["classes"]), 29723)
+        self.assertTrue(all(ph["to"] >= ph["from"] for ph in p["phases"]))
+
+
 if __name__ == "__main__":
     unittest.main()
