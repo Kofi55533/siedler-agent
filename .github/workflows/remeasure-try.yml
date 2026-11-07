@@ -35,6 +35,8 @@ jobs:
           ref=$(grep -v '^#' remeasure-ref.txt 2>/dev/null | grep -m1 . || echo clean/integration)
           # remeasure-trace.txt (optional): S5_TRACE for s5verify, <from turn>:<entity ids>
           export S5_TRACE=$(grep -v '^#' remeasure-trace.txt 2>/dev/null | grep -m1 . || true)
+          # remeasure-runon.txt (optional): S5_RUNON, turns to keep stepping past the first divergence (diagnostic refs only)
+          export S5_RUNON=$(grep -v '^#' remeasure-runon.txt 2>/dev/null | grep -m1 . || true)
           echo "ref $ref"; S5_REMEASURE_REF=$ref S5_LIVE_TIMEOUT=3600 timeout 130m scripts/s5-remeasure.sh $FX
       - name: Upload divergence details (private release, nothing printed)
         if: always()
