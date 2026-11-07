@@ -1,5 +1,4 @@
-gen-sabotage-bomb gen-hero-activation gen-hero-npc
-genb-abilities camp-crawford gen-keep-buy
-gen-sabotage-serfcommands gen-leader-buy-soldier saveload
+campaign-08-unexploredland
 genc-combatwaves-5000
-genc-campcrawford-5000
+ai-builds-active
+map-winterrealm
