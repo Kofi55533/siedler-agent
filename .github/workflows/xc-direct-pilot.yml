@@ -5,6 +5,7 @@ name: xc-direct-pilot
 # pilot of siedler-data, file direct-kinds.txt: one line "FN_<address> <scenario>..." per kind); no claim issues.
 # Model output stays on the runner; the log shows counts and verdict lines only.
 on:
+  push: { branches: [claude/pilot-run] }  # TEMP: this session cannot dispatch
   workflow_dispatch:
     inputs:
       jobs: { description: 'parallel jobs', default: '8' }
@@ -23,7 +24,7 @@ jobs:
     steps:
       - id: s
         run: |
-          n=${{ inputs.jobs }}; [ "$n" -ge 1 ] && [ "$n" -le 20 ] || { echo "jobs 1..20"; exit 1; }
+          n=${{ inputs.jobs || '2' }}; [ "$n" -ge 1 ] && [ "$n" -le 20 ] || { echo "jobs 1..20"; exit 1; }
           echo "slices=$(seq 0 $((n - 1)) | jq -sc .)" >> "$GITHUB_OUTPUT"
   work:
     needs: slices
@@ -60,8 +61,8 @@ jobs:
             && echo "XC_BAUPLAN=/opt/s5/xc/bauplan.json.gz" >> "$GITHUB_ENV" || echo "no bauplan"
           # this job's slice of the kind list (every jobs-th line from first), never printed
           GH_TOKEN=$T gh api -H 'Accept: application/vnd.github.raw' "repos/$XC_DATA/contents/direct-kinds.txt?ref=pilot" \
-            | sed -n "$(( ${{ inputs.first }} + 1 )),$(( ${{ inputs.first }} + ${{ inputs.count }} ))p" \
-            | awk -v j=${{ inputs.jobs }} -v s=${{ matrix.slice }} '(NR - 1) % j == s' > $RUNNER_TEMP/kinds.txt
+            | sed -n "$(( ${{ inputs.first || '0' }} + 1 )),$(( ${{ inputs.first || '0' }} + ${{ inputs.count || '4' }} ))p" \
+            | awk -v j=${{ inputs.jobs || '2' }} -v s=${{ matrix.slice }} '(NR - 1) % j == s' > $RUNNER_TEMP/kinds.txt
           echo "kinds in this slice: $(wc -l < $RUNNER_TEMP/kinds.txt)"
       - name: Install opencode
         run: npm i -g opencode-ai > /dev/null 2>&1 && opencode --version
