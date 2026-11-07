@@ -1361,7 +1361,7 @@ def plan_view(data, hist, plan=None, classes=None, progress=None):
             "days_left": round(days_left, 1) if days_left is not None else None, "need_per_day": need, "phases": phases, "classes": rows,
             "stages": (progress or {}).get("stages"), "progress_updated": (progress or {}).get("updated"),
             "source": "pipeline" if pc else "census", "rate_per_day": round(rate, 1) if rate is not None else None,
-            "eta": eta, "planned": {"A": due.get("a"), "AB": due.get("b"), "all": due.get("whole")},
+            "eta": eta, "planned": {"A": due.get("a"), "AB": due.get("b"), "all": due.get("whole") or due.get("b")},
             "curve": [[t.strftime("%Y-%m-%d %H:%M"), v] for t, v in sorted(pts)[-200:]]}
 
 
