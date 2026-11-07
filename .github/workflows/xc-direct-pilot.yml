@@ -5,6 +5,7 @@ name: xc-direct-pilot
 # pilot of siedler-data, file direct-kinds.txt: one line "FN_<address> <scenario>..." per kind); no claim issues.
 # Model output stays on the runner; the log shows counts and verdict lines only.
 on:
+  push: { branches: [claude/line-run3] }
   workflow_dispatch:
     inputs:
       jobs: { description: 'parallel jobs', default: '8' }
@@ -26,7 +27,7 @@ jobs:
     steps:
       - id: s
         run: |
-          n=${{ inputs.jobs }}; [ "$n" -ge 1 ] && [ "$n" -le 20 ] || { echo "jobs 1..20"; exit 1; }
+          n=${{ inputs.jobs || '6' }}; [ "$n" -ge 1 ] && [ "$n" -le 20 ] || { echo "jobs 1..20"; exit 1; }
           echo "slices=$(seq 0 $((n - 1)) | jq -sc .)" >> "$GITHUB_OUTPUT"
   work:
     needs: slices
@@ -63,10 +64,10 @@ jobs:
             && echo "XC_BAUPLAN=/opt/s5/xc/bauplan.json.gz" >> "$GITHUB_ENV" || echo "no bauplan"
           # this job's slice of the kind list (every jobs-th line from first), never printed; neighbours in the slice (the
           # list is sorted by size) join into bundles "FN_a,FN_b <scenarios of both>"
-          B=${{ inputs.bundle }}; [ "$B" -ge 1 ] && [ "$B" -le 3 ] || { echo "bundle 1..3"; exit 1; }
-          GH_TOKEN=$T gh api -H 'Accept: application/vnd.github.raw' "repos/$XC_DATA/contents/${{ inputs.list }}?ref=pilot" \
-            | sed -n "$(( ${{ inputs.first }} + 1 )),$(( ${{ inputs.first }} + ${{ inputs.count }} ))p" \
-            | awk -v j=${{ inputs.jobs }} -v s=${{ matrix.slice }} '(NR - 1) % j == s' > $RUNNER_TEMP/kinds1.txt
+          B=${{ inputs.bundle || '1' }}; [ "$B" -ge 1 ] && [ "$B" -le 3 ] || { echo "bundle 1..3"; exit 1; }
+          GH_TOKEN=$T gh api -H 'Accept: application/vnd.github.raw' "repos/$XC_DATA/contents/${{ inputs.list || 'line-kinds.txt' }}?ref=pilot" \
+            | sed -n "$(( ${{ inputs.first || '240' }} + 1 )),$(( ${{ inputs.first || '240' }} + ${{ inputs.count || '120' }} ))p" \
+            | awk -v j=${{ inputs.jobs || '6' }} -v s=${{ matrix.slice }} '(NR - 1) % j == s' > $RUNNER_TEMP/kinds1.txt
           awk -v b=$B 'function out(  sc, x) { sc = ""; for (x in seen) sc = sc " " x; print k sc; k = ""; delete seen }
             { k = k (k ? "," : "") $1; for (i = 2; i <= NF; i++) seen[$i] = 1; if (NR % b == 0) out() }
             END { if (k != "") out() }' $RUNNER_TEMP/kinds1.txt > $RUNNER_TEMP/kinds.txt
@@ -100,7 +101,7 @@ jobs:
               left=$(( 330 - ($(date +%s) - XC_T0) / 60 - 25 ))
             done
             n=$((n + 1)); rc=0
-            XC_DIRECT_SCENARIOS="${scenarios:-bc combat economy}" XC_BUDGET_MIN=$(( left < ${{ inputs.kind_min }} ? left : ${{ inputs.kind_min }} )) \
+            XC_DIRECT_SCENARIOS="${scenarios:-bc combat economy}" XC_BUDGET_MIN=$(( left < ${{ inputs.kind_min || '50' }} ? left : ${{ inputs.kind_min || '50' }} )) \
               scripts/xc/worker.sh "$kind" < /dev/null || rc=$?
             if [ $rc = 0 ]; then merged=$((merged + 1)); elif [ $rc = 1 ]; then failed=$((failed + 1)); else exit 1; fi
           done < $RUNNER_TEMP/kinds.txt
