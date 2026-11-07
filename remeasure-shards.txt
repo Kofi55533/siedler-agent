@@ -1,2 +1,7 @@
 # one job per line
-campaign-03-darknessuprise
+map-winterrealm map-fouronone map-arcanum
+01-thalgrund campaign-01-newbeginning wintersturm-mapstart wintersturm
+campaign-03-darknessuprise campaign-03-divineanger campaign-04-wolfslair
+castrum colorsofbelief map-winterisland map-frontiercompanions
+campaign-01-restoringthefaith genc-winterisland gen-a-wintersturm
+saveload-settled gen-49b46d-event14004 map-highland-siege map-trade4technology
