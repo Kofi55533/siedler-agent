@@ -21,6 +21,17 @@ fix(){ # $1 = source label; validates the installed dir
   echo "$x: installed from $1"; return 0; }
 [ ! -f "$dst/scenario.json" ] || { fix "already present" && exit 0; }
 mkdir -p "$S5_NF/fixtures"
+# start images that are derived from shipped ones and therefore not in data-v2, built on demand:
+#  - weather-time: the wsecon image with every player's weather energy set (docs/clean/new-fixtures/gen_weather_time.py)
+#  - camp-crawford-sabotage: the camp-crawford start (the sabotage fixtures' start.jsonl equals camp-crawford's)
+case "$x" in
+  gen-weather-time*) [ -f "$S5_NF/images/weather-time/start.img" ] || ( cd "$S5_REPO" && python3 \
+      docs/clean/new-fixtures/gen_weather_time.py --out "$S5_NF/.dl/weather-time-gen" >/dev/null 2>&1 ) \
+      || echo "$x: weather-time image patch failed" ;;
+  gen-sabotage-bomb*) cs=$S5_NF/images/camp-crawford-sabotage
+    [ -f "$cs/start.img" ] || { mkdir -p "$cs" && ln -sf ../camp-crawford/start.img "$cs/start.img" \
+      && ln -sf ../camp-crawford/start.img.state.json "$cs/start.img.state.json"; } ;;
+esac
 mkdir -p "$S5_NF/.dl"
 meta=$(mktemp -d "$S5_NF/.dl/metadata-$x.XXXXXX")
 trap 'rm -rf "$meta"' EXIT
