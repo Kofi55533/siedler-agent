@@ -16,7 +16,11 @@ wait $APT
 mkdir -p $S5/dl $S5/data/game $S5/data/art $S5/data/fixtures $S5_NF
 export GH_TOKEN=$T
 td=$(date +%s)
-gh release download data-v2 -R Kofi55533/siedler-data -D $S5/dl -p '*.tzst*' >/dev/null
+# a transient 5xx on one asset cost whole runner jobs: retry the download a few times before failing
+for try in 1 2 3 4; do
+  gh release download data-v2 -R Kofi55533/siedler-data -D $S5/dl -p '*.tzst*' --clobber >/dev/null && break
+  [ $try = 4 ] && exit 1; echo "s5-setup: data-v2 download failed, retry $try"; sleep $(( try * 15 ))
+done
 cat $S5/dl/game.tzst.* | zstd -dcq | tar -xf - -C $S5/data/game & P1=$!
 zstd -dcq $S5/dl/art.tzst | tar -xf - -C $S5/data/art & P2=$!
 zstd -dcq $S5/dl/fixtures.tzst | tar -xf - -C $S5/data/fixtures & P3=$!
