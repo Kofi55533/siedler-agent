@@ -1,5 +1,9 @@
 # siedler-agent
 
+**Deadline (the user's only target): the Siedler port must be finished by 2026-11-12.** No extra money: only the
+existing Claude subscription, the free DeepSeek agents and these GitHub Actions runners; no job may hold a runner while
+it waits.
+
 Runs [OpenCode](https://opencode.ai) on GitHub's public runners to work on private repositories.
 Triggered by `/opencode <task>` comments from the owner only. Results go exclusively as branches /
 draft PRs to the private repos; this repo contains only the workflow, and comments contain only short summaries.
