@@ -1,0 +1,38 @@
+name: xc-pattern-try
+# TEMP direct-call check of the pattern-translated bindings of a sim-rs ref; removed before merging. Counts only in the
+# log; the per-function groups go to the private release direct-check of the data repo.
+on:
+  push:
+    branches: ['claude/pattern-try3']
+permissions: { contents: read }
+concurrency: { group: xc-pattern-try, cancel-in-progress: true }
+jobs:
+  try:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        scenario: [bc]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - name: Setup (quiet)
+        env: { T: '${{ secrets.PRIVATE_REPO_TOKEN }}', GIT_LFS_SKIP_SMUDGE: '1' }
+        run: scripts/s5-setup.sh claude/pattern 1
+      - name: Direct
+        env:
+          S5_CAPTURE_ONLY: 'FN_4073D9,FN_4073E1,FN_4073E9,FN_4493D9,FN_449D88,FN_49844A,FN_4984D4,FN_498509,FN_49853B,FN_499636,FN_49963E,FN_49964E,FN_4A2B9B,FN_4A303C,FN_4AC750,FN_4B4D08,FN_4B4D53,FN_4B8D9C,FN_4B9431,FN_4BC98A,FN_4BE708,FN_4BE720,FN_4BE728,FN_4BE738,FN_4BE763,FN_4BE76B,FN_4BE773,FN_4BE7A1,FN_4BE7A9,FN_4C52F8,FN_4CC9BC,FN_4D17FD,FN_4D4180,FN_4D4B7C,FN_4D4FAB,FN_4D4FF4,FN_4D539A,FN_4D6790,FN_4D6A48,FN_4DB20A,FN_4DB9CB,FN_4DB9FE,FN_4DCB42,FN_4DD7F8,FN_4E0BBF,FN_4E2611,FN_4E3270,FN_4E3ED8,FN_4E5E53,FN_4E83AE,FN_4EB244,FN_4EB26F,FN_4EB277,FN_4F08D3,FN_4F093A,FN_4F1A12,FN_4F288B,FN_4F32E7,FN_4F3A4A,FN_4F4C0A,FN_4F61EB,FN_4F8DE2,FN_4FAB4F,FN_4FC5E5,FN_4FD1E8,FN_4FD249,FN_4FE071,FN_4FE8C1,FN_4FF206,FN_4FF25B,FN_4FF429,FN_500CE2,FN_501C84,FN_501CB0,FN_501CDF,FN_501D0B,FN_503A2A,FN_50452D,FN_50454B,FN_504CD6,FN_504D1C,FN_504FBA,FN_505500,FN_506236,FN_506881,FN_506F98,FN_5074FA,FN_50761C,FN_508AE3,FN_509332,FN_50956F,FN_50D14F,FN_50DACE,FN_50DAF4,FN_50F9A1,FN_5112E9,FN_51296D,FN_513108,FN_515F48,FN_517190,FN_51740F,FN_57DAF9,FN_580A1E,FN_580A26,FN_585FA0,FN_586038,FN_59056F,FN_590882'
+          S5_DIRECT_FREE: '1'
+        run: scripts/xc/direct.sh ${{ matrix.scenario }}
+      - name: Upload (private)
+        if: always()
+        env: { GH_TOKEN: '${{ secrets.PRIVATE_REPO_TOKEN }}' }
+        run: |
+          source scripts/xc/lib.sh
+          s=${{ matrix.scenario }}; R=Kofi55533/siedler-data
+          [ -s "$XC/direct.json" ] || { echo "no json"; exit 0; }
+          gzip -c "$XC/direct.json" > pattern3-$s.json.gz
+          gh release view direct-check -R $R > /dev/null 2>&1 || gh release create direct-check -R $R -t direct-check -n "direct-call check results" > /dev/null 2>&1 || true
+          gh release upload direct-check -R $R --clobber pattern3-$s.json.gz > /dev/null && echo uploaded
