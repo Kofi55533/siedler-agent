@@ -1,0 +1,41 @@
+name: xc-drive-all
+# TEMP drive mode (scripts/xc/drive.sh) on every scenario of sim-rs claude/drive, 17 shards; removed before merging.
+# Counts only in the log; each scenario's report goes to the private release direct-check of the data repo.
+on:
+  push:
+    branches: ['claude/drive-all']
+permissions: { contents: read }
+concurrency: { group: xc-drive-all, cancel-in-progress: true }
+jobs:
+  shard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - name: Setup (quiet)
+        env: { T: '${{ secrets.PRIVATE_REPO_TOKEN }}', GIT_LFS_SKIP_SMUDGE: '1' }
+        run: scripts/s5-setup.sh claude/drive 1
+      - name: Drive
+        env: { GH_TOKEN: '${{ secrets.PRIVATE_REPO_TOKEN }}', S5_DRIVE_CALL_SECS: '20' }
+        run: |
+          source scripts/xc/lib.sh
+          end=$(( $(date +%s) + 300 * 60 )); R=Kofi55533/siedler-data
+          mapfile -t mine < <(xc_scenarios | awk '$1!="bc" && $1!="combat" && $1!="economy" {print $1}' | awk -v s=${{ matrix.shard }} '(NR-1)%17==s')
+          echo "shard ${{ matrix.shard }}: ${#mine[@]} scenarios"
+          built=; i=0
+          for n in "${mine[@]}"; do
+            scripts/xc/stopped.sh && { echo "listed in claude/stop: job ends"; break; }
+            left=$(( end - $(date +%s) )); [ $left -ge 600 ] || { echo "time spent"; break; }
+            per=$(( left / (${#mine[@]} - i) )); [ $per -gt 5400 ] && per=5400; i=$((i + 1))
+            XC_DRIVE_BUILT=$built XC_DRIVE_TIMEOUT=$per XC_DRIVE_OUT=$XC/drive.json scripts/xc/drive.sh "$n" || { echo "scenario $i: exit $?"; [ -n "$built" ] || break; continue; }
+            built=1
+            [ -s $XC/drive.json ] && gzip -c $XC/drive.json > $RUNNER_TEMP/drive-$n.json.gz \
+              && gh release upload direct-check -R $R --clobber $RUNNER_TEMP/drive-$n.json.gz > /dev/null && echo "scenario $i uploaded"
+            rm -f $XC/drive.json
+          done
