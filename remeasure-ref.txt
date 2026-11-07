@@ -1,2 +1,2 @@
-# measured: claude/hand-fn-44e94b @ ed7fc4097 (nb8 + army node link to member order targets)
-claude/hand-fn-44e94b
+# measured: clean/integration @ 6dd049349 (fresh baseline 2026-11-07)
+clean/integration
