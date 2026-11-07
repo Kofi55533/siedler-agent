@@ -2,7 +2,8 @@ name: xc-direct-pilot
 # Pilot of the DeepSeek workers on virtual methods no recording calls (scripts/xc/worker.sh with XC_MODE=direct): each
 # kind is checked by the direct-call check (scripts/xc/direct.sh, crates/s5xcheck tests/direct-functions.rs), which
 # calls it on the live objects of its class at fixed turns, instead of the census. The kind list is private (branch
-# pilot of siedler-data, file direct-kinds.txt: one line "FN_<address> <scenario>..." per kind); no claim issues.
+# pilot of siedler-data, file direct-kinds.txt: one line "FN_<address> [@FN_<method>,...] <scenario>..." per kind, the
+# @ list naming the virtual methods that reach a non-virtual kind, checked in drive mode); no claim issues.
 # Model output stays on the runner; the log shows counts and verdict lines only.
 on:
   workflow_dispatch:
@@ -98,7 +99,10 @@ jobs:
             # runners for hours on 2026-11-07); the kinds not reached are in the summary's count for a retry run
             if ! scripts/xc/quota.sh "$XC_MODEL"; then waits=1; echo "free usage limit reached: job ends"; break; fi
             n=$((n + 1)); rc=0
-            XC_DIRECT_SCENARIOS="${scenarios:-bc combat economy}" XC_BUDGET_MIN=$(( left < ${{ inputs.kind_min }} ? left : ${{ inputs.kind_min }} )) \
+            # "@FN_m,..." tokens name the virtual methods reaching a non-virtual kind (drive mode), the rest are scenarios
+            methods=; sc=
+            for w in $scenarios; do case $w in @*) methods=$methods${methods:+,}${w#@} ;; *) sc="$sc $w" ;; esac; done
+            S5_DRIVE_METHODS=$methods XC_DIRECT_SCENARIOS="${sc:-bc combat economy}" XC_BUDGET_MIN=$(( left < ${{ inputs.kind_min }} ? left : ${{ inputs.kind_min }} )) \
               scripts/xc/worker.sh "$kind" < /dev/null || rc=$?
             # 2 is also a session the model never answered (the limit came back mid-kind): the job ends at the next kind
             if [ $rc = 0 ]; then merged=$((merged + 1)); elif [ $rc = 1 ] || scripts/xc/quota.sh "$XC_MODEL"; then failed=$((failed + 1)); else continue; fi

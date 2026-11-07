@@ -56,7 +56,7 @@ if [ "${XC_MODE:-}" = direct ]; then
   rm -rf "$XC/new"; mkdir -p "$XC/new/only"
   for s in $(cat "$XC/scenarios-all.txt"); do
     S5_CAPTURE_ONLY=$KIND XC_DIRECT_BUILT=1 XC_DIRECT_OUT=$XC/new/only/$s.json XC_DIRECT_LIVE= \
-      bash "$D/direct.sh" "$s" 2>&1 | grep -E '^direct:|panicked' | sed "s/^/$s /" &
+      bash "$D/direct.sh" "$s" 2>&1 | grep -E '^(direct|drive):|panicked' | sed "s/^/$s /" &
   done
   wait
   t2=$(date +%s); t3=$t2
