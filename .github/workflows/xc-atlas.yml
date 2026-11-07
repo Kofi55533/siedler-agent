@@ -4,6 +4,7 @@ name: xc-atlas
 # scenario), merged into byte ranges per class with the vtables' method -> class map (scripts/xc/bauplan.py). The
 # worker's context pack shows the field map of the object a ported method works on. Logs carry counts only.
 on:
+  push: { branches: [claude/atlas-try2] }  # TEMP: this session cannot dispatch
   workflow_dispatch:
     inputs:
       ref: { description: 'siedler-sim-rs ref with tests/field_atlas.rs', default: 'clean/integration' }
@@ -12,7 +13,7 @@ permissions: { contents: read }
 concurrency: { group: xc-atlas, cancel-in-progress: false }
 jobs:
   atlas:
-    if: github.event_name == 'workflow_dispatch' && inputs.atlas
+    if: github.event_name == 'push' || inputs.atlas
     runs-on: ubuntu-latest
     timeout-minutes: 150
     strategy:
@@ -25,7 +26,7 @@ jobs:
         with: { python-version: '3.11' }
       - name: Setup (quiet)
         env: { T: '${{ secrets.PRIVATE_REPO_TOKEN }}', GIT_LFS_SKIP_SMUDGE: '1' }
-        run: scripts/s5-setup.sh "${{ inputs.ref }}" 0
+        run: scripts/s5-setup.sh "${{ inputs.ref || 'claude/atlas-behaviours' }}" 0
       - name: Atlas
         run: |
           source scripts/xc/lib.sh
