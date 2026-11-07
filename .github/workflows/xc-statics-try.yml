@@ -1,0 +1,40 @@
+name: xc-statics-try
+# TEMP direct-call check of the static-local getter bindings of a sim-rs ref; removed before merging. Counts only in the
+# log; the per-function groups go to the private release direct-check of the data repo.
+on:
+  push:
+    branches: ['claude/statics-try']
+permissions: { contents: read }
+concurrency: { group: xc-statics-try, cancel-in-progress: true }
+jobs:
+  try:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { scenario: bc, free: '1', tag: free }
+          - { scenario: bc, free: '', tag: live }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - name: Setup (quiet)
+        env: { T: '${{ secrets.PRIVATE_REPO_TOKEN }}', GIT_LFS_SKIP_SMUDGE: '1' }
+        run: scripts/s5-setup.sh claude/statics 1
+      - name: Direct
+        env:
+          S5_CAPTURE_ONLY: 'FN_402C89,FN_408CBD,FN_408CDA,FN_408CF7,FN_408D14,FN_408D31,FN_408D4E,FN_408D6B,FN_408DAA,FN_40F8D9,FN_446071,FN_449D04,FN_449D2B,FN_467018,FN_484541,FN_496C60,FN_4971A5,FN_4975E1,FN_498312,FN_498339,FN_498360,FN_49A969,FN_49BB9F,FN_49EB65,FN_4A3044,FN_4A309D,FN_4A30F6,FN_4A314F,FN_4A3617,FN_4A3670,FN_4A36C9,FN_4A3722,FN_4A377B,FN_4A37D4,FN_4A48F4,FN_4A69DB,FN_4A69FB,FN_4A789A,FN_4A7E10,FN_4AA1EC,FN_4AA815,FN_4AA86E,FN_4AD1AB,FN_4AE727,FN_4AE747,FN_4AFE7B,FN_4AFED4,FN_4AFF2D,FN_4AFF86,FN_4B1AF7,FN_4B1B17,FN_4B1B37,FN_4B1B57,FN_4B206C,FN_4B5574,FN_4B5594,FN_4B6616,FN_4B69E0,FN_4B6A00,FN_4B6A20,FN_4B6CFB,FN_4B71BD,FN_4B760C,FN_4B8339,FN_4B9AFE,FN_4B9B57,FN_4BA83C,FN_4BA85C,FN_4BA87C,FN_4BA89C,FN_4BB04B,FN_4C0AF2,FN_4C0D12,FN_4C0D2F,FN_4C36C0,FN_4C3DA9,FN_4C54EE,FN_4C5515,FN_4C57DB,FN_4C8E9B,FN_4C98FD,FN_4C991D,FN_4C9AF5,FN_4CA5EB,FN_4CC05E,FN_4CC0CB,FN_4D1FD7,FN_4D2FE4,FN_4D40B7,FN_4D4462,FN_4D68E0,FN_4D694D,FN_4D6DD2,FN_4D7528,FN_4D75C0,FN_4DAB26,FN_4DAD11,FN_4DAEA8,FN_4DB06E,FN_4DC98D,FN_4DCCF4,FN_4DD5BB,FN_4DF5C8,FN_4E0222,FN_4E14CC,FN_4E1A46,FN_4E231D,FN_4E2811,FN_4E2CF5,FN_4E5B56,FN_4E638F,FN_4E681E,FN_4E9E53,FN_4EA9FD,FN_4EAB8F,FN_4EACDD,FN_4F269B,FN_4F34E9,FN_4F3D7E,FN_4F5620,FN_4F5701,FN_4F575A,FN_4F6290,FN_4F62E9,FN_4F68DB,FN_4F6CA7,FN_4F86B7,FN_4F9884,FN_4FBFEB,FN_4FDB1D,FN_4FDFBC,FN_4FE4A0,FN_50392F,FN_50445F,FN_50725F,FN_5085FE,FN_509E15,FN_50ED84,FN_510149,FN_51543C,FN_515B50,FN_516C1D,FN_516C8A,FN_516CF7,FN_517338,FN_51B22A,FN_52345A,FN_523477,FN_52FF9E,FN_532BB3,FN_532BF8,FN_534E06,FN_535677,FN_5356BC,FN_5362D6,FN_547784,FN_5507BB,FN_55AE45,FN_55C923,FN_5712F3,FN_571310,FN_572020,FN_572040,FN_572060,FN_5723AF,FN_573F85,FN_573FA5,FN_573FC5,FN_574B46,FN_574C38,FN_575B0B,FN_584E56,FN_584E76,FN_5857DA,FN_585917,FN_585937,FN_585BCB,FN_58A80C,FN_58BE9F,FN_58C01F,FN_58C3EC,FN_58C56C,FN_58D37E,FN_58DF06,FN_590EB6,FN_594C30,FN_596A90,FN_59909E,FN_599363,FN_599745,FN_599FF9,FN_59A126,FN_59DC0A,FN_59F0AC,FN_5A04FA,FN_5A11CE,FN_5B7B12,FN_5B7BA6,FN_5B9370,FN_5B9C9E,FN_5B9CE3,FN_5BA834,FN_5BB44F,FN_5BB6AD,FN_5BC1B2,FN_5BC1F7,FN_5BC23C,FN_5BC281,FN_5BCE4C,FN_5BCE91,FN_5BE9B9,FN_5BFA6F,FN_71DC2C'
+          S5_DIRECT_FREE: '${{ matrix.free }}'
+        run: scripts/xc/direct.sh ${{ matrix.scenario }}
+      - name: Upload (private)
+        if: always()
+        env: { GH_TOKEN: '${{ secrets.PRIVATE_REPO_TOKEN }}' }
+        run: |
+          source scripts/xc/lib.sh
+          s=${{ matrix.scenario }}-${{ matrix.tag }}; R=Kofi55533/siedler-data
+          [ -s "$XC/direct.json" ] || { echo "no json"; exit 0; }
+          gzip -c "$XC/direct.json" > statics-$s.json.gz
+          gh release view direct-check -R $R > /dev/null 2>&1 || gh release create direct-check -R $R -t direct-check -n "direct-call check results" > /dev/null 2>&1 || true
+          gh release upload direct-check -R $R --clobber statics-$s.json.gz > /dev/null && echo uploaded
