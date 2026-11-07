@@ -1,0 +1,35 @@
+name: xc-drive-try
+# TEMP trial of the drive mode (scripts/xc/drive.sh) on sim-rs claude/drive; removed before merging. Counts only in
+# the log; the merged report goes to the private release direct-check of the data repo.
+on:
+  push:
+    branches: ['claude/drive-try']
+permissions: { contents: read }
+concurrency: { group: xc-drive-try, cancel-in-progress: true }
+jobs:
+  try:
+    runs-on: ubuntu-latest
+    timeout-minutes: 320
+    strategy:
+      fail-fast: false
+      matrix:
+        scenario: [bc, combat, economy]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - name: Setup (quiet)
+        env: { T: '${{ secrets.PRIVATE_REPO_TOKEN }}', GIT_LFS_SKIP_SMUDGE: '1' }
+        run: scripts/s5-setup.sh claude/drive 1
+      - name: Drive
+        env: { XC_DRIVE_TIMEOUT: '12000', S5_DRIVE_CALL_SECS: '20' }
+        run: scripts/xc/drive.sh ${{ matrix.scenario }}
+      - name: Upload (private)
+        if: always()
+        env: { GH_TOKEN: '${{ secrets.PRIVATE_REPO_TOKEN }}' }
+        run: |
+          source scripts/xc/lib.sh
+          s=${{ matrix.scenario }}; R=Kofi55533/siedler-data
+          [ -s "$XC/drive.json" ] || { echo "no json"; exit 0; }
+          gzip -c "$XC/drive.json" > drive-$s.json.gz
+          gh release upload direct-check -R $R --clobber drive-$s.json.gz > /dev/null && echo uploaded
