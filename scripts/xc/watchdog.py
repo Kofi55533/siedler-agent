@@ -100,8 +100,13 @@ def main():
     busy = xc.jobs(xc.tracking(), now, R)  # this repo's slots only (a job's bundle shares one claim token)
     limit = int(os.environ.get("XC_WORKERS") or 20)
     trial = R == MAIN and xc.trial_waiting()  # a waiting xc-try trial goes first: no wave queues ahead of it
-    print(f"{len(kinds)} kinds pickable, {busy} claimed, {len(queued)} waves queued, trial waiting: {trial}")
-    if kinds and not queued and not trial and busy < limit:
+    # under the free models' usage limit a wave would only set up, find the limit and end (xc-worker.yml), holding
+    # runners a trial could use; the next cycle after the limit lifts starts it
+    limited = bool(kinds) and subprocess.run([os.path.join(os.path.dirname(os.path.abspath(__file__)), "quota.sh"),
+                                              os.environ.get("XC_MODEL") or "opencode/deepseek-v4.1-flash-free"]).returncode != 0
+    print(f"{len(kinds)} kinds pickable, {busy} claimed, {len(queued)} waves queued, trial waiting: {trial}, "
+          f"usage limit: {limited}")
+    if kinds and not queued and not trial and not limited and busy < limit:
         dispatch("xc-worker.yml", n=limit - busy)
 
     if R == MAIN and kinds:
