@@ -1,7 +1,7 @@
 # one job per line
-map-winterrealm map-fouronone map-arcanum
-01-thalgrund campaign-01-newbeginning wintersturm-mapstart wintersturm
-campaign-03-darknessuprise campaign-03-divineanger campaign-04-wolfslair
-castrum colorsofbelief map-winterisland map-frontiercompanions
-campaign-01-restoringthefaith genc-winterisland gen-a-wintersturm
-saveload-settled gen-49b46d-event14004 map-highland-siege map-trade4technology
+campaign-03-darknessuprise gen-barracks-autofill gen-barracks-recruit gen-leader-buy-soldier
+gen-recruit-attack combat-waves genb-waves-assault
+genb-ailong-mixed ai-long ai-builds-active genb-combat-ops
+camp-crawford genc-campcrawford-5000 combat-long gen-siege-cannon
+late-ai bc-full gen-keep-buy
+campaign-01-restoringthefaith 01-thalgrund map-winterrealm map-fouronone castrum colorsofbelief campaign-04-wolfslair campaign-03-divineanger
