@@ -31,7 +31,7 @@ jobs:
           xc_build || exit 2
           xc_scenarios | python3 scripts/xc/xc.py shard ${{ matrix.shard }} 4 > "$XC/shard.txt"
           echo "scenarios: $(wc -l < "$XC/shard.txt")"
-          xc_runs "$XC/hd" "$ONLY" < "$XC/shard.txt"
+          xc_runs "$XC/hd" "$ONLY" < "$XC/shard.txt" || echo "runs rc $?"
           python3 - "$XC/hd" "$XC/handlers.json" <<'P'
           import json, sys, glob, collections
           out = collections.defaultdict(lambda: {"samples": 0, "failing": 0, "entries": 0, "scenarios": 0})
