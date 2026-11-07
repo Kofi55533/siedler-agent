@@ -1,0 +1,89 @@
+name: xc-direct-pilot
+# Pilot of the DeepSeek workers on virtual methods no recording calls (scripts/xc/worker.sh with XC_MODE=direct): each
+# kind is checked by the direct-call check (scripts/xc/direct.sh, crates/s5xcheck tests/direct-functions.rs), which
+# calls it on the live objects of its class at fixed turns, instead of the census. The kind list is private (branch
+# pilot of siedler-data, file direct-kinds.txt: one line "FN_<address> <scenario>..." per kind); no claim issues.
+# Model output stays on the runner; the log shows counts and verdict lines only.
+on:
+  workflow_dispatch:
+    inputs:
+      jobs: { description: 'parallel jobs', default: '8' }
+      first: { description: 'first line of the kind list (0-based)', default: '0' }
+      count: { description: 'kinds to work on', default: '100' }
+permissions: { contents: read }
+env:
+  XC_PROJECT: ${{ vars.XC_PROJECT || 'Kofi55533/siedler-sim-rs' }}
+  XC_DATA: ${{ vars.XC_DATA || 'Kofi55533/siedler-data' }}
+jobs:
+  slices:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      slices: ${{ steps.s.outputs.slices }}
+    steps:
+      - id: s
+        run: |
+          n=${{ inputs.jobs }}; [ "$n" -ge 1 ] && [ "$n" -le 20 ] || { echo "jobs 1..20"; exit 1; }
+          echo "slices=$(seq 0 $((n - 1)) | jq -sc .)" >> "$GITHUB_OUTPUT"
+  work:
+    needs: slices
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    strategy:
+      fail-fast: false
+      matrix:
+        slice: ${{ fromJSON(needs.slices.outputs.slices) }}
+    steps:
+      - name: Job start
+        run: echo "XC_T0=$(date +%s)" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - name: Setup game data, toolchain, build cache, native decompilation (quiet)
+        env: { T: '${{ secrets.PRIVATE_REPO_TOKEN }}', GIT_LFS_SKIP_SMUDGE: '1' }
+        run: |
+          ( git clone -q --depth 1 --filter=blob:none --sparse "https://x-access-token:${T}@github.com/Kofi55533/siedler-forschung.git" $RUNNER_TEMP/forschung \
+            && git -C $RUNNER_TEMP/forschung sparse-checkout set --no-cone /cloud-re/results/rust_handoff/source/ ) > /dev/null 2>&1 &
+          FP=$!
+          scripts/s5-setup.sh clean/integration 1
+          wait $FP || { echo "siedler-forschung clone failed"; exit 1; }
+          echo "XC_NATIVE=$RUNNER_TEMP/forschung/cloud-re/results/rust_handoff/source" >> "$GITHUB_ENV"
+          echo "W=$RUNNER_TEMP/work" >> "$GITHUB_ENV"
+          ls $RUNNER_TEMP/forschung/cloud-re/results/rust_handoff/source/functions.jsonl > /dev/null
+          # no credential stays in a checkout the model can read; worker.sh pushes with GH_TOKEN explicitly
+          git -C $RUNNER_TEMP/forschung remote set-url origin https://github.com/Kofi55533/siedler-forschung.git
+          git -C /opt/s5/siedler-sim-rs remote set-url origin "https://github.com/$XC_PROJECT.git"
+          mkdir -p /opt/s5/xc
+          # worker.sh reads the census work list's sha for its messages only; the kinds come from the private list
+          GH_TOKEN=$T gh release download xc-worklist -R $XC_DATA -D /opt/s5/xc -p worklist.json --clobber
+          GH_TOKEN=$T gh release download field-atlas -R $XC_DATA -D /opt/s5/xc -p bauplan.json.gz --clobber \
+            && echo "XC_BAUPLAN=/opt/s5/xc/bauplan.json.gz" >> "$GITHUB_ENV" || echo "no bauplan"
+          # this job's slice of the kind list (every jobs-th line from first), never printed
+          GH_TOKEN=$T gh api -H 'Accept: application/vnd.github.raw' "repos/$XC_DATA/contents/direct-kinds.txt?ref=pilot" \
+            | sed -n "$(( ${{ inputs.first }} + 1 )),$(( ${{ inputs.first }} + ${{ inputs.count }} ))p" \
+            | awk -v j=${{ inputs.jobs }} -v s=${{ matrix.slice }} '(NR - 1) % j == s' > $RUNNER_TEMP/kinds.txt
+          echo "kinds in this slice: $(wc -l < $RUNNER_TEMP/kinds.txt)"
+      - name: Install opencode
+        run: npm i -g opencode-ai > /dev/null 2>&1 && opencode --version
+      - name: Work on the slice (model output private; counts and verdicts only)
+        env:
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          XC_MODEL: ${{ vars.XC_MODEL || 'opencode/deepseek-v4.1-flash-free' }}
+          XC_MODE: direct
+          XC_BUNDLE: '1'
+        run: |
+          mkdir -p ~/.local/share/opencode; umask 077
+          printf '{"opencode":{"type":"api","key":"%s"}}' "$OPENCODE_API_KEY" > ~/.local/share/opencode/auth.json
+          unset OPENCODE_API_KEY; umask 022
+          merged=0 failed=0 n=0
+          while read -r kind scenarios; do
+            [ -n "$kind" ] || continue
+            left=$(( 330 - ($(date +%s) - XC_T0) / 60 - 25 ))
+            [ "$left" -ge 60 ] || break
+            n=$((n + 1)); rc=0
+            XC_DIRECT_SCENARIOS="${scenarios:-bc combat economy}" XC_BUDGET_MIN=$(( left < 170 ? left : 170 )) \
+              scripts/xc/worker.sh "$kind" < /dev/null || rc=$?
+            if [ $rc = 0 ]; then merged=$((merged + 1)); elif [ $rc = 1 ]; then failed=$((failed + 1)); else exit 1; fi
+          done < $RUNNER_TEMP/kinds.txt
+          echo "pilot slice ${{ matrix.slice }}: $n kinds, $merged merged or done, $failed without a passing change" | tee -a "$GITHUB_STEP_SUMMARY"

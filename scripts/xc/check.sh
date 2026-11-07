@@ -1,13 +1,24 @@
 #!/usr/bin/env bash
 # check.sh <kind>[,<kind>...] [all]: the model's own check while it works. Rebuilds the capture tests on the current checkout and
 # compares <kind> at the original's real calls in the scenarios where it failed (all: every scenario where it runs).
+# XC_MODE=direct: the direct-call check (direct.sh) instead of the census runs.
 # Prints per-scenario counts and the first remaining difference. The script-side verdict is verify.sh, not this.
 set -uo pipefail
 D=$(cd "$(dirname "$0")" && pwd); source "$D/lib.sh"
 KIND=$1; WHICH=${2:-failing}
 xc_build || { tail -n 40 "$XC/build.log" | grep -vE '^\s*Compiling'; exit 1; }
 scen=$(cat "$XC/scenarios-$WHICH.txt")
-rm -rf "$XC/try"; xc_scenarios | awk -v s=" $scen " 'index(s, " "$1" ")' | xc_runs "$XC/try" "$KIND"
+rm -rf "$XC/try"
+if [ "${XC_MODE:-}" = direct ]; then
+  # the direct-call check: the kind called on its live objects at fixed turns (direct.sh), one run per scenario
+  mkdir -p "$XC/try"
+  for s in $scen; do
+    S5_CAPTURE_ONLY=$KIND XC_DIRECT_BUILT=1 XC_DIRECT_OUT=$XC/try/$s.json XC_DIRECT_LIVE= bash "$D/direct.sh" "$s" > /dev/null 2>&1 &
+  done
+  wait
+else
+  xc_scenarios | awk -v s=" $scen " 'index(s, " "$1" ")' | xc_runs "$XC/try" "$KIND"
+fi
 python3 - "$XC/try" "$KIND" <<'P'
 import json, sys
 from pathlib import Path
@@ -38,4 +49,5 @@ for kind in kinds:
     done = total and not bad and not unbound and (observed or not fn)
     print(f"\n{kind}: {bad} of {total} sampled calls differ" + (" -- DONE" if done else "") + ("\n" if len(kinds) > 1 else ""))
 P
-for n in $scen; do [ -s "$XC/try/$n.json" ] || { echo "$n: run failed or crashed, last lines:"; tail -n 15 "$XC/run-$n-only.log"; }; done
+for n in $scen; do [ -s "$XC/try/$n.json" ] || { echo "$n: run failed or crashed, last lines:"
+  if [ "${XC_MODE:-}" = direct ]; then tail -n 15 "$XC/try/$n.json.log"; else tail -n 15 "$XC/run-$n-only.log"; fi; }; done
