@@ -1,2 +1,2 @@
 # one job per line
-genb-ailong-mixed
+gen-player-commands
