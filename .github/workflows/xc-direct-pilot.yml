@@ -12,6 +12,7 @@ on:
       count: { description: 'kinds to work on', default: '100' }
       bundle: { description: 'kinds per model session and verdict (1..3)', default: '1' }
       list: { description: 'kind list file on branch pilot of the data repo', default: 'direct-kinds.txt' }
+      kind_min: { description: 'minutes one session may take before the next kind gets the runner', default: '50' }
 permissions: { contents: read }
 env:
   XC_PROJECT: ${{ vars.XC_PROJECT || 'Kofi55533/siedler-sim-rs' }}
@@ -78,6 +79,10 @@ jobs:
           GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
           XC_MODEL: ${{ vars.XC_MODEL || 'opencode/deepseek-v4.1-flash-free' }}
           XC_MODE: direct
+          # a kind the model cannot get identical in two short rounds hands the runner on (the full pilot: passing
+          # kinds took 12-16 min each, while three runners spent their first 80+ min on one failing kind each)
+          XC_ROUNDS: '2'
+          XC_ROUND_MIN: '20'
           XC_BUNDLE: '1'
         run: |
           mkdir -p ~/.local/share/opencode; umask 077
@@ -87,9 +92,9 @@ jobs:
           while read -r kind scenarios; do
             [ -n "$kind" ] || continue
             left=$(( 330 - ($(date +%s) - XC_T0) / 60 - 25 ))
-            [ "$left" -ge 60 ] || break
+            [ "$left" -ge 30 ] || break
             n=$((n + 1)); rc=0
-            XC_DIRECT_SCENARIOS="${scenarios:-bc combat economy}" XC_BUDGET_MIN=$(( left < 170 ? left : 170 )) \
+            XC_DIRECT_SCENARIOS="${scenarios:-bc combat economy}" XC_BUDGET_MIN=$(( left < ${{ inputs.kind_min }} ? left : ${{ inputs.kind_min }} )) \
               scripts/xc/worker.sh "$kind" < /dev/null || rc=$?
             if [ $rc = 0 ]; then merged=$((merged + 1)); elif [ $rc = 1 ]; then failed=$((failed + 1)); else exit 1; fi
           done < $RUNNER_TEMP/kinds.txt
