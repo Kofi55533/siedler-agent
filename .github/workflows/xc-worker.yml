@@ -113,6 +113,12 @@ jobs:
           while :; do
             n=$((n + 1)); echo "$kind" > "$RUNNER_TEMP/kind"
             left=$(( 330 - ($(date +%s) - XC_T0) / 60 - 25 ))   # minutes this kind may use (verdict + merge margin)
+            # the free models' usage limit: wait for it to lift instead of spending the kind on sessions that never answer
+            until scripts/xc/quota.sh "$XC_MODEL"; do
+              [ "$left" -ge 60 ] || { echo "free usage limit reached, too little time left" | tee -a "$GITHUB_STEP_SUMMARY"; exit 1; }
+              echo "free usage limit reached, waiting 10 min"; sleep 600
+              left=$(( 330 - ($(date +%s) - XC_T0) / 60 - 25 ))
+            done
             # 0 merged or nothing to do, 1 attempt recorded (not a job failure), 2 infrastructure
             rc=0; XC_BUDGET_MIN=$(( left < 170 ? left : 170 )) scripts/xc/worker.sh "$kind" || rc=$?
             [ $rc = 2 ] && exit 1
