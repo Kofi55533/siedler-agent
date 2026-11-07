@@ -213,6 +213,7 @@ cd "$S5_REPO"
 git add -A -- $(xc_paths "$KIND")
 summary=$(grep -E 'identical|scope ok' "$XC/verify-$round.txt" | head -6)
 TITLE="xc: ${KINDS//,/, } identical to the original at its real calls"
+[ -n "$DIRECT" ] && TITLE="xc: ${KINDS//,/, } identical to the original on its live objects"
 git -c user.name=siedler-agent -c user.email=Kofi55533@users.noreply.github.com commit -q -m "$TITLE
 
 Measured by the per-call differential (crates/s5xcheck capture, $POINT) in the
