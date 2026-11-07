@@ -22,7 +22,7 @@ jobs:
         with: { python-version: '3.11' }
       - name: Setup (quiet)
         env: { T: '${{ secrets.PRIVATE_REPO_TOKEN }}', GIT_LFS_SKIP_SMUDGE: '1' }
-        run: scripts/s5-setup.sh claude/destructors 1
+        run: scripts/s5-setup.sh claude/pattern-families 1
       - name: Direct
         env:
           S5_DIRECT_FREE: '${{ matrix.free }}'
