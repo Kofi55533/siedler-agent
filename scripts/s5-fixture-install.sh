@@ -29,15 +29,19 @@ if [ -d "$S5_REPO/.git" ]; then
   cd "$S5_REPO"
   git fetch -q origin '+refs/heads/agent/fixtures-*:refs/remotes/origin/agent/fixtures-*' 2>/dev/null || true
   for ref in "${refs[@]}" origin/clean/integration $(git for-each-ref --format='%(refname:short)' 'refs/remotes/origin/agent/fixtures-*'); do
-    git cat-file -e "$ref:fixtures-gen/$x/scenario.json" 2>/dev/null || continue
-    rm -rf "$dst"; mkdir -p "$dst"
-    if git archive "$ref" "fixtures-gen/$x" | tar -x -C "$dst" --strip-components=2; then
-      # Keep the PR's metadata while looking for its missing image in the
-      # release. Historical workers renamed numeric fixtures to campaign-*
-      # to work around the parser; the image bundle retains its original name.
-      [ -f "$meta/scenario.json" ] || cp -r "$dst/." "$meta/"
-      fix "git $ref:fixtures-gen/$x" && exit 0
-    fi
+    # fixtures-gen/<x>: captured fixture; docs/clean/new-fixtures/scenarios/<x>: recipe only (scenario + commands on a
+    # runner start image, e.g. the gen-a-* scenarios of agent/fixtures-gen-a), enough for s5-live.sh
+    for sub in "fixtures-gen/$x" "docs/clean/new-fixtures/scenarios/$x"; do
+      git cat-file -e "$ref:$sub/scenario.json" 2>/dev/null || continue
+      rm -rf "$dst"; mkdir -p "$dst"
+      if git archive "$ref" "$sub" | tar -x -C "$dst" --strip-components=$(( $(tr -cd / <<<"$sub" | wc -c) + 1 )); then
+        # Keep the PR's metadata while looking for its missing image in the
+        # release. Historical workers renamed numeric fixtures to campaign-*
+        # to work around the parser; the image bundle retains its original name.
+        [ -f "$meta/scenario.json" ] || cp -r "$dst/." "$meta/"
+        fix "git $ref:$sub" && exit 0
+      fi
+    done
   done
 fi
 # 2. releases
@@ -45,10 +49,23 @@ R=Kofi55533/siedler-sim-rs
 # candidate (tag asset) pairs: tags named in the PR body first, then releases whose tag or asset name matches the fixture
 # (genb-*/genc-* fixtures live in family archives such as genc-longmixed.tar.gz), newest first
 pairs=$( { [ -n "$body" ] && [ -f "$body" ] && grep -oE 'fixtures-gen-[0-9]{4}-[0-9]{2}-[0-9]{2}-[a-z0-9-]+' "$body" | sed 's/[-.]*$//' | sed 's/$/ */'
-           gh api "repos/$R/releases?per_page=100" 2>/dev/null | python3 -c '
+           for pg in 1 2 3 4 5; do gh api "repos/$R/releases?per_page=100&page=$pg" 2>/dev/null; echo; done | python3 -c '
 import json, sys, re
 x = sys.argv[1]; fam = x.split("-")[0]
-for r in json.load(sys.stdin):
+# all release pages (more than 100 releases: the older fixtures-gen-2026-10-1x ones are on page 2)
+rels, txt, i, dec = [], sys.stdin.read(), 0, json.JSONDecoder()
+while True:
+    while i < len(txt) and txt[i].isspace():
+        i += 1
+    if i >= len(txt):
+        break
+    try:
+        doc, i = dec.raw_decode(txt, i)
+    except ValueError:
+        break
+    if isinstance(doc, list):
+        rels += doc
+for r in rels:
     t = r["tag_name"]
     if not t.startswith("fixtures-gen-"):
         continue
