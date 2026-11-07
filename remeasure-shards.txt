@@ -1,1 +1,4 @@
-genb-abilities camp-crawford
+bc-full
+bc ai-builds-active
+genb-abilities saveload gen-market-trade
+gen-upgrade-research gen-a-wintersturm gen-diplomacy-tribute gen-camp-placement-base

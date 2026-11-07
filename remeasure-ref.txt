@@ -1,1 +1,1 @@
-claude/inflict-fear
+claude/worker-alarm-list
