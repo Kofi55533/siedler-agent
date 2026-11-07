@@ -102,6 +102,7 @@ jobs:
             n=$((n + 1)); rc=0
             XC_DIRECT_SCENARIOS="${scenarios:-bc combat economy}" XC_BUDGET_MIN=$(( left < ${{ inputs.kind_min }} ? left : ${{ inputs.kind_min }} )) \
               scripts/xc/worker.sh "$kind" < /dev/null || rc=$?
-            if [ $rc = 0 ]; then merged=$((merged + 1)); elif [ $rc = 1 ]; then failed=$((failed + 1)); else exit 1; fi
+            # 2 is also a session the model never answered (the limit came back mid-kind): the next kind waits on the quota
+            if [ $rc = 0 ]; then merged=$((merged + 1)); elif [ $rc = 1 ] || scripts/xc/quota.sh "$XC_MODEL"; then failed=$((failed + 1)); else continue; fi
           done < $RUNNER_TEMP/kinds.txt
           echo "pilot slice ${{ matrix.slice }}: $n sessions, $merged merged or done, $failed without a passing change, $waits quota waits" | tee -a "$GITHUB_STEP_SUMMARY"

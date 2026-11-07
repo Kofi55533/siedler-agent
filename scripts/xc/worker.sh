@@ -231,6 +231,8 @@ Fix this (run $W/check to see the remaining differences) and finish when the che
 done
 
 record_attempt(){ [ -n "$DIRECT" ] && return; for k in ${KINDS//,/ }; do python3 "$D/xc.py" issue "$k" attempt "$(wl_sha)"; done; }
+# no round ever got an answer (the free models' usage limit): not an attempt of the kind, the job releases its claim
+if [ $ok = 0 ] && [ "$live" = 0 ]; then sum "$KINDS: the model never answered ($dead dead starts), no attempt recorded"; exit 2; fi
 if [ $ok = 0 ]; then sum "$KINDS: no passing change after $rounds rounds ($dead dead starts)"; record_attempt; exit 1; fi
 
 # ship: one commit on the measured base, PR, squash-merge; a moved base is merged in and re-verified once
