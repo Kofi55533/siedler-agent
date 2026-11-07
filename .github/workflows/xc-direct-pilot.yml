@@ -10,6 +10,9 @@ on:
       jobs: { description: 'parallel jobs', default: '8' }
       first: { description: 'first line of the kind list (0-based)', default: '0' }
       count: { description: 'kinds to work on', default: '100' }
+      bundle: { description: 'kinds per model session and verdict (1..3)', default: '1' }
+      list: { description: 'kind list file on branch pilot of the data repo', default: 'direct-kinds.txt' }
+      kind_min: { description: 'minutes one session may take before the next kind gets the runner', default: '50' }
 permissions: { contents: read }
 env:
   XC_PROJECT: ${{ vars.XC_PROJECT || 'Kofi55533/siedler-sim-rs' }}
@@ -58,11 +61,16 @@ jobs:
           GH_TOKEN=$T gh release download xc-worklist -R $XC_DATA -D /opt/s5/xc -p worklist.json --clobber
           GH_TOKEN=$T gh release download field-atlas -R $XC_DATA -D /opt/s5/xc -p bauplan.json.gz --clobber \
             && echo "XC_BAUPLAN=/opt/s5/xc/bauplan.json.gz" >> "$GITHUB_ENV" || echo "no bauplan"
-          # this job's slice of the kind list (every jobs-th line from first), never printed
-          GH_TOKEN=$T gh api -H 'Accept: application/vnd.github.raw' "repos/$XC_DATA/contents/direct-kinds.txt?ref=pilot" \
+          # this job's slice of the kind list (every jobs-th line from first), never printed; neighbours in the slice (the
+          # list is sorted by size) join into bundles "FN_a,FN_b <scenarios of both>"
+          B=${{ inputs.bundle }}; [ "$B" -ge 1 ] && [ "$B" -le 3 ] || { echo "bundle 1..3"; exit 1; }
+          GH_TOKEN=$T gh api -H 'Accept: application/vnd.github.raw' "repos/$XC_DATA/contents/${{ inputs.list }}?ref=pilot" \
             | sed -n "$(( ${{ inputs.first }} + 1 )),$(( ${{ inputs.first }} + ${{ inputs.count }} ))p" \
-            | awk -v j=${{ inputs.jobs }} -v s=${{ matrix.slice }} '(NR - 1) % j == s' > $RUNNER_TEMP/kinds.txt
-          echo "kinds in this slice: $(wc -l < $RUNNER_TEMP/kinds.txt)"
+            | awk -v j=${{ inputs.jobs }} -v s=${{ matrix.slice }} '(NR - 1) % j == s' > $RUNNER_TEMP/kinds1.txt
+          awk -v b=$B 'function out(  sc, x) { sc = ""; for (x in seen) sc = sc " " x; print k sc; k = ""; delete seen }
+            { k = k (k ? "," : "") $1; for (i = 2; i <= NF; i++) seen[$i] = 1; if (NR % b == 0) out() }
+            END { if (k != "") out() }' $RUNNER_TEMP/kinds1.txt > $RUNNER_TEMP/kinds.txt
+          echo "kinds in this slice: $(wc -l < $RUNNER_TEMP/kinds1.txt) in $(wc -l < $RUNNER_TEMP/kinds.txt) sessions"
       - name: Install opencode
         run: npm i -g opencode-ai > /dev/null 2>&1 && opencode --version
       - name: Work on the slice (model output private; counts and verdicts only)
@@ -71,6 +79,10 @@ jobs:
           GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
           XC_MODEL: ${{ vars.XC_MODEL || 'opencode/deepseek-v4.1-flash-free' }}
           XC_MODE: direct
+          # a kind the model cannot get identical in two short rounds hands the runner on (the full pilot: passing
+          # kinds took 12-16 min each, while three runners spent their first 80+ min on one failing kind each)
+          XC_ROUNDS: '2'
+          XC_ROUND_MIN: '20'
           XC_BUNDLE: '1'
         run: |
           mkdir -p ~/.local/share/opencode; umask 077
@@ -80,10 +92,10 @@ jobs:
           while read -r kind scenarios; do
             [ -n "$kind" ] || continue
             left=$(( 330 - ($(date +%s) - XC_T0) / 60 - 25 ))
-            [ "$left" -ge 60 ] || break
+            [ "$left" -ge 30 ] || break
             n=$((n + 1)); rc=0
-            XC_DIRECT_SCENARIOS="${scenarios:-bc combat economy}" XC_BUDGET_MIN=$(( left < 170 ? left : 170 )) \
+            XC_DIRECT_SCENARIOS="${scenarios:-bc combat economy}" XC_BUDGET_MIN=$(( left < ${{ inputs.kind_min }} ? left : ${{ inputs.kind_min }} )) \
               scripts/xc/worker.sh "$kind" < /dev/null || rc=$?
             if [ $rc = 0 ]; then merged=$((merged + 1)); elif [ $rc = 1 ]; then failed=$((failed + 1)); else exit 1; fi
           done < $RUNNER_TEMP/kinds.txt
-          echo "pilot slice ${{ matrix.slice }}: $n kinds, $merged merged or done, $failed without a passing change" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "pilot slice ${{ matrix.slice }}: $n sessions, $merged merged or done, $failed without a passing change" | tee -a "$GITHUB_STEP_SUMMARY"
