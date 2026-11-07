@@ -1,2 +1,2 @@
 # one job per line
-gen-siege-cannon
+gen-enter-building-0x1500d
