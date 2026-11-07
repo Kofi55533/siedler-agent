@@ -5,7 +5,7 @@ name: remeasure-try
 # diverging fields of each scenario go to the private siedler-data release xc-hand (live-<fixture>.txt), never to a log.
 on:
   push:
-    branches: ['claude/remeasure-try']
+    branches: ['claude/remeasure-try', 'claude/remeasure-opus']
 permissions: { contents: read }
 jobs:
   shards:
