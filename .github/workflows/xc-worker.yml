@@ -129,6 +129,7 @@ jobs:
             rc=0; XC_BUDGET_MIN=$(( left < 170 ? left : 170 )) scripts/xc/worker.sh "$kind" || rc=$?
             [ $rc = 2 ] && exit 1
             [ $(( 330 - ($(date +%s) - XC_T0) / 60 )) -ge 90 ] || break
+            scripts/xc/stopped.sh && { echo "listed in claude/stop: job ends" | tee -a "$GITHUB_STEP_SUMMARY"; break; }
             # a waiting xc-try trial of the main account gets this slot before the next fleet kind
             if [ "$GITHUB_REPOSITORY" = Kofi55533/siedler-agent ] && python3 scripts/xc/xc.py trial-waiting; then
               echo "a trial waits for a slot: this job ends" | tee -a "$GITHUB_STEP_SUMMARY"; break
