@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
 # direct.sh <scenario>: the direct-call check (crates/s5xcheck tests/direct-functions.rs) on one scenario of the current
-# $S5_REPO checkout: every bound virtual method called on a few live objects at the turn offsets of $S5_DIRECT_AT.
-# Prints counts only; the JSON stays under $XC (private).
+# $S5_REPO checkout: every bound virtual method (or those of $S5_CAPTURE_ONLY) called on a few live objects at the turn
+# offsets of $S5_DIRECT_AT. Builds the test unless XC_DIRECT_BUILT=1 (xc_build built it into $XC/bins.txt).
+# Writes the groups to $XC_DIRECT_OUT (default $XC/direct.json) and, unless XC_DIRECT_LIVE is empty, the live virtual
+# methods to $XC_DIRECT_LIVE (default $XC/live.json). Prints counts only; the JSON stays under $XC (private).
 set -uo pipefail
 D=$(cd "$(dirname "$0")" && pwd); source "$D/lib.sh"
+OUT=${XC_DIRECT_OUT:-$XC/direct.json}; LIVE=${XC_DIRECT_LIVE-$XC/live.json}
 t0=$(date +%s)
+if [ "${XC_DIRECT_BUILT:-}" != 1 ]; then
 ( cd "$S5_REPO" || exit 1
   [ -f crates/s5xcheck/Cargo.lock ] || cp recomp/Cargo.lock crates/s5xcheck/Cargo.lock
   CARGO_TARGET_DIR=${XC_TARGET:-$S5_REPO/recomp/target} cargo test --release --no-run -j "${CARGO_BUILD_JOBS:-3}" \
@@ -23,18 +27,19 @@ for l in sys.stdin:
   rc=${PIPESTATUS[0]}; rm -f crates/s5xcheck/Cargo.lock; exit $rc ) || {
   echo "build failed ($(grep -c '^error' "$XC/build.log") errors)"
   head -20 "$XC/errors.txt"; exit 2; }
-echo "build secs=$(( $(date +%s) - t0 ))"
+fi
+[ "${XC_DIRECT_BUILT:-}" = 1 ] || echo "build secs=$(( $(date +%s) - t0 ))"
 read -r name img skip turns < <(xc_scenarios | awk -v n="$1" '$1==n')
 [ -n "${img:-}" ] || { echo "no scenario $1"; exit 2; }
 cmds=; xc_cmds; [ -s "$XC/cmds/$name.bin" ] && cmds=$XC/cmds/$name.bin
 t=$(date +%s)
 ( cd "$S5_REPO" && env S5_XCHECK_IMAGE="$img" ${cmds:+S5_XCHECK_COMMANDS="$cmds"} S5_DIRECT_AT="${S5_DIRECT_AT:-$skip,$((skip + 100))}" \
-    S5_DIRECT_JSON="$XC/direct.json" S5_DIRECT_LIVE="$XC/live.json" timeout -k 30 "${XC_DIRECT_TIMEOUT:-3600}" "$(xc_bin direct-functions)" \
-    --nocapture --test-threads=1 ) < /dev/null > "$XC/direct.log" 2>&1
-echo "direct: exit $? secs=$(( $(date +%s) - t)) json=$([ -s "$XC/direct.json" ] && echo yes || echo no)"
+    S5_DIRECT_JSON="$OUT" ${LIVE:+S5_DIRECT_LIVE="$LIVE"} timeout -k 30 "${XC_DIRECT_TIMEOUT:-3600}" "$(xc_bin direct-functions)" \
+    --nocapture --test-threads=1 ) < /dev/null > "$OUT.log" 2>&1
+echo "direct: exit $? secs=$(( $(date +%s) - t)) json=$([ -s "$OUT" ] && echo yes || echo no)"
 # panics name a source line of sim-rs, never game state
-grep -E "^thread '.*' panicked at|^error|Killed|memory allocation" "$XC/direct.log" | sed 's/:.*panicked at /: panicked at /' | head -5
-python3 - "$XC/direct.json" <<'P'
+grep -E "^thread '.*' panicked at|^error|Killed|memory allocation" "$OUT.log" | sed 's/:.*panicked at /: panicked at /' | head -5
+python3 - "$OUT" "$LIVE" <<'P'
 import json, sys
 from pathlib import Path
 p = Path(sys.argv[1])
@@ -51,8 +56,8 @@ print(f"samples {sum(x.get('samples', 0) for x in g.values())}, differing {sum(x
 sk = d.get("skipped", {})
 print(f"skipped calls {sum(len(v) for v in sk.values())} in {len(sk)} functions, not virtual {len(d.get('not_virtual', []))}, "
       f"import errors {len(d.get('import_errors', []))}")
-live = p.with_name("live.json")
-if live.is_file() and live.stat().st_size:
+live = Path(sys.argv[2]) if len(sys.argv) > 2 and sys.argv[2] else None
+if live and live.is_file() and live.stat().st_size:
     L = json.loads(live.read_text())
     print(f"live virtual methods {len(L)}, of them bound {sum(1 for k in L if int(k[3:], 16) in bound)}, "
           f"objects {sum(v.get('objects', 0) for v in L.values())}")

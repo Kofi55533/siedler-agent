@@ -21,7 +21,8 @@ jobs:
         env: { T: '${{ secrets.PRIVATE_REPO_TOKEN }}', GIT_LFS_SKIP_SMUDGE: '1' }
         run: scripts/s5-setup.sh claude/direct-calls 1
       - name: Direct
-        run: scripts/xc/direct.sh ${{ matrix.scenario }}
+        # replay and the live method list only (no binding called): the base time of one pilot check
+        run: S5_CAPTURE_ONLY=FN_0 scripts/xc/direct.sh ${{ matrix.scenario }}
       - name: Upload (private)
         if: always()
         env: { GH_TOKEN: '${{ secrets.PRIVATE_REPO_TOKEN }}' }
