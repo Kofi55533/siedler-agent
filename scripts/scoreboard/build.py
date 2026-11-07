@@ -1351,7 +1351,14 @@ def plan_view(data, hist, plan=None, classes=None, progress=None):
         eta[key] = {"left": left, "days": round(days, 1) if days is not None else None,
                     "date": (now + timedelta(days=days)).strftime("%Y-%m-%d") if days is not None and days < 36500 else None}
     due = {p["key"]: p["to"] for p in phases}
-    return {"start": plan["start"], "day": day, "phases": phases, "classes": rows,
+    deadline = plan.get("deadline")  # the user's fixed date: everything finished
+    days_left = None
+    if deadline:
+        end = datetime.fromisoformat(deadline).replace(tzinfo=BERLIN) + timedelta(days=1)
+        days_left = max((end - now).total_seconds() / 86400, 0.0)
+    need = {k: round(v["left"] / days_left) if days_left else None for k, v in eta.items()}
+    return {"start": plan["start"], "day": day, "deadline": deadline,
+            "days_left": round(days_left, 1) if days_left is not None else None, "need_per_day": need, "phases": phases, "classes": rows,
             "stages": (progress or {}).get("stages"), "progress_updated": (progress or {}).get("updated"),
             "source": "pipeline" if pc else "census", "rate_per_day": round(rate, 1) if rate is not None else None,
             "eta": eta, "planned": {"A": due.get("a"), "AB": due.get("b"), "all": due.get("whole")},
