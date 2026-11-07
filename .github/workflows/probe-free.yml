@@ -1,0 +1,19 @@
+name: probe-free
+on:
+  push: { branches: [claude/probe-free] }
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Free models, anonymous and with the key (HTTP code and error type only)
+        env: { K: '${{ secrets.OPENCODE_API_KEY }}' }
+        run: |
+          for m in deepseek-v4.1-flash-free glm-5.3-flash-free mimo-v2.6-flash-free nemotron-3.5-super-vl-free nemotron-3.5-lightning-free beam-free flint-40b-free iceman-free inkling-2-small-free crouton-alpha-free; do
+            for mode in anon key; do
+              h=(-H 'content-type: application/json'); [ $mode = key ] && h+=(-H "authorization: Bearer $K")
+              out=$(curl -sS -m 90 -o /tmp/r.json -w '%{http_code} %{time_total}' https://opencode.ai/zen/v1/chat/completions "${h[@]}" \
+                -d "{\"model\":\"$m\",\"messages\":[{\"role\":\"user\",\"content\":\"Reply with the word OK.\"}],\"max_tokens\":20}" 2>&1)
+              t=$(python3 -c 'import json;d=json.load(open("/tmp/r.json"));e=d.get("error");print(e.get("type") if isinstance(e,dict) else ("ok" if d.get("choices") else "other"))' 2>/dev/null || echo unparsable)
+              echo "$m $mode $out $t"
+            done
+          done
