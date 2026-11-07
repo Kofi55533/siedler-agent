@@ -1,2 +1,4 @@
-campaign-08-unexploredland
-genc-combatwaves-5000
+ai-builds-active
+ai-builds-battle genc-combatwaves-5000
+genc-campcrawford-5000 camp-crawford
+gen-sabotage-serfcommands map-winterrealm

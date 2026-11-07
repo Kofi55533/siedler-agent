@@ -1,2 +1,0 @@
-# <from turn>:<entity ids>
-85:0x1a118,0x1a138,0x14526
