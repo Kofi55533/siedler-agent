@@ -245,7 +245,7 @@ function renderPlan(p){
     (p.source==="census"?" Zahlen bis zum Start des neuen Fließbands aus der Zählung der Simulations-Aufrufe.":` Fließband-Stand ${esc(p.progress_updated||"")}.`);
   const r=p.rate_per_day,ea=p.eta.A||{},eb=p.eta.AB||{};
   $("planeta").innerHTML=[
-    {l:"Simulation (A) laut Plan fertig",v:dm(pa.to),h:`ganzes Spiel laut Plan: ${dm(pw.to)}`},
+    {l:"Ziel (fest): alles fertig bis",v:dm(p.deadline),h:p.days_left!=null?`noch ${String(p.days_left).replace(".",",")} Tage · nötig ${fmt((p.need_per_day||{}).A)} geprüfte Funktionen (A) pro Tag, mit B ${fmt((p.need_per_day||{}).AB)}`:""},
     {l:"Prognose nach heutigem Tempo",v:ea.date?dm(ea.date):"–",h:r!=null?`${fmt(r)} geprüfte Funktionen pro Tag (72 h) · noch ${fmt(ea.left)}`:"noch kein Tempo messbar"},
     {l:"Simulation geprüft",v:`${pct(A.verified,A.total,1)} %`,h:`${fmt(A.verified)} von ${fmt(A.total)} · mit Darstellung (A+B) noch ${fmt(eb.left)}${eb.date?", Prognose "+dm(eb.date):""}`},
   ].map(k=>`<div><div class="l">${k.l}</div><div class="v num">${k.v}</div><div class="h">${k.h}</div></div>`).join("");
