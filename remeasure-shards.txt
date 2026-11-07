@@ -1,7 +1,7 @@
 # shards
-ai-long
-genb-ailong-mixed
-ai-builds-active
-bc-full
-ai-builds-oldkings
-genc-campcrawford-5000
+gen-attack-building
+castrum
+combat-big
+combat-long
+genb-combat-ops
+gen-siege-cannon
