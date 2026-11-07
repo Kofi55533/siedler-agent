@@ -1,4 +1,2 @@
 campaign-08-unexploredland
 genc-combatwaves-5000
-ai-builds-active
-map-winterrealm
