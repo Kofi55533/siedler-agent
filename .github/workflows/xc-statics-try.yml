@@ -42,7 +42,7 @@ jobs:
           if [ ! -s "$XC/direct.json" ]; then
             ( cd "$S5_REPO" && cp recomp/Cargo.lock crates/s5xcheck/Cargo.lock && CARGO_TARGET_DIR=$S5_REPO/recomp/target \
               cargo test --release --no-run -j 3 --manifest-path crates/s5xcheck/Cargo.toml --test direct-functions \
-              --message-format=short > /dev/null 2> /tmp/err.txt; rm -f crates/s5xcheck/Cargo.lock )
+              > /dev/null 2> /tmp/err.txt; rm -f crates/s5xcheck/Cargo.lock ) || true
             grep -E '^(error|warning: unused)' -A3 /tmp/err.txt | head -60 > builderr-$s.txt; echo "error lines: $(grep -c '^error' /tmp/err.txt)"
             gh release upload direct-check -R $R --clobber builderr-$s.txt > /dev/null && echo uploaded; exit 0
           fi
