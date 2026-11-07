@@ -49,8 +49,14 @@ jobs:
           KINDS: ${{ inputs.kinds }}
           # the fix jobs claim their next kinds outside this serialized job: a claim another writer replaced is dropped
           XC_CLAIM_TOKEN: ${{ github.run_id }}-pick
+          XC_MODEL: ${{ vars.XC_MODEL || 'opencode/deepseek-v4.1-flash-free' }}
         run: |
           gh release download xc-worklist -R $XC_DATA -D $RUNNER_TEMP -p worklist.json
+          # the free models' usage limit: no wave, so no job holds a runner while the model refuses (the watchdog's next
+          # schedule starts one once it lifts)
+          if [ -z "$KINDS" ] && ! scripts/xc/quota.sh "$XC_MODEL"; then
+            echo "kinds=[]" >> "$GITHUB_OUTPUT"; echo "free usage limit reached: no wave" | tee -a "$GITHUB_STEP_SUMMARY"; exit 0
+          fi
           if [ -n "$KINDS" ]; then
             k=$(python3 -c 'import json,sys;print(json.dumps([x.strip() for x in sys.argv[1].split(",") if x.strip()]))' "$KINDS")
             for x in $(jq -r '.[]' <<<"$k"); do python3 scripts/xc/xc.py issue "$x" claim; done
@@ -113,12 +119,12 @@ jobs:
           while :; do
             n=$((n + 1)); echo "$kind" > "$RUNNER_TEMP/kind"
             left=$(( 330 - ($(date +%s) - XC_T0) / 60 - 25 ))   # minutes this kind may use (verdict + merge margin)
-            # the free models' usage limit: wait for it to lift instead of spending the kind on sessions that never answer
-            until scripts/xc/quota.sh "$XC_MODEL"; do
-              [ "$left" -ge 60 ] || { echo "free usage limit reached, too little time left" | tee -a "$GITHUB_STEP_SUMMARY"; exit 1; }
-              echo "free usage limit reached, waiting 10 min"; sleep 600
-              left=$(( 330 - ($(date +%s) - XC_T0) / 60 - 25 ))
-            done
+            # the free models' usage limit: release the kind and the runner instead of spending the kind on sessions that
+            # never answer or holding the slot while waiting (a wave of the watchdog picks it up once the limit lifts)
+            if ! scripts/xc/quota.sh "$XC_MODEL"; then
+              echo "free usage limit reached: kind released, job ends" | tee -a "$GITHUB_STEP_SUMMARY"
+              python3 scripts/xc/xc.py issue "$kind" unclaim; rm -f "$RUNNER_TEMP/kind"; break
+            fi
             # 0 merged or nothing to do, 1 attempt recorded (not a job failure), 2 infrastructure
             rc=0; XC_BUDGET_MIN=$(( left < 170 ? left : 170 )) scripts/xc/worker.sh "$kind" || rc=$?
             [ $rc = 2 ] && exit 1
