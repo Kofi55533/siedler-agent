@@ -1,2 +1,2 @@
 # shards
-genb-ailong-mixed
+ai-builds-active
