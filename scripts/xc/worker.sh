@@ -10,9 +10,12 @@
 #    a failed verdict goes back to the model with its lines
 # 3. PASS -> commit, push xc/<kind>, PR into clean/integration, squash-merge (re-verified on a moved base)
 # Exit 0: merged or nothing to do; 1: no passing change (attempt recorded); 2: infrastructure.
+# XC_MODE=direct (pilot): <kind> is a virtual method no recording calls; it is checked by calling it on its live objects
+# (direct.sh, the scenarios of $XC_DIRECT_SCENARIOS) instead of the census; no claim issues, no work list. A comma list
+# <kind>,<kind>... is a bundle there: one model session and one verdict for all, the branch named after the first.
 set -uo pipefail
 D=$(cd "$(dirname "$0")" && pwd); source "$D/lib.sh"
-KIND=$1; BR=$(python3 "$D/xc.py" branch "$KIND"); WL=$XC/worklist.json
+KIND=${1%%,*}; BR=$(python3 "$D/xc.py" branch "$KIND"); WL=$XC/worklist.json
 PROJECT=${XC_PROJECT:-Kofi55533/siedler-sim-rs}; AGENT=${XC_AGENT:-Kofi55533/siedler-agent}
 MODEL=${XC_MODEL:-opencode/deepseek-v4.1-flash-free}; ROUNDS=${XC_ROUNDS:-3}; ROUND_MIN=${XC_ROUND_MIN:-40}
 # no new model round once it could not end inside this budget (minutes since start): of 168 jobs (2026-10-24) none that
@@ -23,7 +26,8 @@ sum(){ [ -n "${GITHUB_STEP_SUMMARY:-}" ] && echo "$*" >> "$GITHUB_STEP_SUMMARY";
 wl_sha(){ python3 -c "import json,sys;print(json.load(open(sys.argv[1]))['sha'])" "$WL"; }
 # the pick job claimed the kind; every exit but a recorded attempt (1) or a merge hands it back
 MERGED=0; KINDS=$KIND
-unclaim(){ for k in "$@"; do python3 "$D/xc.py" issue "$k" unclaim; done; }
+DIRECT=; [ "${XC_MODE:-}" = direct ] && DIRECT=1 && KINDS=$1
+unclaim(){ [ -n "$DIRECT" ] && return; for k in "$@"; do python3 "$D/xc.py" issue "$k" unclaim; done; }
 trap 'rc=$?; [ "$rc" != 1 ] && [ $MERGED = 0 ] && unclaim ${KINDS//,/ }' EXIT
 
 cd "$S5_REPO" || exit 2
@@ -39,61 +43,78 @@ done
 rm -rf "$W"
 fetch_base && git checkout -q -B "$BR" origin/clean/integration || exit 2
 git rev-parse HEAD > "$XC/base.sha"; BASE=$(cat "$XC/base.sha")
-# the kind is compared in the scenarios where it failed plus a few where it was clean (at most 9: each verdict runs them
-# all); the next census compares every scenario and reverts a merge that broke one of the others
-python3 "$D/xc.py" scenarios "$WL" "$KIND" | cut -d' ' -f1-9 > "$XC/scenarios-all.txt"
-python3 "$D/xc.py" failing "$WL" "$KIND" | cut -d' ' -f1-3 > "$XC/scenarios-failing.txt"
-grep -q . "$XC/scenarios-failing.txt" || { sum "$KIND: not failing in the work list"; exit 0; }
-# small functions to port, each called most in one of this kind's full-run scenarios, join it (claimed for this job)
-# (trial 2026-10-25: 4 functions in one 61-min job, 2 model rounds of ~22 min, against ~18 min per single kind; every
-# kind of a bundle has to pass in the same round, so the default stays at 3)
-KINDS=$(python3 "$D/xc.py" bundle "$WL" "$KIND" "${XC_BUNDLE:-3}" "$XC_NATIVE") && [ -n "$KINDS" ] || KINDS=$KIND
-# the companions' own calling scenarios join the kind-only runs (this kind's first, at most 12 in all)
-if [ "$KINDS" != "$KIND" ]; then
-  for k in ${KINDS//,/ }; do python3 "$D/xc.py" scenarios "$WL" "$k" | cut -d' ' -f1-9; done \
-    | tr ' ' '\n' | awk 'NF && !seen[$0]++' | head -12 | xargs > "$XC/scenarios-all.txt"
-fi
-log "build + baseline of $KINDS on ${BASE:0:8}: failing in $(cat "$XC/scenarios-failing.txt")"
-t0=$(date +%s)
-xc_build || exit 2
-# the base build stays runnable: verify.sh measures the base's full runs only when the change seems to break another
-# kind against the work list (most changes do not), instead of measuring them up front for every kind
-xc_keep_bins "$XC/base-bin"
-BIND=$(xc_binding "$KIND")
-base_only(){
+if [ -n "$DIRECT" ]; then
+  # the direct-call check needs no base measurement: the kind has no binding yet, so its base is empty
+  echo "${XC_DIRECT_SCENARIOS:-bc combat economy}" > "$XC/scenarios-all.txt"; : > "$XC/scenarios-failing.txt"
+  log "build of $KIND on ${BASE:0:8} (direct-call check in $(cat "$XC/scenarios-all.txt"))"
+  t0=$(date +%s)
+  xc_build || exit 2
+  xc_keep_bins "$XC/base-bin"
+  # a kind bound meanwhile (another job, an earlier merge) leaves the bundle
+  keep=; for k in ${KINDS//,/ }; do
+    BIND=$(xc_binding "$k")
+    if [ -n "$BIND" ] && [ ! -f "$BIND" ]; then keep=${keep:+$keep,}$k; else sum "$k: already bound"; fi
+  done
+  [ -n "$keep" ] || exit 0
+  KINDS=$keep; KIND=${KINDS%%,*}
   rm -rf "$XC/base"; mkdir -p "$XC/base/only"
-  xc_scenarios | awk -v s=" $(cat "$XC/scenarios-all.txt") " 'index(s, " "$1" ")' | xc_runs "$XC/base/only" "$KINDS"
-}
-# <field> summed over the base runs of the kind (or of <kind>)
-shows(){
-  python3 -c 'import json,sys;from pathlib import Path;print(sum(json.loads(f.read_text())["groups"].get(sys.argv[2],{}).get(sys.argv[3],0) for f in Path(sys.argv[1]).glob("*.json")))' \
-    "$XC/base/only" "${2:-$KIND}" "$1"
-}
-# the census plays XC_TURNS (1200), but a verdict at that length took ~30 min instead of ~6 at 120 (2026-10-24: no merge
-# for an hour with 14 workers): the work (base, model checks, verdicts) plays XC_TURNS_SHORT when the kind shows there
-# (a bound kind differs, an unbound one is called), else the full length; the census still compares every merge at 1200
-FULL_TURNS=$XC_TURNS; export XC_TURNS=$XC_TURNS_SHORT
-base_only
-if [ -n "$BIND" ] && [ ! -f "$BIND" ]; then
-  [ "$(shows entries)" -gt 0 ] || export XC_TURNS=$FULL_TURNS
-  # a bundled function the short play does not call leaves the bundle (its verdict would need the full length)
-  if [ "$XC_TURNS" != "$FULL_TURNS" ] && [ "$KINDS" != "$KIND" ]; then
-    keep=$KIND; for k in ${KINDS//,/ }; do
-      [ "$k" = "$KIND" ] && continue
-      if [ "$(shows entries "$k")" -gt 0 ]; then keep=$keep,$k; else unclaim "$k"; fi
-    done; KINDS=$keep
-  fi
-  # a function without binding: its base runs would only count its calls, which the work list already holds
-  rm -rf "$XC/base"; mkdir -p "$XC/base/only"
-  python3 "$D/xc.py" stub "$WL" "$KINDS" "$XC/base/only" $(cat "$XC/scenarios-all.txt")
 else
-  [ "$(shows failing)" -gt 0 ] || { export XC_TURNS=$FULL_TURNS; base_only; }
-  python3 "$D/xc.py" check "$XC/base" "$XC/base" "$KIND" > "$XC/base.verdict"
-  # nothing left for this census (fixed by another merge, or an old worker closed the issue): no re-pick until it re-measures
-  if grep -q 'VERDICT PASS' "$XC/base.verdict"; then
-    sum "$KIND: already identical on ${BASE:0:8}"; MERGED=1; python3 "$D/xc.py" issue "$KIND" merged "$(wl_sha)"; exit 0
+  # the kind is compared in the scenarios where it failed plus a few where it was clean (at most 9: each verdict runs them
+  # all); the next census compares every scenario and reverts a merge that broke one of the others
+  python3 "$D/xc.py" scenarios "$WL" "$KIND" | cut -d' ' -f1-9 > "$XC/scenarios-all.txt"
+  python3 "$D/xc.py" failing "$WL" "$KIND" | cut -d' ' -f1-3 > "$XC/scenarios-failing.txt"
+  grep -q . "$XC/scenarios-failing.txt" || { sum "$KIND: not failing in the work list"; exit 0; }
+  # small functions to port, each called most in one of this kind's full-run scenarios, join it (claimed for this job)
+  # (trial 2026-10-25: 4 functions in one 61-min job, 2 model rounds of ~22 min, against ~18 min per single kind; every
+  # kind of a bundle has to pass in the same round, so the default stays at 3)
+  KINDS=$(python3 "$D/xc.py" bundle "$WL" "$KIND" "${XC_BUNDLE:-3}" "$XC_NATIVE") && [ -n "$KINDS" ] || KINDS=$KIND
+  # the companions' own calling scenarios join the kind-only runs (this kind's first, at most 12 in all)
+  if [ "$KINDS" != "$KIND" ]; then
+    for k in ${KINDS//,/ }; do python3 "$D/xc.py" scenarios "$WL" "$k" | cut -d' ' -f1-9; done \
+      | tr ' ' '\n' | awk 'NF && !seen[$0]++' | head -12 | xargs > "$XC/scenarios-all.txt"
   fi
-  grep -q 'no sampled call' "$XC/base.verdict" && { sum "$KIND: no sampled call at base (runs crashed?)"; exit 2; }
+  log "build + baseline of $KINDS on ${BASE:0:8}: failing in $(cat "$XC/scenarios-failing.txt")"
+  t0=$(date +%s)
+  xc_build || exit 2
+  # the base build stays runnable: verify.sh measures the base's full runs only when the change seems to break another
+  # kind against the work list (most changes do not), instead of measuring them up front for every kind
+  xc_keep_bins "$XC/base-bin"
+  BIND=$(xc_binding "$KIND")
+  base_only(){
+    rm -rf "$XC/base"; mkdir -p "$XC/base/only"
+    xc_scenarios | awk -v s=" $(cat "$XC/scenarios-all.txt") " 'index(s, " "$1" ")' | xc_runs "$XC/base/only" "$KINDS"
+  }
+  # <field> summed over the base runs of the kind (or of <kind>)
+  shows(){
+    python3 -c 'import json,sys;from pathlib import Path;print(sum(json.loads(f.read_text())["groups"].get(sys.argv[2],{}).get(sys.argv[3],0) for f in Path(sys.argv[1]).glob("*.json")))' \
+      "$XC/base/only" "${2:-$KIND}" "$1"
+  }
+  # the census plays XC_TURNS (1200), but a verdict at that length took ~30 min instead of ~6 at 120 (2026-10-24: no merge
+  # for an hour with 14 workers): the work (base, model checks, verdicts) plays XC_TURNS_SHORT when the kind shows there
+  # (a bound kind differs, an unbound one is called), else the full length; the census still compares every merge at 1200
+  FULL_TURNS=$XC_TURNS; export XC_TURNS=$XC_TURNS_SHORT
+  base_only
+  if [ -n "$BIND" ] && [ ! -f "$BIND" ]; then
+    [ "$(shows entries)" -gt 0 ] || export XC_TURNS=$FULL_TURNS
+    # a bundled function the short play does not call leaves the bundle (its verdict would need the full length)
+    if [ "$XC_TURNS" != "$FULL_TURNS" ] && [ "$KINDS" != "$KIND" ]; then
+      keep=$KIND; for k in ${KINDS//,/ }; do
+        [ "$k" = "$KIND" ] && continue
+        if [ "$(shows entries "$k")" -gt 0 ]; then keep=$keep,$k; else unclaim "$k"; fi
+      done; KINDS=$keep
+    fi
+    # a function without binding: its base runs would only count its calls, which the work list already holds
+    rm -rf "$XC/base"; mkdir -p "$XC/base/only"
+    python3 "$D/xc.py" stub "$WL" "$KINDS" "$XC/base/only" $(cat "$XC/scenarios-all.txt")
+  else
+    [ "$(shows failing)" -gt 0 ] || { export XC_TURNS=$FULL_TURNS; base_only; }
+    python3 "$D/xc.py" check "$XC/base" "$XC/base" "$KIND" > "$XC/base.verdict"
+    # nothing left for this census (fixed by another merge, or an old worker closed the issue): no re-pick until it re-measures
+    if grep -q 'VERDICT PASS' "$XC/base.verdict"; then
+      sum "$KIND: already identical on ${BASE:0:8}"; MERGED=1; python3 "$D/xc.py" issue "$KIND" merged "$(wl_sha)"; exit 0
+    fi
+    grep -q 'no sampled call' "$XC/base.verdict" && { sum "$KIND: no sampled call at base (runs crashed?)"; exit 2; }
+  fi
 fi
 N=$(tr ',' '\n' <<<"$KINDS" | wc -l)
 log "base measured in $(( $(date +%s) - t0 ))s, work at $XC_TURNS turns$([ "$N" = 1 ] || echo ", a bundle of $N functions")"
@@ -110,9 +131,21 @@ else
     cat "$W/TASK-part.md" >> "$W/TASK.md"; rm -f "$W/TASK-part.md"
   done
 fi
+if [ -n "$DIRECT" ]; then
+  cat >> "$W/TASK.md" <<M
+
+## How this function is checked
+
+No recorded game calls this function, so there are no measured differences above. It is a virtual method: the check
+(\`$W/check\`) calls it directly on the live objects of its class at fixed turns of the scenarios
+$(cat "$XC/scenarios-all.txt"), compares the original's call with your binding's on the same imported state and prints
+the first difference. Write the binding first (the check finds no sampled call until it exists), then make it identical.
+A binding whose calls change nothing the comparison sees does not pass: compare the result or the written fields.
+M
+fi
 cat > "$W/check" <<C
 #!/usr/bin/env bash
-XC_TURNS=$XC_TURNS exec "$D/check.sh" "$KINDS" "\${1:-failing}"
+XC_MODE=${XC_MODE:-} XC_TURNS=$XC_TURNS exec "$D/check.sh" "$KINDS" "\${1:-$([ -n "$DIRECT" ] && echo all || echo failing)}"
 C
 chmod +x "$W/check"
 cat > "$W/opencode.json" <<'J'
@@ -123,6 +156,7 @@ case $KIND in
   TICK_*) WHAT="the ordinary per-turn tick of entity type ${KIND#TICK_*_} (TICK_<class>_<type>)"; POINT="the entity tick (crates/s5xcheck/tests/capture-ticks.rs)" ;;
   FN_*) WHAT="the native function 0x${KIND#FN_} (its clean implementation and its binding $BIND, see TASK.md)"
         POINT="the function census (crates/s5xcheck/tests/capture-functions.rs)"; EDIT="crates/s5clean/ and the binding $BIND"
+        [ -n "$DIRECT" ] && POINT="the direct-call check (crates/s5xcheck/tests/direct-functions.rs)"
         if [ "$N" -gt 1 ]; then
           WHAT="the $N native functions $(sed 's/FN_/0x/g; s/,/, /g' <<<"$KINDS") (each its clean implementation and its binding, see TASK.md)"
           EDIT="crates/s5clean/ and the bindings $(xc_binding "$KINDS" | xargs)"
@@ -151,21 +185,40 @@ from recomp/. Do not commit, push or open PRs; the pipeline verifies and ships y
   xc_scenarios | awk -v s=" $(cat "$XC/scenarios-failing.txt") " 'index(s, " "$1" ")' \
     | XC_BINS=$XC/base-bin/bins.txt XC_TIMEOUT=$XC_TIMEOUT_FULL xc_runs "$XC/base/full" ) > /dev/null 2>&1 &
 AHEAD=$!
-# model <round>: one opencode session turn on $PROMPT (round 1 starts the session, later ones continue it)
+# model <round>: one opencode session turn on $PROMPT (the first live round starts the session, later ones continue it).
+# A session that never gets an answer from the free model's API hangs silently until the round's timeout: on 2026-11-07
+# (about 16 sessions at once from 03:00 UTC) 37 of 82 rounds ended that way, with 3 log lines after 40 min. A round still under
+# $DEAD_LINES lines after $DEAD_MIN minutes is such a dead start: it is stopped and counted, and costs no verdict.
+DEAD_MIN=${XC_DEAD_MIN:-5}; DEAD_LINES=10; live=0; dead=0
 model(){
   log "model round $1"
-  local args=(opencode run -m "$MODEL"); [ "$1" != 1 ] && args+=(--continue)
-  ( cd "$W" && env -u GH_TOKEN -u GITHUB_TOKEN -u T -u OPENCODE_API_KEY -u PRIVATE_REPO_TOKEN \
-      timeout -k 30 "$((ROUND_MIN * 60))" "${args[@]}" "$PROMPT" ) > "$XC/model-$1.log" 2>&1
-  log "model round $1 exit=$? ($(wc -l < "$XC/model-$1.log") log lines, private)"
+  local out=$XC/model-$1.log args=(opencode run -m "$MODEL") pid rc t0=$SECONDS
+  [ "$live" = 1 ] && args+=(--continue)
+  ( cd "$W" && exec env -u GH_TOKEN -u GITHUB_TOKEN -u T -u OPENCODE_API_KEY -u PRIVATE_REPO_TOKEN \
+      timeout -k 30 "$((ROUND_MIN * 60))" "${args[@]}" "$PROMPT" ) > "$out" 2>&1 &
+  pid=$!
+  while kill -0 "$pid" 2>/dev/null && [ $((SECONDS - t0)) -lt $((DEAD_MIN * 60)) ]; do sleep 10; done
+  if kill -0 "$pid" 2>/dev/null && [ "$(wc -l < "$out")" -lt "$DEAD_LINES" ]; then
+    kill -TERM "$pid" 2>/dev/null; wait "$pid" 2>/dev/null
+    dead=$((dead + 1))
+    log "model round $1 dead start: no answer in ${DEAD_MIN} min ($(grep -ciE 'rate.?limit|429|too many|quota' "$out") rate-limit lines, private)"
+    return 1
+  fi
+  wait "$pid"; rc=$?; live=1
+  log "model round $1 exit=$rc ($(wc -l < "$out") log lines, private)"
 }
 ok=0
 rounds=0
-for round in $(seq 1 "$ROUNDS"); do
-  if [ "$round" -gt 1 ] && [ $(( SECONDS + ROUND_MIN * 60 )) -gt $(( BUDGET_MIN * 60 )) ]; then
+round=0
+while [ "$round" -lt "$ROUNDS" ]; do
+  round=$((round + 1))
+  if { [ "$round" -gt 1 ] || [ "$dead" -gt 0 ]; } && [ $(( SECONDS + ROUND_MIN * 60 )) -gt $(( BUDGET_MIN * 60 )) ]; then
     log "budget: no round $round after $(( SECONDS / 60 )) min"; break
   fi
-  rounds=$round; model "$round"
+  rounds=$round
+  # a dead start leaves the change as it was: no verdict, the next round starts a fresh session after a pause
+  # (it does not use up a round; after 3 of them the API is taken as down for this kind)
+  model "$round" || { round=$((round - 1)); [ "$dead" -ge 3 ] && break; sleep 60; continue; }
   git -C "$S5_REPO" reset -q --soft "$BASE"   # a model commit is folded back into the working change
   # the base runs write the same per-run files ($XC/{rc,secs}-<scenario>.*) as the verdict's full runs
   t=$SECONDS; wait "$AHEAD" 2>/dev/null; [ $((SECONDS - t)) -gt 0 ] && log "waited $((SECONDS - t))s for the base's full runs"
@@ -177,19 +230,22 @@ $(grep -v '^VERDICT' "$XC/verify-$round.txt" | head -40)
 Fix this (run $W/check to see the remaining differences) and finish when the check is clean and nothing else regressed."
 done
 
-record_attempt(){ for k in ${KINDS//,/ }; do python3 "$D/xc.py" issue "$k" attempt "$(wl_sha)"; done; }
-if [ $ok = 0 ]; then sum "$KINDS: no passing change after $rounds rounds"; record_attempt; exit 1; fi
+record_attempt(){ [ -n "$DIRECT" ] && return; for k in ${KINDS//,/ }; do python3 "$D/xc.py" issue "$k" attempt "$(wl_sha)"; done; }
+# no round ever got an answer (the free models' usage limit): not an attempt of the kind, the job releases its claim
+if [ $ok = 0 ] && [ "$live" = 0 ]; then sum "$KINDS: the model never answered ($dead dead starts), no attempt recorded"; exit 2; fi
+if [ $ok = 0 ]; then sum "$KINDS: no passing change after $rounds rounds ($dead dead starts)"; record_attempt; exit 1; fi
 
 # ship: one commit on the measured base, PR, squash-merge; a moved base is merged in and re-verified once
 cd "$S5_REPO"
 git add -A -- $(xc_paths "$KIND")
 summary=$(grep -E 'identical|scope ok' "$XC/verify-$round.txt" | head -6)
 TITLE="xc: ${KINDS//,/, } identical to the original at its real calls"
+[ -n "$DIRECT" ] && TITLE="xc: ${KINDS//,/, } identical to the original on its live objects"
 git -c user.name=siedler-agent -c user.email=Kofi55533@users.noreply.github.com commit -q -m "$TITLE
 
 Measured by the per-call differential (crates/s5xcheck capture, $POINT) in the
 recorded scenarios; verified by siedler-agent scripts/xc/verify.sh (scope, kind, no other kind
-regressed, s5clean tests, building tick).
+regressed, s5clean tests, building tick)$([ -n "$DIRECT" ] && echo "; direct mode: the kind called on its live objects").
 $summary" || exit 2
 # GitHub refuses a squash merge while it recomputes the mergeability after the base moved: 13 of 68 merges on 2026-10-25,
 # 8 of them merging cleanly in git, each paid a re-verify (~10 min). The verdict's base moves on most merges anyway (the
@@ -250,7 +306,7 @@ $(grep -vE '^VERDICT' "$XC/verify-$round.txt" | head -20)
   [ -n "$pr" ] || exit 2
   if compiles_on_base && merge_pr "$pr"; then
     sum "$KINDS: merged $PROJECT#$pr"; MERGED=1
-    for k in ${KINDS//,/ }; do python3 "$D/xc.py" issue "$k" merged "$(wl_sha)"; done
+    [ -n "$DIRECT" ] || for k in ${KINDS//,/ }; do python3 "$D/xc.py" issue "$k" merged "$(wl_sha)"; done
     # no census per merge (it held 8 of the 20 job slots without pause): the watchdog's next census, at most 30 min
     # after the last one, compares every scenario and reverts this merge if another kind broke anywhere
     exit 0

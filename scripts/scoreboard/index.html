@@ -90,6 +90,16 @@ details{margin-top:8px}summary{cursor:pointer;color:var(--ink2);font-size:.88rem
 .list li:last-child{border-bottom:none}
 .list .r{color:var(--mute);white-space:nowrap;font-size:.8rem}
 .foot{color:var(--mute);font-size:.8rem;margin-top:20px}
+/* plan */
+.eta{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin:4px 0 14px}
+.eta>div{border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.eta .v{font-size:1.45rem;font-weight:700;line-height:1.2}.eta .l{font-size:.82rem;color:var(--ink2)}.eta .h{font-size:.78rem;color:var(--mute)}
+.phases{margin:0;padding:0;list-style:none}
+.phases li{display:grid;grid-template-columns:22px 1fr auto;gap:2px 8px;padding:7px 0;border-bottom:1px solid var(--line);font-size:.88rem}
+.phases li:last-child{border-bottom:none}.phases .w{grid-column:2/4;color:var(--mute);font-size:.8rem}
+.phases .d{color:var(--ink2);white-space:nowrap;font-size:.82rem}.phases .ic{text-align:center}
+.phases li.done{color:var(--mute)}.tag.late{background:var(--serious);color:#fff}
+.planc svg{display:block;width:100%;height:auto;overflow:visible}.planc text{fill:var(--mute);font-size:11px;font-family:inherit}
 @media (max-width:720px){
   .two,.charts{grid-template-columns:1fr}
   .flow{grid-template-columns:1fr 1fr}.step:nth-child(2)::after{display:none}
@@ -102,6 +112,19 @@ details{margin-top:8px}summary{cursor:pointer;color:var(--ink2);font-size:.88rem
   <div><h1>Siedler-Nachbau in Rust</h1><div class="sub" id="upd" style="margin:2px 0 0">Lade Daten …</div></div>
   <div class="pill" id="health"><span class="dot info"></span>…</div>
 </header>
+
+<section class="card" id="plancard" hidden><h2>Der Plan · wann sind wir fertig?</h2>
+  <div class="sub" id="plansub"></div>
+  <div class="eta" id="planeta"></div>
+  <div class="two" style="margin-top:0">
+    <div><h2 style="font-size:.92rem">Phasen</h2><ul class="phases" id="phases"></ul></div>
+    <div><h2 style="font-size:.92rem">Alle Funktionen des Spiels</h2>
+      <table><thead><tr><th>Klasse</th><th class="num">Gesamt</th><th class="num">geprüft</th><th class="num">portiert, ungeprüft</th><th class="num">offen</th></tr></thead><tbody id="plancls"></tbody></table>
+      <div id="planstages"></div>
+      <h2 style="font-size:.92rem;margin-top:14px">Geprüfte Simulations-Funktionen</h2><div class="planc" id="plancurve"></div>
+    </div>
+  </div>
+</section>
 
 <section class="card" id="attcard"><h2>Was du wissen musst</h2><div class="sub">Automatisch erkannt, wichtigstes zuerst.</div><div class="att" id="att"></div></section>
 
@@ -213,9 +236,36 @@ function barChart(rows){ // [{day,count}]
   return`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Integrierte PRs pro Tag"><g class="grid">${g}</g>${bars}</svg>`;
 }
 
+const dm=s=>{if(!s)return"–";const d=new Date(s+"T12:00:00");return d.toLocaleDateString("de-DE",d.getFullYear()===new Date(NOW).getFullYear()?{day:"2-digit",month:"2-digit"}:{day:"2-digit",month:"2-digit",year:"numeric"})};
+const STAGE={script:"Musterübersetzer",deepseek:"DeepSeek-Fließband",agent:"Agent-Worker",hand:"Claude von Hand"};
+function renderPlan(p){
+  if(!p)return;$("plancard").hidden=false;
+  const A=p.classes.find(c=>c.key==="A")||{},pa=p.phases.find(x=>x.key==="a")||{},pw=p.phases.find(x=>x.key==="whole")||{};
+  $("plansub").innerHTML=`Start ${dm(p.start)} · heute Tag ${p.day+1}. Geprüft heißt: rechnet auf echten Spielständen genau wie das Original.`+
+    (p.source==="census"?" Zahlen bis zum Start des neuen Fließbands aus der Zählung der Simulations-Aufrufe.":` Fließband-Stand ${esc(p.progress_updated||"")}.`);
+  const r=p.rate_per_day,ea=p.eta.A||{},eb=p.eta.AB||{};
+  $("planeta").innerHTML=[
+    {l:"Simulation (A) laut Plan fertig",v:dm(pa.to),h:`ganzes Spiel laut Plan: ${dm(pw.to)}`},
+    {l:"Prognose nach heutigem Tempo",v:ea.date?dm(ea.date):"–",h:r!=null?`${fmt(r)} geprüfte Funktionen pro Tag (72 h) · noch ${fmt(ea.left)}`:"noch kein Tempo messbar"},
+    {l:"Simulation geprüft",v:`${pct(A.verified,A.total,1)} %`,h:`${fmt(A.verified)} von ${fmt(A.total)} · mit Darstellung (A+B) noch ${fmt(eb.left)}${eb.date?", Prognose "+dm(eb.date):""}`},
+  ].map(k=>`<div><div class="l">${k.l}</div><div class="v num">${k.v}</div><div class="h">${k.h}</div></div>`).join("");
+  const IC={done:"✓",running:"▶",open:"○"};
+  $("phases").innerHTML=p.phases.map(x=>`<li class="${x.status}"><span class="ic">${IC[x.status]||"○"}</span><span>${esc(x.title)}${x.late?` <span class="tag late">verspätet</span>`:""}</span>
+    <span class="d">${x.from===x.to?dm(x.to):dm(x.from)+"–"+dm(x.to)}</span><span class="w">${esc(x.what||"")}</span></li>`).join("");
+  $("plancls").innerHTML=p.classes.map(c=>`<tr><td><b>${esc(c.key)}</b> ${esc(c.label)}${c.port?"":` <span class="mute small">(${c.key==="C"?"Rust-Standard":"entfällt"})</span>`}</td>
+    <td class="num">${fmt(c.total)}</td><td class="num">${c.port?fmt(c.verified):"–"}</td><td class="num">${c.port?fmt(c.unverified):"–"}</td><td class="num">${c.port?fmt(c.open):"–"}</td></tr>`).join("");
+  const st=p.stages;
+  $("planstages").innerHTML=st?`<table style="margin-top:10px"><thead><tr><th>Stufe</th><th class="num">portiert</th><th class="num">geprüft</th></tr></thead><tbody>${
+    Object.entries(st).map(([k,v])=>`<tr><td>${esc(STAGE[k]||k)}</td><td class="num">${fmt(v.ported)}</td><td class="num">${fmt(v.verified)}</td></tr>`).join("")}</tbody></table>`:"";
+  const pts=(p.curve||[]).map(([t,v])=>({t:berlin(t),v,label:`${t} Berlin`}));
+  const box=$("plancurve");box.innerHTML=lineChart(pts,{fmtY:v=>fmt(Math.round(v)),max:A.total||1});
+  if(pts.length>1){bindTips(box);wireCross(box,pts,A.total||1)}
+}
+
 fetch("data.json?t="+NOW).then(r=>r.json()).then(d=>{
   const O=d.overview||{},P=d.percent||{},it=P.identical_turns||{},pl=O.pipeline||{},ig=O.integrations||{},sc=O.scenarios||{};
   const gen=Date.parse(d.generated_utc);
+  try{renderPlan(d.plan)}catch(e){console.error(e)}
   $("upd").innerHTML=`Aktualisiert ${ago(gen)} (${esc(d.generated_berlin)} Berlin) · Stand <code>${esc(d.branch)}</code>${d.head?` @ <code>${esc(d.head.sha)}</code>`:""}`;
   const h=O.health||"info";
   $("health").innerHTML=`<span class="dot ${h}"></span>${h==="good"?"Läuft":h==="warning"?"Läuft mit Einschränkungen":h==="critical"?"Problem":"Unbekannt"}`;

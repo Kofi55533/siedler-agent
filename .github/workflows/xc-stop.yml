@@ -2,7 +2,10 @@ name: xc-stop
 # Cancels the queued and running runs of one xc workflow of this repository (default: the fix jobs, xc-worker.yml),
 # e.g. after its job limit was lowered: a running fix job keeps the limit it started with. A cancelled fix job
 # releases its claimed kind itself (xc-worker.yml, "Release the claim").
+# A push to branch claude/stop does the same for agents that cannot dispatch or cancel runs themselves: file
+# .xc-stop on that branch lists the run IDs or workflow file names to cancel, one per line.
 on:
+  push: { branches: [claude/stop] }
   workflow_dispatch:
     inputs:
       workflow: { description: 'workflow file whose runs are cancelled', default: 'xc-worker.yml' }
@@ -13,15 +16,24 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      - uses: actions/checkout@v4
+        if: github.event_name == 'push'
       - env:
           GH_TOKEN: ${{ github.token }}
-          W: ${{ inputs.workflow }}
+          W: ${{ inputs.workflow || '' }}
           R: ${{ github.repository }}
         run: |
           n=0
+          targets=$W; [ -f .xc-stop ] && targets=$(grep -v '^#' .xc-stop)
+          for t in $targets; do
+            if [[ $t =~ ^[0-9]+$ ]]; then
+              gh api -X POST "repos/$R/actions/runs/$t/cancel" > /dev/null && n=$((n + 1)) || true; continue
+            fi
+            W=$t
           for s in queued in_progress waiting pending requested; do
             for id in $(gh api "repos/$R/actions/workflows/$W/runs?status=$s&per_page=100" --jq '.workflow_runs[].id'); do
               gh api -X POST "repos/$R/actions/runs/$id/cancel" > /dev/null && n=$((n + 1)) || true
             done
           done
-          echo "$n runs of $W cancelled" | tee -a "$GITHUB_STEP_SUMMARY"
+          done
+          echo "$n runs cancelled"  | tee -a "$GITHUB_STEP_SUMMARY"

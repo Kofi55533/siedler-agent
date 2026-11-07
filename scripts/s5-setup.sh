@@ -30,9 +30,6 @@ zstd -dcq $S5/dl/newfix.tzst | tar -xf - -C $S5_NF & P5=$!
 # newfix2.tzst, newfix3.tzst, ...
 P6=""; for f in $S5/dl/newfix[0-9]*.tzst; do [ -f "$f" ] && { zstd -dcq "$f" | tar -xf - -C $S5_NF & P6="$P6 $!"; }; done
 wait $P1 $P2 $P3 $P4 $P5 $P6
-# opus-extra.tzst.*: the box's artifacts/new-fixtures (ai-builds-active/-oldkings, saveload*, ... fixtures and images);
-# newfix* win where both have a scenario (--skip-old-files)
-ls $S5/dl/opus-extra.tzst.* >/dev/null 2>&1 && { cat $S5/dl/opus-extra.tzst.* | zstd -dcq | tar -x --skip-old-files --strip-components=2 -C $S5_NF artifacts/new-fixtures 2>/dev/null || echo "s5-setup: opus-extra extract failed"; }
 # box-absolute image paths in the extra fixtures -> runner paths
 sed -i -e "s#/workspace/siedler/artifacts/new-fixtures#$S5_NF#g" -e "s#/workspace/siedler/artifacts/codex-verify-infra#$S5_V#g" $S5_NF/fixtures/*/scenario.json
 rm -f $S5/dl/*.tzst*

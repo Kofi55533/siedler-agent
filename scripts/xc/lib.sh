@@ -105,6 +105,7 @@ xc_build(){
       --manifest-path crates/s5xcheck/Cargo.toml --test capture-execute-task --test capture-entity-tick \
       $([ -f crates/s5xcheck/tests/capture-ticks.rs ] && echo --test capture-ticks) \
       $([ -f crates/s5xcheck/tests/capture-functions.rs ] && echo --test capture-functions) \
+      $([ "${XC_MODE:-}" = direct ] && echo --test direct-functions) \
       --message-format=json 2> "$XC/build.log" \
     | python3 -c 'import sys,json
 for l in sys.stdin:
