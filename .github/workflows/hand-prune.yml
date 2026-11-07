@@ -1,0 +1,19 @@
+name: hand-prune
+# TEMP: the private release xc-hand reached GitHub's 1000-asset limit; delete the superseded live re-measure details
+# (live-*.txt last updated before 2026-11-01). Prints counts only.
+on:
+  push:
+    branches: ['claude/hand-prune']
+permissions: { contents: read }
+jobs:
+  prune:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - env: { GH_TOKEN: '${{ secrets.PRIVATE_REPO_TOKEN }}' }
+        run: |
+          R=repos/Kofi55533/siedler-data; id=$(gh api $R/releases/tags/xc-hand --jq .id)
+          gh api --paginate "$R/releases/$id/assets?per_page=100" --jq '.[]|select((.name|startswith("live-")) and .updated_at < "2026-11-01")|.id' > ids.txt
+          echo "to delete: $(wc -l < ids.txt)"; n=0
+          while read a; do gh api -X DELETE $R/releases/assets/$a > /dev/null 2>&1 && n=$((n+1)); done < ids.txt
+          echo "deleted: $n; left: $(gh api --paginate "$R/releases/$id/assets?per_page=100" --jq '.[].id' | wc -l)"
