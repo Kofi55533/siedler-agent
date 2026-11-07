@@ -1,1 +1,1 @@
-claude/leader-leave-barracks-move
+claude/trace-camp

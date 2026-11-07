@@ -1,7 +1,3 @@
 # one job per line
-campaign-03-darknessuprise gen-barracks-autofill gen-barracks-recruit gen-leader-buy-soldier
-gen-recruit-attack combat-waves genb-waves-assault
-genb-ailong-mixed ai-long ai-builds-active genb-combat-ops
-camp-crawford genc-campcrawford-5000 combat-long gen-siege-cannon
-late-ai bc-full gen-keep-buy
-campaign-01-restoringthefaith 01-thalgrund map-winterrealm map-fouronone castrum colorsofbelief campaign-04-wolfslair campaign-03-divineanger
+01-thalgrund
+campaign-01-restoringthefaith
