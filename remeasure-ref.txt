@@ -1,1 +1,1 @@
-claude/mine-depletion
+claude/trace-ai

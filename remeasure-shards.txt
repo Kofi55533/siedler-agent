@@ -1,7 +1,2 @@
 # shards
-gen-mine-depletion
-bc-full
-bc-0804
-ai-long
 genc-campcrawford-5000
-ai-builds-active
