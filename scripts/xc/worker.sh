@@ -185,21 +185,40 @@ from recomp/. Do not commit, push or open PRs; the pipeline verifies and ships y
   xc_scenarios | awk -v s=" $(cat "$XC/scenarios-failing.txt") " 'index(s, " "$1" ")' \
     | XC_BINS=$XC/base-bin/bins.txt XC_TIMEOUT=$XC_TIMEOUT_FULL xc_runs "$XC/base/full" ) > /dev/null 2>&1 &
 AHEAD=$!
-# model <round>: one opencode session turn on $PROMPT (round 1 starts the session, later ones continue it)
+# model <round>: one opencode session turn on $PROMPT (the first live round starts the session, later ones continue it).
+# A session that never gets an answer from the free model's API hangs silently until the round's timeout: on 2026-11-07
+# (about 16 sessions at once from 03:00 UTC) 37 of 82 rounds ended that way, with 3 log lines after 40 min. A round still under
+# $DEAD_LINES lines after $DEAD_MIN minutes is such a dead start: it is stopped and counted, and costs no verdict.
+DEAD_MIN=${XC_DEAD_MIN:-5}; DEAD_LINES=10; live=0; dead=0
 model(){
   log "model round $1"
-  local args=(opencode run -m "$MODEL"); [ "$1" != 1 ] && args+=(--continue)
-  ( cd "$W" && env -u GH_TOKEN -u GITHUB_TOKEN -u T -u OPENCODE_API_KEY -u PRIVATE_REPO_TOKEN \
-      timeout -k 30 "$((ROUND_MIN * 60))" "${args[@]}" "$PROMPT" ) > "$XC/model-$1.log" 2>&1
-  log "model round $1 exit=$? ($(wc -l < "$XC/model-$1.log") log lines, private)"
+  local out=$XC/model-$1.log args=(opencode run -m "$MODEL") pid rc t0=$SECONDS
+  [ "$live" = 1 ] && args+=(--continue)
+  ( cd "$W" && exec env -u GH_TOKEN -u GITHUB_TOKEN -u T -u OPENCODE_API_KEY -u PRIVATE_REPO_TOKEN \
+      timeout -k 30 "$((ROUND_MIN * 60))" "${args[@]}" "$PROMPT" ) > "$out" 2>&1 &
+  pid=$!
+  while kill -0 "$pid" 2>/dev/null && [ $((SECONDS - t0)) -lt $((DEAD_MIN * 60)) ]; do sleep 10; done
+  if kill -0 "$pid" 2>/dev/null && [ "$(wc -l < "$out")" -lt "$DEAD_LINES" ]; then
+    kill -TERM "$pid" 2>/dev/null; wait "$pid" 2>/dev/null
+    dead=$((dead + 1))
+    log "model round $1 dead start: no answer in ${DEAD_MIN} min ($(grep -ciE 'rate.?limit|429|too many|quota' "$out") rate-limit lines, private)"
+    return 1
+  fi
+  wait "$pid"; rc=$?; live=1
+  log "model round $1 exit=$rc ($(wc -l < "$out") log lines, private)"
 }
 ok=0
 rounds=0
-for round in $(seq 1 "$ROUNDS"); do
-  if [ "$round" -gt 1 ] && [ $(( SECONDS + ROUND_MIN * 60 )) -gt $(( BUDGET_MIN * 60 )) ]; then
+round=0
+while [ "$round" -lt "$ROUNDS" ]; do
+  round=$((round + 1))
+  if { [ "$round" -gt 1 ] || [ "$dead" -gt 0 ]; } && [ $(( SECONDS + ROUND_MIN * 60 )) -gt $(( BUDGET_MIN * 60 )) ]; then
     log "budget: no round $round after $(( SECONDS / 60 )) min"; break
   fi
-  rounds=$round; model "$round"
+  rounds=$round
+  # a dead start leaves the change as it was: no verdict, the next round starts a fresh session after a pause
+  # (it does not use up a round; after 3 of them the API is taken as down for this kind)
+  model "$round" || { round=$((round - 1)); [ "$dead" -ge 3 ] && break; sleep 60; continue; }
   git -C "$S5_REPO" reset -q --soft "$BASE"   # a model commit is folded back into the working change
   # the base runs write the same per-run files ($XC/{rc,secs}-<scenario>.*) as the verdict's full runs
   t=$SECONDS; wait "$AHEAD" 2>/dev/null; [ $((SECONDS - t)) -gt 0 ] && log "waited $((SECONDS - t))s for the base's full runs"
@@ -212,7 +231,7 @@ Fix this (run $W/check to see the remaining differences) and finish when the che
 done
 
 record_attempt(){ [ -n "$DIRECT" ] && return; for k in ${KINDS//,/ }; do python3 "$D/xc.py" issue "$k" attempt "$(wl_sha)"; done; }
-if [ $ok = 0 ]; then sum "$KINDS: no passing change after $rounds rounds"; record_attempt; exit 1; fi
+if [ $ok = 0 ]; then sum "$KINDS: no passing change after $rounds rounds ($dead dead starts)"; record_attempt; exit 1; fi
 
 # ship: one commit on the measured base, PR, squash-merge; a moved base is merged in and re-verified once
 cd "$S5_REPO"
