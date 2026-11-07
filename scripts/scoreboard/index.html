@@ -289,6 +289,14 @@ fetch("data.json?t="+NOW).then(r=>r.json()).then(d=>{
     if(xn)kp[0]={l:"Funktionen identisch",v:`${pct((XF.done||0)+(XF.covered||0),xn,1)} %`,h:`${fmt((XF.done||0)+(XF.covered||0))} von ${fmt(xn)} ausgeführten Simulations-Funktionen identisch: ${fmt(XF.done)} selbst an echten Aufrufen geprüft, ${fmt(XF.covered||0)} nur innerhalb geprüfter Funktionen aufgerufen · ${fmt(XF.port)} noch zu portieren`};
     kp[2]={l:"Gleiche Aufrufe",v:`${XC.pct!=null?XC.pct.toLocaleString("de-DE"):"–"} %`,h:`${fmt(XC.identical)} von ${fmt(XC.samples)} verglichenen Aufrufen · gemessen ${ago(Date.parse(XW.updated))}`};
   }
+  // headline (plan 07.11.): whole scenarios turn-identical to the original, then identical turns; functions only as detail
+  const SR=d.scenarios||[],sm=SR.filter(r=>r.measured),si=sm.filter(r=>r.identical);
+  if(SR.length){
+    const fn=kp[0];
+    kp[0]={l:"Szenarien voll gleich",v:`${si.length}<small> / ${SR.length}</small>`,h:`über die ganze Länge Zug für Zug gleich wie das Original · ${sm.length} gemessen, ${sm.length-si.length} weichen ab`};
+    kp[1]={l:"Gleiche Züge",v:`${it.pct!=null?it.pct.toLocaleString("de-DE"):"–"} %`,h:`${fmt(it.ok)} von ${fmt(it.total)} Zügen über alle gemessenen Szenarien · gemessen ${ago(berlin(it.as_of))}`};
+    kp[2]=fn;
+  }
   $("kpis").innerHTML=kp.map(k=>`<div class="kpi"><div class="l">${k.l}</div><div class="v num">${k.v}</div><div class="h">${k.h}</div></div>`).join("");
 
   // whole game

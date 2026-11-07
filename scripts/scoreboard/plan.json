@@ -1,19 +1,63 @@
 {
-  "about": "The whole-game plan the scoreboard tracks (section 'Der Plan'). Days count from start; status: done, running, open. Kept by hand at every phase change. deadline: the user's fixed target date (everything finished), never moved.",
-  "start": "2026-11-06",
-  "deadline": "2026-11-12",
-  "phases": [
-    {"key": "lanes", "title": "Zwei DeepSeek-Sitzungen pro Runner", "what": "Gemessen und verworfen: die zweite Sitzung pro Runner bricht nach kurzer Zeit ab, die Worker mit einer Sitzung liefern unverändert weiter. Eine Sitzung pro Runner bleibt.", "from": 0, "to": 0, "status": "done"},
-    {"key": "atlas", "title": "Bauplan: Speicher-Layout aller Klassen", "what": "Gemessen statt geraten: jedes Byte der Original-Objekte wird gekippt und gezeigt, welches Feld des sauberen Imports es speist. Steht für 104 Klassen (6.485 Bereiche, auch Verhaltens-Objekte über ihre Vtable) im Kontext jedes Workers; 261 virtuelle Methoden haben damit eine Feldkarte ihres Objekts.", "from": 0, "to": 1, "status": "running"},
-    {"key": "pattern", "title": "Musterübersetzer (Skript, ohne Modell)", "what": "Getter, Setter, Weiterleitungen, Konstruktoren und Thunks: 6.947 der 10.734 Simulations-Funktionen haben höchstens 64 Bytes. Erste Stufe ohne Modell: 133 Klassenkennungen (GetClassIdentifier, Rumpf „mov eax, Kennung; ret 4“) als eigenes Modul übersetzt, die Direktaufruf-Prüfung auf bc, combat und economy läuft. Die Destruktoren (166) und Feld-Getter brauchen je Klasse das Feldlayout aus dem Bauplan.", "from": 1, "to": 2, "status": "running"},
-    {"key": "direct", "title": "Direktaufruf-Prüfung", "what": "Original und Port rechnen auf demselben Spielstand mit echten Objekten als Argumente; kein Szenario muss die Funktion erreichen, eine Prüfung dauert Millisekunden.", "from": 1, "to": 2, "status": "running"},
-    {"key": "drive", "title": "Drive-Modus: Reichweite über die Aufnahmen hinaus", "what": "Die Aufnahmen erreichen nur rund 1.600 Simulations-Funktionen, und die sind fast fertig: der Engpass ist die prüfbare Reichweite, nicht die Modell-Leistung. Der Drive-Modus ruft jede virtuelle Methode mit lebenden Objekten direkt auf und hält in jedem Aufruf an allen Simulations-Funktionen darunter: gebundene werden verglichen, die übrigen gezählt (die Reichweitenliste für die nächsten Ports). Statische Abschätzung: 3.900 bis 4.900 Funktionen erreichbar. Hängt eine Methode, beendet ein Wächter den Lauf und er startet ohne sie neu. Jede erreichte Funktion nennt die Methode, von der sie erreicht wurde; damit prüfen die DeepSeek-Worker auch nicht-virtuelle Funktionen (Zeile \"FN_x @FN_methode … Szenarien\" der Artenliste ruft nur diese Methoden auf). Erster Lauf auf bc, combat und economy: 196 Simulations-Funktionen erreicht, davon 187 gebundene identisch, 15 abweichend, 112 noch ungebundene (14.491 Bytes) als neue Arten für die Worker. Lauf über alle 17 Szenario-Gruppen läuft.", "from": 2, "to": 3, "status": "running"},
-    {"key": "line", "title": "DeepSeek-Fließband pro Klasse", "what": "Viele Klassen gleichzeitig per API, bauen, prüfen; nur Fehlschläge gehen mit ihrer Abweichung zurück, der hartnäckige Rest an die Agent-Worker. Erste Stufe läuft: 579 kleine virtuelle Methoden mit lebenden Objekten (bis 3 Funktionen pro Einheit), zuerst 120 auf 6 Runnern. Seit etwa 05:30 UTC (7. November) lehnen alle Gratis-Modelle mit „Free usage limit reached“ ab, mit und ohne Schlüssel; solange es gilt, startet der Watchdog keine Welle, Worker- und Pilot-Jobs geben ihre Runner sofort frei (statt bis zu 5 Stunden zu warten; am 7. November hielten alte wartende Jobs alle 20 Runner fest), und hängende Runden werden nach 5 Minuten abgebrochen. Laufende Jobs lesen zwischen zwei Arten die Stoppliste auf dem Branch claude/stop und enden, wenn ihr Lauf darin steht.", "from": 2, "to": 2, "status": "running"},
-    {"key": "pilot", "title": "Pilot: 100 virtuelle Methoden ohne Aufnahme", "what": "DeepSeek portiert Methoden, die keine Aufnahme aufruft (Stichprobe nach Größe, 8 bis 566 Bytes); die Direktaufruf-Prüfung urteilt (Workflow xc-direct-pilot). Probelauf: 4 von 4 identisch und gemergt. Voller Lauf auf 10 Runnern: nach 80 Minuten 24 gemergt; bestandene Methoden brauchen 12 bis 16 Minuten, eine scheiternde blockierte ihren Runner bis zu 170 Minuten, daher jetzt höchstens 2 Runden und 50 Minuten pro Methode. 3er-Bündel: gemergt, aber nicht schneller. Ergebnis: 48 der 96 Methoden versucht, 28 identisch und gemergt; fast alle 20 Fehlschläge fielen in die Zeit, als die Gratis-API nicht mehr antwortete. Die übrigen 48 und die Fehlschläge kommen in den Wiederholungslauf.", "from": 2, "to": 2, "status": "running"},
-    {"key": "gate", "title": "Gemeinsame Prüfung vor jedem Merge", "what": "der zusammengeführte Stand läuft vor der Übernahme gegen die Szenarien (Gutachten 07.11.)", "from": 1, "to": 2, "status": "running"},
-    {"key": "a", "title": "Simulation (A) komplett durchlaufen", "what": "Alle 10.734 Simulations-Funktionen portiert und geprüft identisch.", "from": 3, "to": 6, "status": "open"},
-    {"key": "systems", "title": "Systeme: Lua, Trigger, Befehle, Spielschleife", "what": "Was keine Einzelfunktion zeigt; macht Claude selbst.", "from": 0, "to": 6, "status": "running"},
-    {"key": "b", "title": "Darstellung (B): Grafik, Sound, Menüs", "what": "Dasselbe Fließband, geprüft über die Aufrufe an Grafik und Ton.", "from": 3, "to": 6, "status": "open"},
-    {"key": "whole", "title": "Gesamtvergleich: ganze Spiele Zug für Zug", "what": "Alle 107 Szenarien laufen Zug für Zug wie das Original.", "from": 4, "to": 6, "status": "open"}
-  ]
+ "about": "The whole-game plan the scoreboard tracks (section 'Der Plan'). Days count from start; status: done, running, open. Kept by hand at every phase change. deadline: the user's fixed target date (everything finished), never moved.",
+ "start": "2026-11-06",
+ "deadline": "2026-11-12",
+ "phases": [
+  {
+   "key": "lanes",
+   "title": "Zwei DeepSeek-Sitzungen pro Runner",
+   "what": "Gemessen und verworfen: die zweite Sitzung pro Runner bricht nach kurzer Zeit ab, die Worker mit einer Sitzung liefern unverändert weiter. Eine Sitzung pro Runner bleibt.",
+   "from": 0,
+   "to": 0,
+   "status": "done"
+  },
+  {
+   "key": "pipeline-stop",
+   "title": "Funktions-Fließband gestoppt (07.11.)",
+   "what": "Bauplan, Musterübersetzer, Pilot, Drive-Modus und DeepSeek-Fließband ruhen: Ziel ist Verhalten Zug für Zug gleich, nicht Einzelfunktionen zählen. DeepSeek ist ohnehin gesperrt.",
+   "from": 0,
+   "to": 1,
+   "status": "done"
+  },
+  {
+   "key": "frontiers",
+   "title": "Abweichungen der Szenarien beheben (3 Agenten: Kampf, KI/Wirtschaft, Kampagne/Karten)",
+   "what": "Je Szenario die erste Abweichung finden, Ursache im Original suchen, sauber in s5clean beheben, auf den Runnern über alle Szenarien messen, ohne Rückschritt mergen.",
+   "from": 1,
+   "to": 6,
+   "status": "running"
+  },
+  {
+   "key": "maps",
+   "title": "Neue Start-Szenarien auf ungetesteten Karten",
+   "what": "Kartenstart plus KI-Spieler auf den Karten ohne Szenario, damit Abweichungen dort früh auftauchen.",
+   "from": 2,
+   "to": 6,
+   "status": "open"
+  },
+  {
+   "key": "lua",
+   "title": "Systeme: Lua, Trigger, Befehle, Spielschleife",
+   "what": "Was keine Einzelfunktion zeigt; macht Claude selbst.",
+   "from": 0,
+   "to": 6,
+   "status": "running"
+  },
+  {
+   "key": "a",
+   "title": "Simulation (A) komplett: alle Szenarien voll gleich",
+   "what": "Jedes Szenario über seine volle Länge Zug für Zug gleich wie das Original, jede Mechanik durch ein Szenario abgedeckt.",
+   "from": 5,
+   "to": 6,
+   "status": "open"
+  },
+  {
+   "key": "b",
+   "title": "Darstellung (B): Grafik, Sound, Menüs",
+   "what": "Dasselbe Fließband, geprüft über die Aufrufe an Grafik und Ton.",
+   "from": 3,
+   "to": 6,
+   "status": "open"
+  }
+ ]
 }
