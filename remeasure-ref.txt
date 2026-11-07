@@ -1,1 +1,1 @@
-claude/keg-explode
+claude/trace-ai

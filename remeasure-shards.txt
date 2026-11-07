@@ -1,3 +1,2 @@
-# one job per line
-gen-sabotage-serfcommands
-gen-sabotage-bomb gen-hero-activation gen-hero-npc
+# shards
+genb-ailong-mixed
