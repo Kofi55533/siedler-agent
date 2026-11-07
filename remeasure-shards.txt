@@ -1,2 +1,3 @@
 # one job per line
-gen-player-commands
+gen-sabotage-serfcommands
+gen-sabotage-bomb gen-hero-activation gen-hero-npc
