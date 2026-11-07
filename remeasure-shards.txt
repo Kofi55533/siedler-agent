@@ -1,5 +1,1 @@
-gen-sabotage-bomb gen-weather-time-short gen-weather-time
-genc-campcrawford-5000 genc-winterisland-5000 genc-wsecon-5000
-genc-combatwaves-5000 camp-crawford-long
-gen-weather-time-long
-genc-wsecon-long
+genb-abilities camp-crawford
