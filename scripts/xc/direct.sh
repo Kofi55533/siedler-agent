@@ -4,9 +4,15 @@
 # offsets of $S5_DIRECT_AT. Builds the test unless XC_DIRECT_BUILT=1 (xc_build built it into $XC/bins.txt).
 # Writes the groups to $XC_DIRECT_OUT (default $XC/direct.json) and, unless XC_DIRECT_LIVE is empty, the live virtual
 # methods to $XC_DIRECT_LIVE (default $XC/live.json). Prints counts only; the JSON stays under $XC (private).
+# With S5_DRIVE_METHODS set it runs drive.sh instead (only those methods called, the functions below them compared).
 set -uo pipefail
 D=$(cd "$(dirname "$0")" && pwd); source "$D/lib.sh"
 OUT=${XC_DIRECT_OUT:-$XC/direct.json}; LIVE=${XC_DIRECT_LIVE-$XC/live.json}
+# S5_DRIVE_METHODS (FN_<address>,...): the function is not virtual, so drive mode calls the methods reaching it instead
+if [ -n "${S5_DRIVE_METHODS:-}" ]; then
+  XC_DRIVE_BUILT=${XC_DIRECT_BUILT:-} XC_DRIVE_OUT=$OUT XC_DRIVE_TIMEOUT=${XC_DRIVE_TIMEOUT:-${XC_DIRECT_TIMEOUT:-1800}} \
+    exec "$D/drive.sh" "$1"
+fi
 t0=$(date +%s)
 if [ "${XC_DIRECT_BUILT:-}" != 1 ]; then
 ( cd "$S5_REPO" || exit 1

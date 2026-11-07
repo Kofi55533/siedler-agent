@@ -136,10 +136,14 @@ if [ -n "$DIRECT" ]; then
 
 ## How this function is checked
 
-No recorded game calls this function, so there are no measured differences above. It is a virtual method: the check
-(\`$W/check\`) calls it directly on the live objects of its class at fixed turns of the scenarios
-$(cat "$XC/scenarios-all.txt"), compares the original's call with your binding's on the same imported state and prints
-the first difference. Write the binding first (the check finds no sampled call until it exists), then make it identical.
+No recorded game calls this function, so there are no measured differences above. $(if [ -n "${S5_DRIVE_METHODS:-}" ]; then
+echo "It is reached from the virtual methods ${S5_DRIVE_METHODS//,/, }: the check (\`$W/check\`) calls those methods on the
+live objects of their classes at fixed turns of the scenarios $(cat "$XC/scenarios-all.txt"), and at every call of this
+function inside them compares the original's call with your binding's on the same imported state and prints the first
+difference."; else
+echo "It is a virtual method: the check (\`$W/check\`) calls it directly on the live objects of its class at fixed turns
+of the scenarios $(cat "$XC/scenarios-all.txt"), compares the original's call with your binding's on the same imported
+state and prints the first difference."; fi) Write the binding first (the check finds no sampled call until it exists), then make it identical.
 A binding whose calls change nothing the comparison sees does not pass: compare the result or the written fields.
 M
 fi
@@ -157,6 +161,7 @@ case $KIND in
   FN_*) WHAT="the native function 0x${KIND#FN_} (its clean implementation and its binding $BIND, see TASK.md)"
         POINT="the function census (crates/s5xcheck/tests/capture-functions.rs)"; EDIT="crates/s5clean/ and the binding $BIND"
         [ -n "$DIRECT" ] && POINT="the direct-call check (crates/s5xcheck/tests/direct-functions.rs)"
+        [ -n "$DIRECT" ] && [ -n "${S5_DRIVE_METHODS:-}" ] && POINT="the drive mode of the direct-call check (crates/s5xcheck/tests/drive-functions.rs)"
         if [ "$N" -gt 1 ]; then
           WHAT="the $N native functions $(sed 's/FN_/0x/g; s/,/, /g' <<<"$KINDS") (each its clean implementation and its binding, see TASK.md)"
           EDIT="crates/s5clean/ and the bindings $(xc_binding "$KINDS" | xargs)"
