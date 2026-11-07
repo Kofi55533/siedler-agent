@@ -11,10 +11,11 @@
 # 3. PASS -> commit, push xc/<kind>, PR into clean/integration, squash-merge (re-verified on a moved base)
 # Exit 0: merged or nothing to do; 1: no passing change (attempt recorded); 2: infrastructure.
 # XC_MODE=direct (pilot): <kind> is a virtual method no recording calls; it is checked by calling it on its live objects
-# (direct.sh, the scenarios of $XC_DIRECT_SCENARIOS) instead of the census; no claim issues, no work list.
+# (direct.sh, the scenarios of $XC_DIRECT_SCENARIOS) instead of the census; no claim issues, no work list. A comma list
+# <kind>,<kind>... is a bundle there: one model session and one verdict for all, the branch named after the first.
 set -uo pipefail
 D=$(cd "$(dirname "$0")" && pwd); source "$D/lib.sh"
-KIND=$1; BR=$(python3 "$D/xc.py" branch "$KIND"); WL=$XC/worklist.json
+KIND=${1%%,*}; BR=$(python3 "$D/xc.py" branch "$KIND"); WL=$XC/worklist.json
 PROJECT=${XC_PROJECT:-Kofi55533/siedler-sim-rs}; AGENT=${XC_AGENT:-Kofi55533/siedler-agent}
 MODEL=${XC_MODEL:-opencode/deepseek-v4.1-flash-free}; ROUNDS=${XC_ROUNDS:-3}; ROUND_MIN=${XC_ROUND_MIN:-40}
 # no new model round once it could not end inside this budget (minutes since start): of 168 jobs (2026-10-24) none that
@@ -25,7 +26,7 @@ sum(){ [ -n "${GITHUB_STEP_SUMMARY:-}" ] && echo "$*" >> "$GITHUB_STEP_SUMMARY";
 wl_sha(){ python3 -c "import json,sys;print(json.load(open(sys.argv[1]))['sha'])" "$WL"; }
 # the pick job claimed the kind; every exit but a recorded attempt (1) or a merge hands it back
 MERGED=0; KINDS=$KIND
-DIRECT=; [ "${XC_MODE:-}" = direct ] && DIRECT=1
+DIRECT=; [ "${XC_MODE:-}" = direct ] && DIRECT=1 && KINDS=$1
 unclaim(){ [ -n "$DIRECT" ] && return; for k in "$@"; do python3 "$D/xc.py" issue "$k" unclaim; done; }
 trap 'rc=$?; [ "$rc" != 1 ] && [ $MERGED = 0 ] && unclaim ${KINDS//,/ }' EXIT
 
@@ -49,8 +50,13 @@ if [ -n "$DIRECT" ]; then
   t0=$(date +%s)
   xc_build || exit 2
   xc_keep_bins "$XC/base-bin"
-  BIND=$(xc_binding "$KIND")
-  [ -n "$BIND" ] && [ ! -f "$BIND" ] || { sum "$KIND: already bound"; exit 0; }
+  # a kind bound meanwhile (another job, an earlier merge) leaves the bundle
+  keep=; for k in ${KINDS//,/ }; do
+    BIND=$(xc_binding "$k")
+    if [ -n "$BIND" ] && [ ! -f "$BIND" ]; then keep=${keep:+$keep,}$k; else sum "$k: already bound"; fi
+  done
+  [ -n "$keep" ] || exit 0
+  KINDS=$keep; KIND=${KINDS%%,*}
   rm -rf "$XC/base"; mkdir -p "$XC/base/only"
 else
   # the kind is compared in the scenarios where it failed plus a few where it was clean (at most 9: each verdict runs them
