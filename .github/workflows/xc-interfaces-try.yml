@@ -1,0 +1,42 @@
+name: xc-interfaces-try
+# TEMP direct-call check of the interface destructor bindings of a sim-rs ref; removed before merging. Counts only in the
+# log; the per-function groups go to the private release direct-check of the data repo.
+on:
+  push:
+    branches: ['claude/interfaces-try']
+permissions: { contents: read }
+concurrency: { group: xc-interfaces-try, cancel-in-progress: true }
+jobs:
+  try:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { scenario: bc, free: '1', tag: free }
+          - { scenario: bc, free: '', tag: live }
+          - { scenario: combat, free: '', tag: live }
+          - { scenario: economy, free: '', tag: live }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - name: Setup (quiet)
+        env: { T: '${{ secrets.PRIVATE_REPO_TOKEN }}', GIT_LFS_SKIP_SMUDGE: '1' }
+        run: scripts/s5-setup.sh claude/interfaces 1
+      - name: Direct
+        env:
+          S5_CAPTURE_ONLY: 'FN_401185,FN_4022EF,FN_40728F,FN_448475,FN_44944D,FN_4684C1,FN_46A861,FN_46A9C6,FN_4707D8,FN_498096,FN_4980B3,FN_498101,FN_49811E,FN_498150,FN_49816D,FN_49855F,FN_498582,FN_4A2B45,FN_4C0D0B,FN_4C0F8C,FN_4CA881,FN_4D4EFF,FN_4E8E56,FN_4FFE6E,FN_508A94,FN_51C1FF,FN_54C83D,FN_54C861,FN_54EFF3,FN_54F03D,FN_54F96E,FN_5545E3,FN_570E6F,FN_570E93,FN_570EB0,FN_570ECD,FN_570F56,FN_570F98,FN_5713E6,FN_571409,FN_57142C,FN_57144F,FN_57A5C8,FN_57A5EC,FN_5806E0,FN_589FCD,FN_589FF1,FN_58A00E,FN_58A02B,FN_58A1C1,FN_58A1DE,FN_5957DF,FN_595841,FN_5967F0,FN_59D510,FN_59DDAB,FN_5BA7CD,FN_5BB3B8,FN_5BC0A0,FN_5BCE2F,FN_5BE5B0,FN_722E45,FN_722E62,FN_722E7F,FN_723E93'
+          S5_DIRECT_FREE: '${{ matrix.free }}'
+        run: scripts/xc/direct.sh ${{ matrix.scenario }}
+      - name: Upload (private)
+        if: always()
+        env: { GH_TOKEN: '${{ secrets.PRIVATE_REPO_TOKEN }}' }
+        run: |
+          source scripts/xc/lib.sh
+          s=${{ matrix.scenario }}-${{ matrix.tag }}; R=Kofi55533/siedler-data
+          [ -s "$XC/direct.json" ] || { echo "no json"; exit 0; }
+          gzip -c "$XC/direct.json" > interfaces-$s.json.gz
+          gh release view direct-check -R $R > /dev/null 2>&1 || gh release create direct-check -R $R -t direct-check -n "direct-call check results" > /dev/null 2>&1 || true
+          gh release upload direct-check -R $R --clobber interfaces-$s.json.gz > /dev/null && echo uploaded
