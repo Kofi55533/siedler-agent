@@ -1,7 +1,7 @@
 # shards
-ai-builds-active
-ai-long
-gen-sabotage-serfcommands
-combat-long
-genb-combat-ops
-gen-leader-defend
+ai-builds-oldkings
+combat-big
+combat-waves
+gen-serf-repair
+genc-combatwaves-5000
+bc-full
