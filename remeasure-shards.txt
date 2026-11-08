@@ -1,7 +1,2 @@
 # shards
-ai-long
-combat-long
-gen-siege-cannon
-genb-combat-ops
-combat-big
-gen-attack-building
+genb-ailong-mixed
