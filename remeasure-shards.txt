@@ -1,7 +1,7 @@
 # shards
-genb-ailong-mixed
-ai-long
-ai-builds-active
-ai-builds-oldkings
-genc-campcrawford-5000
-bc-full
+bc-0804
+gen-upgrade-building-category
+combat-big
+gen-player-commands
+gen-overtime-occupied
+gen-sabotage-serfcommands
