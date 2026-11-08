@@ -1,2 +1,2 @@
 # one job per line
-combat-waves genb-waves-assault campaign-08-unexploredland
+01-thalgrund
