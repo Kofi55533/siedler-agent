@@ -1,7 +1,2 @@
 # shards
-genc-campcrawford-5000
-gen-barracks-autofill
-gen-barracks-recruit
-ai-long
-ai-builds-active
 genb-ailong-mixed

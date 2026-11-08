@@ -1,1 +1,1 @@
-claude/barracks-detach-idle
+claude/trace-ai
