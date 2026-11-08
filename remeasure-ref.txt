@@ -1,1 +1,1 @@
-claude/trace-combat
+claude/trace-combat-pool

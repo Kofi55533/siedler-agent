@@ -1,2 +1,2 @@
 # one job per line
-gen-enter-building-0x1500d
+genb-waves-assault
