@@ -54,4 +54,7 @@ jobs:
               else echo "no live log (not installable?)"; grep -m3 "^$x:" $S5/remeasure/install.txt; fi
             } > "$o" 2>/dev/null || true; n=$((n+1))
           done
-          gh release upload xc-hand -R Kofi55533/siedler-data --clobber /tmp/up/live-*.txt > /dev/null 2>&1 && echo "uploaded $n" || echo "upload failed ($n files)"
+          rel=rm-$(echo "$ref" | tr '/' '-'); D=Kofi55533/siedler-data
+          gh release view $rel -R $D > /dev/null 2>&1 || gh release create $rel -R $D --title $rel --notes "remeasure details for $ref" > /dev/null 2>&1 || true
+          ok=0; for i in 1 2 3; do gh release upload $rel -R $D --clobber /tmp/up/live-*.txt > /dev/null 2>&1 && { ok=1; break; }; sleep 10; done
+          [ $ok = 1 ] && echo "uploaded $n to $rel" || echo "upload failed ($n files)"
