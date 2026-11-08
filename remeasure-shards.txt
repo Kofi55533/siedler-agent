@@ -1,2 +1,7 @@
 # shards
-genb-ailong-mixed
+ai-builds-active
+ai-long
+gen-sabotage-serfcommands
+combat-long
+genb-combat-ops
+gen-leader-defend
