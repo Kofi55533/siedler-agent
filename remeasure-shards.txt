@@ -1,7 +1,5 @@
 # one job per line
-late-ai gen-invalid-placement gen-a-wintersturm-long map-winterisland combat-long campaign-01-newbeginning gen-barracks-recruit genc-campcrawford-5000 campaign-01-restoringthefaith gen-foundry-summon 01-thalgrund gen-leader-buy-soldier gen-leader-attach map-winterrealm campaign-08-unexploredland
-late-economy gen-market-trade gen-a-dunkelforst-long genb-wi-move gen-diplomacy-tribute ai-builds-active castrum map-highland-siege gen-49b46d-event14004 combat gen-placer-tools gen-attack-building genb-waves-assault gen-maptools-resource gen-attack-pos
-saveload-settled-long gen-camp-placement-base gen-sabotage-bomb build-long production-long bc-full 01-revenge colorsofbelief map-trade4technology ai-long gen-cannon-place gen-tribute-diplomacy gen-civilian-death genb-ailong-mixed gen-leader-hold gen-mp-resources
-gen-camp-placement gen-overtime-occupied combat-big saveload gen-sabotage-serfcommands gen-campaign campaign-03-divineanger map-arcanum wintersturm gen-siege-cannon gen-hero-activation gen-player-commands gen-construct-site gen-leader-aggressive map-fouronone
-gen-keep-buy gen-weather-time camp-crawford saveload-settled genb-wi-mixed gen-a-wintersturm gen-a-dunkelforst gen-upgrade-research gen-barracks-autofill genb-combat-ops production gen-conversion-commands gen-upgrade-building-category campaign-03-darknessuprise combat-waves gen-leader-guard gen-leader-stance
-ai-builds-oldkings bc-0804 gen-mine-depletion genb-abilities gen-serf-repair gen-recruit-attack gen-weather-time-short campaign-04-wolfslair map-frontiercompanions gen-cancel-research build gen-hero-npc gen-enter-building-0x1500d economy wsecon gen-leader-defend gen-leader-patrol gen-formation-command
+campaign-01-restoringthefaith 01-thalgrund campaign-01-newbeginning map-arcanum castrum colorsofbelief gen-siege-cannon
+campaign-03-darknessuprise campaign-03-divineanger campaign-04-wolfslair campaign-08-unexploredland gen-49b46d-event14004 saveload-settled
+combat combat-big combat-waves gen-recruit-attack genb-combat-ops gen-leader-aggressive gen-leader-defend gen-attack-pos
+combat-long map-winterrealm map-fouronone gen-hero-activation genb-waves-assault gen-leader-guard gen-civilian-death
