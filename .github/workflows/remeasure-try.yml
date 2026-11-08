@@ -18,7 +18,7 @@ jobs:
   remeasure:
     needs: shards
     runs-on: ubuntu-latest
-    timeout-minutes: 150
+    timeout-minutes: 160
     strategy:
       fail-fast: false
       matrix: { fx: '${{ fromJSON(needs.shards.outputs.list) }}' }
@@ -37,7 +37,7 @@ jobs:
           export S5_TRACE=$(grep -v '^#' remeasure-trace.txt 2>/dev/null | grep -m1 . || true)
           # remeasure-runon.txt (optional): S5_RUNON, turns to keep stepping past the first divergence (diagnostic refs only)
           export S5_RUNON=$(grep -v '^#' remeasure-runon.txt 2>/dev/null | grep -m1 . || true)
-          echo "ref $ref"; S5_REMEASURE_REF=$ref S5_LIVE_TIMEOUT=3600 timeout 130m scripts/s5-remeasure.sh $FX
+          echo "ref $ref"; S5_REMEASURE_REF=$ref S5_LIVE_TIMEOUT=$(grep -m1 -oP '^#timeout \K[0-9]+' remeasure-shards.txt 2>/dev/null || echo 3600) timeout 140m scripts/s5-remeasure.sh $FX
       - name: Upload divergence details (private release, nothing printed)
         if: always()
         env: { GH_TOKEN: '${{ secrets.PRIVATE_REPO_TOKEN }}', FX: '${{ matrix.fx }}' }
