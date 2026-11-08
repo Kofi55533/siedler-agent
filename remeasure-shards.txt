@@ -1,2 +1,7 @@
 # shards
 genb-ailong-mixed
+ai-long
+ai-builds-active
+ai-builds-oldkings
+genc-campcrawford-5000
+bc-full
