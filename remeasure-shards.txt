@@ -1,2 +1,7 @@
 # shards
+gen-mine-depletion
+ai-long
 genb-ailong-mixed
+ai-builds-active
+bc-full
+bc-0804
