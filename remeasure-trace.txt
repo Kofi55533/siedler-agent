@@ -1,2 +1,2 @@
 # <from turn>:<entity ids>
-660:0x14527
+524:0x14514,0x144a9
