@@ -1,6 +1,2 @@
 # one job per line
-gen-siege-cannon combat-long genb-combat-ops combat-big gen-attack-building castrum
-combat-waves genb-waves-assault genc-combatwaves-5000 gen-recruit-attack gen-civilian-death map-highland-siege
-campaign-08-unexploredland campaign-03-divineanger campaign-04-wolfslair 01-revenge colorsofbelief combat
-ai-long genb-ailong-mixed late-ai genb-abilities gen-hero-activation gen-hero-npc
-gen-enter-building-0x1500d gen-barracks-recruit gen-leader-aggressive gen-leader-defend gen-leader-stance gen-leader-guard
+genc-combatwaves-5000

@@ -1,1 +1,1 @@
-claude/entity-invulnerability-flag
+claude/trace-combat
