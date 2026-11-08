@@ -2,7 +2,7 @@ name: remeasure-try
 # push-triggered scenario re-measure (gate-baseline remeasure without workflow_dispatch rights): each line of
 # remeasure-shards.txt is one job, a space-separated fixture list measured live on clean/integration (s5-remeasure.sh;
 # the log names only fixtures and turn numbers). No board post: the results are read from the job logs; the first
-# diverging fields of each scenario go to the private siedler-data release xc-hand (live-<fixture>.txt), never to a log.
+# diverging fields of each scenario go to the private siedler-data release rm-<ref> (live-<fixture>.txt), never to a log.
 on:
   push:
     branches: ['claude/remeasure-try', 'claude/remeasure-*']
@@ -54,4 +54,8 @@ jobs:
               else echo "no live log (not installable?)"; grep -m3 "^$x:" $S5/remeasure/install.txt; fi
             } > "$o" 2>/dev/null || true; n=$((n+1))
           done
-          gh release upload xc-hand -R Kofi55533/siedler-data --clobber /tmp/up/live-*.txt > /dev/null 2>&1 && echo "uploaded $n" || echo "upload failed ($n files)"
+          # one release per measured ref, rm-<ref> (xc-hand reached GitHub's 1000-asset limit on 08.11.), created on first use
+          rel=rm-$(echo "$ref" | tr '/' '-'); D=Kofi55533/siedler-data
+          gh release view $rel -R $D > /dev/null 2>&1 || gh release create $rel -R $D --title $rel --notes "remeasure details for $ref" > /dev/null 2>&1 || true
+          ok=0; for i in 1 2 3; do gh release upload $rel -R $D --clobber /tmp/up/live-*.txt > /dev/null 2>&1 && { ok=1; break; }; sleep 10; done
+          [ $ok = 1 ] && echo "uploaded $n to $rel" || echo "upload failed ($n files)"
