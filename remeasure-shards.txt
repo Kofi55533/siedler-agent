@@ -1,2 +1,7 @@
 # shards
-genb-ailong-mixed
+combat-big
+gen-overtime-occupied
+gen-sabotage-serfcommands
+gen-serf-repair
+gen-sabotage-bomb
+gen-player-commands
