@@ -1,2 +1,2 @@
 # one job per line
-campaign-03-darknessuprise
+combat-waves genb-waves-assault campaign-08-unexploredland
