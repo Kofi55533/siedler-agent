@@ -1,21 +1,3 @@
-# one job per line
-gen-player-commands
-01-revenge 01-thalgrund ai-builds-active ai-builds-oldkings ai-long bc-0804
-bc-full build-long build camp-crawford-long camp-crawford campaign-01-newbeginning
-campaign-01-restoringthefaith campaign-03-darknessuprise campaign-03-divineanger campaign-04-wolfslair campaign-08-unexploredland castrum
-colorsofbelief combat-big combat-long combat-waves combat economy-mapstart
-economy gen-49b46d-event14004 gen-a-dunkelforst-long gen-a-dunkelforst gen-a-wintersturm-long gen-a-wintersturm
-gen-attack-building gen-attack-pos gen-barracks-autofill gen-barracks-recruit gen-camp-placement-base gen-camp-placement
-gen-campaign gen-cancel-research gen-cannon-place gen-civilian-death gen-construct-site gen-conversion-commands
-gen-diplomacy-tribute gen-enter-building-0x1500d gen-formation-command gen-foundry-summon gen-hero-activation gen-hero-npc
-gen-invalid-placement gen-keep-buy gen-leader-aggressive gen-leader-attach gen-leader-buy-soldier gen-leader-defend
-gen-leader-guard gen-leader-hold gen-leader-patrol gen-leader-stance gen-maptools-resource gen-market-trade
-gen-mine-depletion gen-mp-resources gen-overtime-occupied gen-placer-tools gen-recruit-attack gen-sabotage-bomb
-gen-sabotage-serfcommands gen-serf-repair gen-siege-cannon gen-tribute-diplomacy gen-upgrade-building-category gen-upgrade-research
-gen-weather-time-long gen-weather-time-short gen-weather-time genb-abilities genb-ailong-mixed genb-combat-ops
-genb-waves-assault genb-wi-mixed-long genb-wi-mixed genb-wi-move genc-campcrawford-5000
-genc-combatwaves-5000 genc-winterisland-5000 genc-wsecon-5000 genc-wsecon-long
-late-ai-long late-ai late-economy map-arcanum map-fouronone
-map-frontiercompanions map-highland-siege map-trade4technology map-winterisland map-winterrealm production-long
-production saveload-settled-long saveload-settled saveload wintersturm-mapstart wintersturm
-wsecon     
+# shards
+ai-long
+genb-ailong-mixed
