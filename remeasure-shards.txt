@@ -1,5 +1,2 @@
 # one job per line
-campaign-01-restoringthefaith 01-thalgrund campaign-01-newbeginning map-arcanum castrum colorsofbelief gen-siege-cannon
-campaign-03-darknessuprise campaign-03-divineanger campaign-04-wolfslair campaign-08-unexploredland gen-49b46d-event14004 saveload-settled
-combat combat-big combat-waves gen-recruit-attack genb-combat-ops gen-leader-aggressive gen-leader-defend gen-attack-pos
-combat-long map-winterrealm map-fouronone gen-hero-activation genb-waves-assault gen-leader-guard gen-civilian-death
+01-thalgrund
