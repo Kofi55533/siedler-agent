@@ -1,7 +1,7 @@
 # shards
-ai-builds-oldkings
-combat-big
-combat-waves
-gen-serf-repair
-genc-combatwaves-5000
-bc-full
+genc-campcrawford-5000
+gen-barracks-autofill
+gen-barracks-recruit
+ai-long
+ai-builds-active
+genb-ailong-mixed

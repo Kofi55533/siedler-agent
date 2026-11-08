@@ -1,1 +1,1 @@
-claude/serf-target-lost
+claude/barracks-detach-idle
