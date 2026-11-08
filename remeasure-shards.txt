@@ -13,9 +13,9 @@ gen-leader-guard gen-leader-hold gen-leader-patrol gen-leader-stance gen-maptool
 gen-mine-depletion gen-mp-resources gen-overtime-occupied gen-placer-tools gen-recruit-attack gen-sabotage-bomb
 gen-sabotage-serfcommands gen-serf-repair gen-siege-cannon gen-tribute-diplomacy gen-upgrade-building-category gen-upgrade-research
 gen-weather-time-long gen-weather-time-short gen-weather-time genb-abilities genb-ailong-mixed genb-combat-ops
-genb-waves-assault genb-wi-mixed-long genb-wi-mixed genb-wi-move genc-campcrawford-5000 genc-campcrawford
-genc-combatwaves-5000 genc-winterisland-5000 genc-winterisland genc-wsecon-5000 genc-wsecon-long-full genc-wsecon-long
-genc-wsecon late-ai-long late-ai late-economy map-arcanum map-fouronone
+genb-waves-assault genb-wi-mixed-long genb-wi-mixed genb-wi-move genc-campcrawford-5000
+genc-combatwaves-5000 genc-winterisland-5000 genc-wsecon-5000 genc-wsecon-long
+late-ai-long late-ai late-economy map-arcanum map-fouronone
 map-frontiercompanions map-highland-siege map-trade4technology map-winterisland map-winterrealm production-long
 production saveload-settled-long saveload-settled saveload wintersturm-mapstart wintersturm
 wsecon     
