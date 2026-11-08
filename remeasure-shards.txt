@@ -1,2 +1,2 @@
 # one job per line
-genb-waves-assault
+combat-waves
