@@ -65,6 +65,25 @@ ONLY_STRATS = set(A.strats.split(',')) - {''}
 T0 = time.time(); DEADLINE = T0 + A.budget_min*60
 
 
+def run_bin(cmd, env, *, timeout, capture_stderr=False):
+    """Run s5recomp-cover / helper with a hard timeout so one hung fixture cannot burn the job."""
+    kw = dict(env=env, stdout=subprocess.DEVNULL, timeout=timeout)
+    if capture_stderr:
+        kw['stderr'] = subprocess.PIPE
+        kw['text'] = True
+    else:
+        kw['stderr'] = subprocess.DEVNULL
+    try:
+        return subprocess.run(cmd, **kw), False
+    except subprocess.TimeoutExpired as e:
+        # TimeoutExpired may carry partial stderr as bytes/str
+        class _Fake:
+            returncode = 124
+            stderr = (e.stderr.decode() if isinstance(e.stderr, (bytes, bytearray)) else (e.stderr or '')) if capture_stderr else ''
+        return _Fake(), True
+
+
+
 def my_fixtures():
     fx = sorted(PLAN['fixtures'], key=lambda f: f['name'])
     if A.only:
@@ -132,8 +151,10 @@ def advance(f):
             env['COMMANDS'] = str(work/'boot.bin'); mode = 'bootstrap'
         del im
     need = max(turns) - f['start'] + 1
+    # allow down to ~15 turns/s plus margin; never less than 180s, never more than remaining budget + 120s
+    adv_to = min(max(180, int(need / 15) + 60), max(60, int(DEADLINE - time.time()) + 120))
     t0 = time.perf_counter()
-    p = subprocess.run([BIN, str(src), str(need)], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    p, timed_out = run_bin([BIN, str(src), str(need)], env, timeout=adv_to)
     forks = []
     for t in turns:
         mem = work/f't{t}.mem'
@@ -150,7 +171,8 @@ def advance(f):
     shutil.rmtree(work, ignore_errors=True)
     with lock:
         res['advances'].append({'fixture': f['name'], 'rc': p.returncode, 'wall': round(dt, 2), 'need': need,
-                                'turns': turns, 'forks': len(forks), 'mode': mode})
+                                'turns': turns, 'forks': len(forks), 'mode': mode,
+                                'timeout': timed_out})
         res['turns_sim'] += need; res['adv_wall'] += dt
     return forks
 
@@ -183,10 +205,12 @@ def probe(f, t, img, st, strategy, rep):
         cov = run/'o.cover'
         env = dict(os.environ, S5_REMAP=verify.remap_for(str(img), str(run/'rm')), COMMANDS=str(run/'c.bin'),
                    COVER=str(cov), TMPDIR=str(run/'x'))
+        # SHORT=50 turns: even at 1 turn/s this is 50s; 180s cap kills a hung cover process
+        probe_to = min(180, max(60, int(DEADLINE - time.time()) + 30))
         t0 = time.perf_counter()
-        p = subprocess.run([BIN, str(img), str(SHORT)], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+        p, timed_out = run_bin([BIN, str(img), str(SHORT)], env, timeout=probe_to, capture_stderr=True)
         dt = time.perf_counter() - t0
-        posted = next((int(l.split()[0]) for l in p.stderr.splitlines() if l.endswith('commands posted')), 0)
+        posted = next((int(l.split()[0]) for l in (p.stderr or "").splitlines() if l.endswith('commands posted')), 0)
         hits = reduce_cover(cov) if cov.exists() else set()
         lg = hits & LOGIC
         h = hashlib.sha256(''.join(f'{a:x}\n' for a in sorted(hits)).encode()).hexdigest()[:16]
@@ -242,6 +266,9 @@ def main():
                 break
             futs = []
             for (f, t, img) in forks:
+                if time.time() > DEADLINE:
+                    res['stopped_by_budget'] = True
+                    break
                 st, strats = plan_fork(f, t, img)
                 if st is None:
                     continue
@@ -251,6 +278,19 @@ def main():
                 fu.result()
             for (_, _, img) in forks:
                 img.unlink(missing_ok=True); pathlib.Path(str(img) + '.state.json').unlink(missing_ok=True)
+            if time.time() > DEADLINE:
+                res['stopped_by_budget'] = True
+                # drain producer so we can exit cleanly
+                while True:
+                    try:
+                        more = fq.get_nowait()
+                    except queue.Empty:
+                        break
+                    if more is None:
+                        break
+                    for (_, _, img2) in (more or []):
+                        img2.unlink(missing_ok=True); pathlib.Path(str(img2) + '.state.json').unlink(missing_ok=True)
+                break
             n = len(res['probes'])
             print(f'  fixture {len(res["advances"])}/{len(fxs)}: forks={len(forks)} probes_total={n} '
                   f'new={len(res["union_logic"] - KNOWN)} t={time.time()-T0:.0f}s', flush=True)

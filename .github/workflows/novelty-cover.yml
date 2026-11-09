@@ -121,14 +121,31 @@ jobs:
       - name: Shard ${{ matrix.shard }} (counts only)
         env: { S5_GAME: /opt/nv/game, S5_ARTIFACTS: /opt/nv/art }
         run: |
-          python3 scripts/novelty/novelty_shard.py --bundle $S/bundle --imgdir $S/img --wave $W --shard $I --nshards $N \
-            --forks ${{ fromJSON(needs.plan.outputs.cfg).forks }} --reps ${{ fromJSON(needs.plan.outputs.cfg).reps }} \
-            --strats ${{ fromJSON(needs.plan.outputs.cfg).strats }} --budget-min ${{ fromJSON(needs.plan.outputs.cfg).budget_min }} --tmp $S/tmp \
-            --out $RUNNER_TEMP/w$W-s$I.json
+          # hard wall: budget + 5 min for last in-flight probes; SIGKILL 30s later so upload can still run
+          BMIN=${{ fromJSON(needs.plan.outputs.cfg).budget_min }}
+          timeout -k 30 $(( BMIN * 60 + 300 )) \
+            python3 scripts/novelty/novelty_shard.py --bundle $S/bundle --imgdir $S/img --wave $W --shard $I --nshards $N \
+              --forks ${{ fromJSON(needs.plan.outputs.cfg).forks }} --reps ${{ fromJSON(needs.plan.outputs.cfg).reps }} \
+              --strats ${{ fromJSON(needs.plan.outputs.cfg).strats }} --budget-min $BMIN --tmp $S/tmp \
+              --out $RUNNER_TEMP/w$W-s$I.json
+          # if killed after writing only .part, promote it so upload still has a result
+          if [ ! -f $RUNNER_TEMP/w$W-s$I.json ] && [ -f $RUNNER_TEMP/w$W-s$I.json.part ]; then
+            python3 - <<'PY' "$RUNNER_TEMP/w$W-s$I.json.part" "$RUNNER_TEMP/w$W-s$I.json"
+          import json,sys
+          r=json.load(open(sys.argv[1]))
+          r['partial']=True
+          json.dump(r, open(sys.argv[2],'w'))
+          print(f"promoted .part probes={len(r.get('probes',[]))} fixtures={len(r.get('advances',[]))}")
+          PY
+          fi
       - name: Upload shard result (private release)
         if: always()
         env: { GH_TOKEN: '${{ secrets.PRIVATE_REPO_TOKEN }}' }
         run: |
+          if [ ! -f $RUNNER_TEMP/w$W-s$I.json ] && [ -f $RUNNER_TEMP/w$W-s$I.json.part ]; then
+            python3 -c "import json,sys; r=json.load(open(sys.argv[1])); r['partial']=True; json.dump(r, open(sys.argv[2],'w'))" \
+              $RUNNER_TEMP/w$W-s$I.json.part $RUNNER_TEMP/w$W-s$I.json
+          fi
           [ -f $RUNNER_TEMP/w$W-s$I.json ] || { echo "no result"; exit 1; }
           gzip -f $RUNNER_TEMP/w$W-s$I.json
           for t in 1 2 3; do gh release upload novelty-cover-results -R $DATA $RUNNER_TEMP/w$W-s$I.json.gz --clobber && break; sleep $((t*10)); done
