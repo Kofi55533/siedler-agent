@@ -118,8 +118,8 @@ details{margin-top:8px}summary{cursor:pointer;color:var(--ink2);font-size:.88rem
   <div class="eta" id="planeta"></div>
   <div class="two" style="margin-top:0">
     <div><h2 style="font-size:.92rem">Phasen</h2><ul class="phases" id="phases"></ul></div>
-    <div><h2 style="font-size:.92rem">Alle Funktionen des Spiels</h2>
-      <table><thead><tr><th>Klasse</th><th class="num">Gesamt</th><th class="num">geprüft</th><th class="num">portiert, ungeprüft</th><th class="num">offen</th></tr></thead><tbody id="plancls"></tbody></table>
+    <div><h2 style="font-size:.92rem">Alle Funktionen des Spiels <span class="mute small">(Gesamtzahl unbekannt)</span></h2>
+      <table><thead><tr><th>Klasse</th><th class="num">Anzahl</th><th class="num">geprüft</th><th class="num">portiert, ungeprüft</th><th class="num">offen (Schätzung)</th></tr></thead><tbody id="plancls"></tbody></table>
       <div id="planstages"></div>
       <h2 style="font-size:.92rem;margin-top:14px">Geprüfte Simulations-Funktionen</h2><div class="planc" id="plancurve"></div>
     </div>
@@ -135,7 +135,7 @@ details{margin-top:8px}summary{cursor:pointer;color:var(--ink2);font-size:.88rem
   <div class="kpis" id="fnkpis"></div>
   <div id="fndet" class="small" style="margin-top:12px"></div>
   <h2 style="font-size:.92rem;margin-top:16px">Wo die Szenarien abweichen <span class="mute small" id="frsum"></span></h2>
-  <table><thead><tr><th>Szenario</th><th class="num">gleich bis Zug</th><th class="num">Länge</th><th class="hide-m">gemessen</th></tr></thead><tbody id="frrows"></tbody></table>
+  <table><thead><tr><th>Szenario</th><th class="num">gleich bis Zug</th><th class="num">von Zug</th><th class="hide-m">gemessen</th></tr></thead><tbody id="frrows"></tbody></table>
 </section>
 
 <section class="card"><h2>Wie weit ist das ganze Spiel?</h2>
@@ -251,6 +251,7 @@ const dm=s=>{if(!s)return"–";const d=new Date(s+"T12:00:00");return d.toLocale
 const STAGE={script:"Musterübersetzer",deepseek:"DeepSeek-Fließband",agent:"Agent-Worker",hand:"Claude von Hand"};
 
 const OLD=24*3600e3;
+const utcBerlin=u=>{if(!u)return null;const t=new Date(u);if(isNaN(t))return null;const f=new Intl.DateTimeFormat("sv-SE",{timeZone:"Europe/Berlin",year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit"});return f.format(t).replace(",","")};
 const stamp=s=>{const t=berlin(s),old=!isNaN(t)&&NOW-t>OLD;return`<span class="${old?"":"mute"}" style="${old?"color:var(--crit);font-weight:650":""}">Stand ${esc(s||"–")} (MEZ)${old?" · veraltet":""}</span>`};
 function renderFunctions(d){
   const F=d.functions,SR=d.scenarios||[];if(!F&&!SR.length)return;$("fncard").hidden=false;
@@ -258,7 +259,7 @@ function renderFunctions(d){
   $("fnsub").innerHTML=F?`Wie viele Original-Funktionen laufen in unseren Szenarien, wie viele davon stecken schon im sauberen Rust-Nachbau, und was hat die Funktionssuche Neues gefunden. Zuletzt aktualisiert: ${stamp(F.generated_berlin)}. Werte älter als 24 h sind rot als „veraltet“ markiert.`:"Funktionsdaten fehlen (functions.json).";
   if(F){
     const k=[
-      {l:"Simulation im Nachbau",v:`${pct(R.sim_cited,R.sim_total,1)} %`,h:`${fmt(R.sim_cited)} von ${fmt(R.sim_total)} Simulations-Funktionen aus den Scoreboard-Szenarien sind im Clean-Rewrite (<code>clean/integration</code> @ <code>${esc(R.tip)}</code>, ${esc(R.tip_time)}) per Originaladresse eingebaut · ${fmt(R.sim_uncited)} fehlen noch · ${fmt(R.sim_unmodelled)} davon nur als <code>unmodelled(…)</code>-Lücke<br>${stamp(R.as_of)}`},
+      {l:"Simulation im Nachbau",v:`${pct(R.sim_cited,R.sim_total,1)} %`,h:`${fmt(R.sim_cited)} von ${fmt(R.sim_total)} Simulations-Funktionen aus den Scoreboard-Szenarien (102er-Board vom 07.11.) sind im Clean-Rewrite (<code>clean/integration</code> @ <code>${esc(R.tip)}</code>, ${esc(R.tip_time)}) per Originaladresse eingebaut · ${fmt(R.sim_uncited)} fehlen noch · ${fmt(R.sim_unmodelled)} davon nur als <code>unmodelled(…)</code>-Lücke<br>${stamp(R.as_of)}`},
       {l:"Logik im Nachbau",v:`${fmt(R.logic_cited)}<small> / ${fmt(R.logic_total)}</small>`,h:`${pct(R.logic_cited,R.logic_total,1)} % aller in den Szenarien ausgeführten Logikfunktionen · ${fmt(R.unmodelled_calls)} <code>unmodelled(…)</code>-Aufrufe im Code<br>${stamp(R.as_of)}`},
       X?{l:"Am Original geprüft (Aufrufe)",v:`${fmt(X.pass)}<small> ok · ${fmt(X.fail)} falsch</small>`,h:`von ${fmt(X.of_sim)} Simulations-Funktionen: ${fmt(X.pass)} mit echten Aufruf-Stichproben identisch, ${fmt(X.fail)} abweichend${X.fail_addrs.length?" ("+X.fail_addrs.map(esc).join(", ")+")":""}, ${fmt(X.of_sim-X.with_kind)} ohne Messpunkt, ${fmt(X.zero_samples)} ohne Stichprobe · Messung @ <code>${esc(X.worklist_sha)}</code><br>${stamp(X.as_of)}`}:null,
       {l:"Neu gefunden (Funktionssuche)",v:`${fmt(D.total_new)}`,h:`Logikfunktionen, die in keinem Scoreboard-Szenario laufen (dedupliziert, keine Summe), davon ${fmt(D.total_new_sim)} Simulation<br>${stamp(D.as_of)}`},
@@ -266,7 +267,7 @@ function renderFunctions(d){
     ].filter(Boolean);
     $("fnkpis").innerHTML=k.map(x=>`<div class="kpi"><div class="l">${x.l}</div><div class="v num">${x.v}</div><div class="h">${x.h}</div></div>`).join("");
     $("fndet").innerHTML=`<details><summary>Quellen und Aufschlüsselung</summary><ul>
-      <li><b>Nachbau:</b> ${esc(R.source)}. Eine Funktion zählt, wenn ihre Startadresse oder eine Adresse in ihrem Körper zitiert ist. Lücken-Regel: ${esc(R.unmodelled_rule||"")}.</li>
+      <li><b>Nachbau:</b> ${esc(R.source)}. ${esc(R.set_basis||"")}. Eine Funktion zählt, wenn ihre Startadresse oder eine Adresse in ihrem Körper zitiert ist. Lücken-Regel: ${esc(R.unmodelled_rule||"")}.</li>
       ${X?`<li><b>Prüfung:</b> ${esc(X.source)}; insgesamt ${fmt(X.calls.samples-X.calls.failing)} von ${fmt(X.calls.samples)} Aufruf-Stichproben gleich; abweichende Funktionen überhaupt: ${X.fail_all_kinds.map(esc).join(", ")||"keine"}.</li>`:""}
       <li><b>Funktionssuche:</b> ${esc(D.source)}. Teilergebnisse (überlappen sich): ${(D.parts||[]).map(p=>`${esc(p.name)} ${fmt(p.new)} (${esc(p.as_of)})`).join(" · ")}.</li>
       <li><b>Klassifikation:</b> ${esc(K.source)}.</li>
@@ -274,7 +275,7 @@ function renderFunctions(d){
   }
   const fr=SR.filter(r=>r.measured&&!r.identical).sort((a,b)=>(b.total||0)-(a.total||0));
   $("frsum").innerHTML=`${fr.length} von ${SR.filter(r=>r.measured).length} gemessenen Szenarien`;
-  $("frrows").innerHTML=fr.map(r=>`<tr><td>${esc(r.name)} <span class="mute small">${esc(r.map||"")}</span></td><td class="num">${fmt(r.turn)}</td><td class="num">${r.total?fmt(r.total):"–"}</td><td class="hide-m">${stamp(r.when)} <span class="mute small">${esc(r.source||"")}</span></td></tr>`).join("");
+  $("frrows").innerHTML=fr.map(r=>`<tr><td>${esc(r.name)} <span class="mute small">${esc(r.map||"")}</span></td><td class="num">${fmt(r.turn)}</td><td class="num">${r.total?fmt((r.start||0)+r.total):"–"}</td><td class="hide-m">${stamp(r.when)} <span class="mute small">${esc(r.source||"")}</span></td></tr>`).join("");
 }
 function renderPlan(p){
   if(!p)return;$("plancard").hidden=false;
@@ -283,18 +284,18 @@ function renderPlan(p){
     (p.source==="census"?" Zahlen bis zum Start des neuen Fließbands aus der Zählung der Simulations-Aufrufe.":` Fließband-Stand ${esc(p.progress_updated||"")}.`);
   const r=p.rate_per_day,ea=p.eta.A||{},eb=p.eta.AB||{};
   $("planeta").innerHTML=[
-    {l:"Ziel (fest): alles fertig bis",v:dm(p.deadline),h:p.days_left!=null?`noch ${String(p.days_left).replace(".",",")} Tage · nötig ${fmt((p.need_per_day||{}).A)} geprüfte Funktionen (A) pro Tag, mit B ${fmt((p.need_per_day||{}).AB)}`:""},
-    {l:"Prognose nach heutigem Tempo",v:ea.date?dm(ea.date):"–",h:r!=null?`${fmt(r)} geprüfte Funktionen pro Tag (72 h) · noch ${fmt(ea.left)}`:"noch kein Tempo messbar"},
-    {l:"Simulation geprüft",v:`${pct(A.verified,A.total,1)} %`,h:`${fmt(A.verified)} von ${fmt(A.total)} · mit Darstellung (A+B) noch ${fmt(eb.left)}${eb.date?", Prognose "+dm(eb.date):""}`},
+    {l:"Ziel (fest): alles fertig bis",v:dm(p.deadline),h:p.days_left!=null?`noch ${String(p.days_left).replace(".",",")} Tage · nötig <b>Schätzung</b> ${fmt((p.need_per_day||{}).A)} geprüfte Funktionen (A) pro Tag, mit B ${fmt((p.need_per_day||{}).AB)} (Basis: ${fmt(A.total)} ${A.total_kind==="klassifiziert"?"bisher klassifizierte":"geschätzte"} Simulations-Funktionen; Gesamtzahl unbekannt)`:""},
+    {l:"Prognose nach heutigem Tempo (Schätzung)",v:ea.date?dm(ea.date):"–",h:r!=null?`${fmt(r)} geprüfte Funktionen pro Tag (72 h) · noch mindestens ${fmt(ea.left)} (von bisher bekannten)`:"noch kein Tempo messbar"},
+    {l:"Simulation geprüft (gemessen)",v:`${fmt(A.verified)}`,h:`Simulations-Funktionen an echten Aufrufen identisch (${esc(p.verified_source||"")}) · ${stamp(utcBerlin(p.verified_as_of))}<br>bekannt: ${A.seen!=null?fmt(A.seen)+" laufen in den Szenarien, ":""}${fmt(A.total)} ${A.total_kind==="klassifiziert"?"bisher als Simulation klassifiziert":"geschätzt"}; Gesamtzahl unbekannt`},
   ].map(k=>`<div><div class="l">${k.l}</div><div class="v num">${k.v}</div><div class="h">${k.h}</div></div>`).join("");
   const IC={done:"✓",running:"▶",open:"○"};
   $("phases").innerHTML=p.phases.map(x=>`<li class="${x.status}"><span class="ic">${IC[x.status]||"○"}</span><span>${esc(x.title)}${x.late?` <span class="tag late">verspätet</span>`:""}</span>
     <span class="d">${x.from===x.to?dm(x.to):dm(x.from)+"–"+dm(x.to)}</span><span class="w">${esc(x.what||"")}</span></li>`).join("");
   $("plancls").innerHTML=p.classes.map(c=>`<tr><td><b>${esc(c.key)}</b> ${esc(c.label)}${c.port?"":` <span class="mute small">(${c.key==="C"?"Rust-Standard":"entfällt"})</span>`}</td>
-    <td class="num">${fmt(c.total)}</td><td class="num">${c.port?fmt(c.verified):"–"}</td><td class="num">${c.port?fmt(c.unverified):"–"}</td><td class="num">${c.port?fmt(c.open):"–"}</td></tr>`).join("");
+    <td class="num" data-tip="${esc(c.total_basis||"")}">${fmt(c.total)}<div class="small mute">${esc(c.total_kind||"Schätzung")}${c.seen!=null?`, ${fmt(c.seen)} gesehen`:""}</div></td><td class="num">${c.port?fmt(c.verified):"–"}</td><td class="num">${c.port?fmt(c.unverified):"–"}</td><td class="num">${c.port?fmt(c.open):"–"}</td></tr>`).join("");
   const st=p.stages;
-  $("planstages").innerHTML=st?`<table style="margin-top:10px"><thead><tr><th>Stufe</th><th class="num">portiert</th><th class="num">geprüft</th></tr></thead><tbody>${
-    Object.entries(st).map(([k,v])=>`<tr><td>${esc(STAGE[k]||k)}</td><td class="num">${fmt(v.ported)}</td><td class="num">${fmt(v.verified)}</td></tr>`).join("")}</tbody></table>`:"";
+  $("planstages").innerHTML=`<div class="small mute" style="margin-top:6px">A: ${esc((p.classes[0]||{}).total_basis||"")}. B–D: Regel-Einteilung vom 23.10., Schätzung, keine Messung.</div>`+(st?`<table style="margin-top:10px"><thead><tr><th>Stufe</th><th class="num">portiert</th><th class="num">geprüft</th></tr></thead><tbody>${
+    Object.entries(st).map(([k,v])=>`<tr><td>${esc(STAGE[k]||k)}</td><td class="num">${fmt(v.ported)}</td><td class="num">${fmt(v.verified)}</td></tr>`).join("")}</tbody></table>`:"");
   const pts=(p.curve||[]).map(([t,v])=>({t:berlin(t),v,label:`${t} Berlin`}));
   const box=$("plancurve");box.innerHTML=lineChart(pts,{fmtY:v=>fmt(Math.round(v)),max:A.total||1});
   if(pts.length>1){bindTips(box);wireCross(box,pts,A.total||1)}
@@ -324,15 +325,15 @@ fetch("data.json?t="+NOW).then(r=>r.json()).then(d=>{
   if(XW){ // the census replaces the retired gate matrix as the measurement
     kp[1]={l:"Szenarien ohne Abweichung",v:`${XS.filter(x=>!x.failing).length}<small> / ${XS.length}</small>`,h:`alte Gate-Messung: ${sc.base_identical??"–"} von ${sc.base_total??"–"} Basis-Szenarien`};
     const XF=XW.functions,xn=XF?Object.values(XF).reduce((a,b)=>a+b,0):0;
-    if(xn)kp[0]={l:"Funktionen identisch",v:`${pct((XF.done||0)+(XF.covered||0),xn,1)} %`,h:`${fmt((XF.done||0)+(XF.covered||0))} von ${fmt(xn)} ausgeführten Simulations-Funktionen identisch: ${fmt(XF.done)} selbst an echten Aufrufen geprüft, ${fmt(XF.covered||0)} nur innerhalb geprüfter Funktionen aufgerufen · ${fmt(XF.port)} noch zu portieren`};
-    kp[2]={l:"Gleiche Aufrufe",v:`${XC.pct!=null?XC.pct.toLocaleString("de-DE"):"–"} %`,h:`${fmt(XC.identical)} von ${fmt(XC.samples)} verglichenen Aufrufen · gemessen ${ago(Date.parse(XW.updated))}`};
+    if(xn)kp[0]={l:"Funktionen identisch",v:`${pct((XF.done||0)+(XF.covered||0),xn,1)} %`,h:`${fmt((XF.done||0)+(XF.covered||0))} von ${fmt(xn)} in der Messung ausgeführten Simulations-Funktionen identisch: ${fmt(XF.done)} selbst an echten Aufrufen geprüft, ${fmt(XF.covered||0)} nur innerhalb geprüfter Funktionen aufgerufen · ${fmt(XF.port)} noch zu portieren<br>${stamp(utcBerlin(XW.updated))} · xc-Messung @ ${esc(XW.sha)}`};
+    kp[2]={l:"Gleiche Aufrufe",v:`${XC.pct!=null?XC.pct.toLocaleString("de-DE"):"–"} %`,h:`${fmt(XC.identical)} von ${fmt(XC.samples)} verglichenen Aufrufen<br>${stamp(utcBerlin(XW.updated))}`};
   }
   // headline (plan 07.11.): whole scenarios turn-identical to the original, then identical turns; functions only as detail
   const SR=d.scenarios||[],sm=SR.filter(r=>r.measured),si=sm.filter(r=>r.identical);
   if(SR.length){
     const fn=kp[0];
-    kp[0]={l:"Szenarien voll gleich",v:`${si.length}<small> / ${SR.length}</small>`,h:`über die ganze Länge Zug für Zug gleich wie das Original · ${sm.length} gemessen, ${sm.length-si.length} weichen ab`};
-    kp[1]={l:"Gleiche Züge",v:`${it.pct!=null?it.pct.toLocaleString("de-DE"):"–"} %`,h:`${fmt(it.ok)} von ${fmt(it.total)} Zügen über alle gemessenen Szenarien · gemessen ${ago(berlin(it.as_of))}`};
+    kp[0]={l:"Szenarien voll gleich",v:`${si.length}<small> / ${SR.length}</small>`,h:`über die ganze Länge Zug für Zug gleich wie das Original · ${sm.length} gemessen, ${sm.length-si.length} weichen ab<br>${stamp(it.as_of)} · ${esc(it.as_of_source||"")}`};
+    kp[1]={l:"Gleiche Züge",v:`${it.pct!=null?it.pct.toLocaleString("de-DE"):"–"} %`,h:`${fmt(it.ok)} von ${fmt(it.total)} Zügen über ${fmt(it.scenarios)} gemessene Szenarien<br>${stamp(it.as_of)} · ${esc(it.as_of_source||"")}`};
     kp[2]=fn;
   }
   try{renderFunctions(d)}catch(e){console.error(e)}
@@ -346,7 +347,7 @@ fetch("data.json?t="+NOW).then(r=>r.json()).then(d=>{
     st+=`<i style="flex:${(c.total-done)/inv} 1 0;background:${col[c.key][1]}" data-tip="${esc(c.label)}: ${fmt(c.total-(done||0))} Funktionen ${c.key==="A"?"offen":"– "+esc(c.what)}"></i>`;}
   $("stack").innerHTML=st;
   $("stackleg").innerHTML=`<span><i class="sw" style="background:var(--s1)"></i>Simulation geprüft identisch</span><span><i class="sw" style="background:var(--s1-soft)"></i>Simulation offen</span><span><i class="sw" style="background:var(--neutral)"></i>Darstellung (später)</span><span><i class="sw" style="background:var(--neutral2)"></i>Bibliotheken (ersetzt)</span><span><i class="sw" style="background:var(--track);border:1px solid var(--line)"></i>Online (entfällt)</span>`;
-  $("classes").innerHTML=S.map(c=>`<div class="cls"><div class="t"><span><b>${esc(c.key)} · ${esc(c.label)}</b>${c.now?`<span class="tag">jetzt dran</span>`:""}</span><span class="num mute">${fmt(c.done)} / ${fmt(c.total)}</span></div>
+  $("classes").innerHTML=`<div class="small mute" style="margin:6px 0">Balken-Umfang: ${esc(goal.inventory_basis||"")}. Die Gesamtzahl der Funktionen ist nicht bekannt.</div>`+S.map(c=>`<div class="cls"><div class="t"><span><b>${esc(c.key)} · ${esc(c.label)}</b>${c.now?`<span class="tag">jetzt dran</span>`:""}</span><span class="num mute" data-tip="${esc(c.total_basis||"")}">${fmt(c.done)} / ${fmt(c.total)} <span class="small">(${esc(c.total_kind||"Schätzung")}${c.seen!=null?`, ${fmt(c.seen)} gesehen`:""})</span></span></div>
      <div class="meter" style="margin-top:5px"><i style="width:${c.total?Math.max(c.done?1:0,100*c.done/c.total):0}%;background:${c.now?"var(--s1)":"var(--neutral)"}"></i></div>
      <div class="w">${esc(c.what)}</div></div>`).join("");
 
@@ -358,7 +359,8 @@ fetch("data.json?t="+NOW).then(r=>r.json()).then(d=>{
     const crit=(good,t,v)=>`<div class="row" style="grid-template-columns:1.2em 1fr auto"><span>${good?"✓":"○"}</span><span>${t}</span><span class="num mute">${v}</span></div>`;
     $("simdet").innerHTML=`<div class="stack">${seg(ok,"var(--s1)",`geprüft identisch: <b>${fmt(ok)}</b>`)}${seg(open,"var(--s1-soft)",`läuft in den Szenarien, noch offen: <b>${fmt(open)}</b>`)}${seg(unrun,"var(--track)",`läuft in keinem Szenario: <b>${fmt(unrun)}</b>`)}</div>
       <div class="legend"><span><i class="sw" style="background:var(--s1)"></i>${fmt(ok)} geprüft identisch (${fmt(F.done)} selbst, ${fmt(F.covered)} mit abgedeckt)</span><span><i class="sw" style="background:var(--s1-soft)"></i>${fmt(open)} laufen in den Szenarien, noch offen</span><span><i class="sw" style="background:var(--track);border:1px solid var(--line)"></i>${fmt(unrun)} laufen in keinem Szenario (die Messung erreicht sie noch nicht)</span></div>
-      <div class="small" style="margin:8px 0">Tempo: ${fmt(rate)} Merges in 24 h${rate?` → bei diesem Tempo noch etwa <b>${fmt(Math.ceil(left/rate))} Tage</b> für die ${fmt(left)} offenen Simulations-Funktionen (nur möglich, wenn neue Szenarien die ${fmt(unrun)} nicht erreichten ausführen)`:""}.</div>
+      <div class="small mute" style="margin:6px 0">Basis ${fmt(A.total)}: ${esc(A.total_basis||"")}. „Läuft in keinem Szenario“ ist deshalb eine Untergrenze. Geprüft: xc-Messung ${stamp(utcBerlin(XW.updated))}.</div>
+      <div class="small" style="margin:8px 0">Tempo: ${fmt(rate)} Merges in 24 h${rate?` → grobe Schätzung (1 Merge ≈ 1 Funktion angenommen): noch etwa <b>${fmt(Math.ceil(left/rate))} Tage</b> für die ${fmt(left)} offenen Simulations-Funktionen (nur möglich, wenn neue Szenarien die ${fmt(unrun)} nicht erreichten ausführen)`:""}.</div>
       <div class="small"><b>Fertig, wenn alles abgehakt ist:</b></div>`
       +crit(ok>=A.total,"Alle Simulations-Funktionen geprüft identisch",`${fmt(ok)} / ${fmt(A.total)}`)
       +crit(!unrun,"Jede Simulations-Funktion läuft in mindestens einem Szenario",`${fmt(run)} / ${fmt(A.total)}`)
@@ -411,11 +413,11 @@ fetch("data.json?t="+NOW).then(r=>r.json()).then(d=>{
   const fd=hpts("fn_done"),fo=hpts("fn_ok");
   if(XW&&fd.length>=2){ // the progress measure: ported (bound) functions identical at their real calls, grows with each merge
     const mx=Math.max(500,Math.ceil(Math.max(...fd.map(p=>p.v))*1.25/500)*500),lo=fo.length?fo[fo.length-1].v:null;
-    $("ch1h").textContent="Funktionen nachgebaut";$("ch1s").textContent=`Simulations-Funktionen mit eigener Rust-Version, die an echten Aufrufen gleich wie im Original laufen, je Messung${lo!=null?`; mit den mit abgedeckten zusammen ${fmt(lo)} identisch`:""}; Ziel ${fmt(A.total)}.`;
+    $("ch1h").textContent="Funktionen nachgebaut";$("ch1s").textContent=`Simulations-Funktionen mit eigener Rust-Version, die an echten Aufrufen gleich wie im Original laufen, je Messung${lo!=null?`; mit den mit abgedeckten zusammen ${fmt(lo)} identisch`:""}; bisher ${fmt(A.total)} als Simulation klassifiziert (Gesamtzahl unbekannt).`;
     $("ch1").innerHTML=lineChart(fd,{fmtY:v=>fmt(Math.round(v)),max:mx});wireCross($("ch1"),fd,mx);
   }else if(XW&&fo.length>=2){ // the main measure: executed class-A functions identical (done + covered), per census
     const mx=Math.max(500,Math.ceil(Math.max(...fo.map(p=>p.v))*1.25/500)*500);
-    $("ch1h").textContent="Funktionen identisch";$("ch1s").textContent=`Simulations-Funktionen, die an echten Aufrufen gleich wie im Original laufen (selbst geprüft + mit abgedeckt), je Messung; Ziel ${fmt(A.total)}.`;
+    $("ch1h").textContent="Funktionen identisch";$("ch1s").textContent=`Simulations-Funktionen, die an echten Aufrufen gleich wie im Original laufen (selbst geprüft + mit abgedeckt), je Messung; bisher ${fmt(A.total)} als Simulation klassifiziert (Gesamtzahl unbekannt).`;
     $("ch1").innerHTML=lineChart(fo,{fmtY:v=>fmt(Math.round(v)),max:mx});wireCross($("ch1"),fo,mx);
   }else{
     const hk=XW?"xc_pct":"pct_identical",hp=hpts(hk);
@@ -430,7 +432,7 @@ fetch("data.json?t="+NOW).then(r=>r.json()).then(d=>{
   // scenarios
   if(XW){
     $("xcsc").hidden=false;
-    $("xcsum").textContent=`· ${XS.filter(x=>!x.failing).length} von ${XS.length} identisch · Stand ${XW.sha}${XW.partial?" (unvollständig)":""}`;
+    $("xcsum").innerHTML=`· ${XS.filter(x=>!x.failing).length} von ${XS.length} identisch · @ ${esc(XW.sha)}${XW.partial?" (unvollständig)":""} · ${stamp(utcBerlin(XW.updated))}`;
     $("xcrows").innerHTML=XS.map(x=>{const f=x.samples?(x.samples-x.failing)/x.samples:0;return`<tr><td class="nm">${esc(x.name)}${/^bc-\d+$/.test(x.name)?`<div class="small mute">BC-Aufnahme ab Zug ${fmt(+x.name.slice(3))}</div>`:""}</td>
       <td>${!x.samples?`<span class="st"><span class="dot info"></span>nichts verglichen</span>`:x.failing?`<span class="st"><span class="dot warning"></span>weicht ab</span> <span class="small mute">${x.kinds_failing} Art${x.kinds_failing==1?"":"en"}</span>`:`<span class="st"><span class="dot good"></span>Identisch</span>`}</td>
       <td class="prog"><div class="meter" data-tip="${esc(x.name)}: ${x.samples-x.failing} von ${x.samples} Aufrufen gleich"><i style="width:${100*f}%;background:${x.failing?"var(--s1)":"var(--good)"}"></i></div>
@@ -446,11 +448,11 @@ fetch("data.json?t="+NOW).then(r=>r.json()).then(d=>{
   $("base").innerHTML=base.map(s=>`<tr><td><div class="nm">${esc(s.name)}</div><div class="small mute">${esc(s.map||"")}</div></td><td>${state(s)}</td>
     <td class="prog"><div class="meter" data-tip="${esc(s.name)}: ${s.identical?"alle":"bis Zug "+fmt(s.turn)} von ${fmt((s.start||0)+(s.total||0))} Zügen"><i style="width:${100*frac(s)}%;background:${s.identical?"var(--good)":"var(--s1)"}"></i></div>
       <div class="small mute num">${s.identical?`${fmt(s.total)} Züge`:`${fmt(s.turn)} von ${fmt((s.start||0)+(s.total||0))}`}</div></td>
-    <td class="hide-m small mute">${esc(s.source||"")}<br>${ago(berlin(s.when))}</td></tr>`).join("");
+    <td class="hide-m small mute">${esc(s.source||"")}<br>${stamp(s.when)}</td></tr>`).join("");
   const G=sortS(SC.filter(s=>s.new)),gi=G.filter(s=>s.identical).length,gm=G.filter(s=>s.measured).length;
   $("gensum").textContent=`· ${gi} von ${G.length} identisch`;
   $("genbar").innerHTML=`<i style="width:${100*gi/(G.length||1)}%;background:var(--good)" data-tip="${gi} identisch"></i><i style="width:${100*(gm-gi)/(G.length||1)}%;background:var(--warn)" data-tip="${gm-gi} mit Abweichung"></i>`;
-  $("gen").innerHTML=G.map(s=>`<tr><td class="nm">${esc(s.name)}</td><td>${state(s)}${!s.identical&&s.turn!=null?` <span class="small mute num">ab Zug ${fmt(s.turn)} von ${fmt((s.start||0)+(s.total||0))}</span>`:""}</td><td class="hide-m small mute">${ago(berlin(s.when))}</td></tr>`).join("");
+  $("gen").innerHTML=G.map(s=>`<tr><td class="nm">${esc(s.name)}</td><td>${state(s)}${!s.identical&&s.turn!=null?` <span class="small mute num">ab Zug ${fmt(s.turn)} von ${fmt((s.start||0)+(s.total||0))}</span>`:""}</td><td class="hide-m small mute">${stamp(s.when)}</td></tr>`).join("");
 
   // jobs
   const R=((X||{}).jobs||[]).map(j=>({group:"xc",url:j.url,title:j.kind,account:j.account,status:j.status,minutes:j.minutes})).concat((d.fleet_v2||{}).runs||[]);

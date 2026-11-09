@@ -181,6 +181,7 @@ def main():
         "rewrite": {
             "source": f"Recount: Zitate 0x...... in crates/s5clean/src @ clean/integration {tip[:9]} gegen die in den Scoreboard-Szenarien ausgeführten Funktionen (union3)",
             "tip": tip[:9], "tip_time": tip_berlin, "as_of": now(),
+            "set_basis": f"Funktionsmenge union3: Ausführungsspuren der Scoreboard-Szenarien (102er-Board vom 07.11. 17:40, Spuren für 99), Stand {mtime(UNION3)}",
             "sim_total": len(sim), "sim_cited": len(sim_c), "sim_uncited": len(sim) - len(sim_c),
             "sim_unmodelled": len(sim_unmod), "unmodelled_calls": unmod_calls,
             "unmodelled_rule": "Adresse (oder deren Funktionskörper) steht in einem unmodelled(\"...\")-Text, auch über eine Text-Variable (let what = match ...)",
