@@ -1,0 +1,8 @@
+wave=1
+max_waves=1
+shards=16
+keep_free=4
+budget_min=40
+forks=48
+reps=1
+strats=move,build

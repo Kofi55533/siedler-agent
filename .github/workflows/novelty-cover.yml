@@ -1,0 +1,170 @@
+name: novelty-cover
+# COVER-mode novelty search on the GitHub runners (Dominic 2026-11-09 21:18): find EXE logic functions no recorded
+# run reached yet, by forking start images at many game turns (MEMIMAGE) and probing each fork with short command
+# bursts under s5recomp-cover (COVER bitmap, equality with TRACE shown in siedler-sim-rs PR 2210).
+# One run = one wave: plan -> N shard jobs (disjoint fixture slices, scripts/novelty/novelty_shard.py) -> merge
+# (union against union3 + known.json, scripts/novelty/novelty_merge.py) -> re-dispatch of the next wave.
+# Inputs/outputs live in the PRIVATE repo siedler-data (releases novelty-cover / novelty-cover-results); the public
+# log shows counts only, never addresses or game data.
+# Slots: at most `shards` jobs (default 16) and never more than 20 - keep_free - (jobs of other workflows running).
+# STOP: commit a file novelty/STOP on the branch this runs from (checked at plan and before the re-dispatch),
+#       or `gh run cancel` the current run; max_waves caps the chain.
+# Start: workflow_dispatch (needs the file on the default branch), or push a change of novelty/RUN on this branch
+# (key=value lines with the same names as the inputs; the push path works before the file reaches main).
+on:
+  push:
+    branches: [novelty/cover]
+    paths: [novelty/RUN]
+  workflow_dispatch:
+    inputs:
+      wave: { description: 'wave number (seeds the fork turns and the commands)', default: '1' }
+      max_waves: { description: 'last wave of the chain (no re-dispatch after it)', default: '1' }
+      shards: { description: 'max shard jobs', default: '16' }
+      keep_free: { description: 'job slots kept free for verify/scoreboard', default: '4' }
+      budget_min: { description: 'probe budget per shard (min)', default: '40' }
+      forks: { description: 'fork turns per fixture and wave', default: '48' }
+      strats: { description: 'command strategies per fork (all: move,build,ent_pos,tech,build_wide,upgrade_wide,recruit,cannon,tech_wide)', default: 'move,build' }
+      reps: { description: 'command sets per fork and strategy', default: '1' }
+permissions:
+  contents: read
+  actions: write
+concurrency: { group: novelty-cover, cancel-in-progress: false }
+env:
+  DATA: Kofi55533/siedler-data
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      go: ${{ steps.p.outputs.go }}
+      n: ${{ steps.p.outputs.n }}
+      matrix: ${{ steps.p.outputs.matrix }}
+      cfg: ${{ steps.c.outputs.cfg }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { sparse-checkout: novelty, sparse-checkout-cone-mode: true }
+      - id: c
+        env: { IN: '${{ toJSON(inputs) }}' }
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json, os
+          d = {'wave': '1', 'max_waves': '1', 'shards': '16', 'keep_free': '4', 'budget_min': '40', 'forks': '48',
+               'reps': '1', 'strats': 'move,build'}
+          if os.environ.get('GITHUB_EVENT_NAME') == 'push' and os.path.exists('novelty/RUN'):
+              for l in open('novelty/RUN'):
+                  if '=' in l and not l.startswith('#'):
+                      k, v = l.strip().split('=', 1); d[k.strip()] = v.strip()
+          else:
+              d.update({k: str(v) for k, v in (json.loads(os.environ.get('IN') or 'null') or {}).items() if v not in (None, '')})
+          print('cfg=' + json.dumps(d))
+          PY
+      - id: p
+        env:
+          GH_TOKEN: '${{ github.token }}'
+          R: '${{ github.repository }}'
+          MAXS: '${{ fromJSON(steps.c.outputs.cfg).shards }}'
+          FREE: '${{ fromJSON(steps.c.outputs.cfg).keep_free }}'
+          W: '${{ fromJSON(steps.c.outputs.cfg).wave }}'
+        run: |
+          if [ -f novelty/STOP ] || gh api "repos/$R/contents/novelty/STOP?ref=$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "go=false" >> "$GITHUB_OUTPUT"; echo "STOP flag present -> no wave" | tee -a "$GITHUB_STEP_SUMMARY"; exit 0; fi
+          busy=0
+          for id in $(gh run list -R "$R" -L 60 --json databaseId,status,workflowName -q '.[]|select(.status!="completed" and .workflowName!="novelty-cover")|.databaseId'); do
+            n=$(gh api "repos/$R/actions/runs/$id/jobs" -q '[.jobs[]|select(.status!="completed")]|length' 2>/dev/null || echo 1); busy=$((busy+n))
+          done
+          n=$((20-FREE-busy)); [ $n -gt $MAXS ] && n=$MAXS; [ $n -lt 2 ] && n=2
+          echo "go=true" >> "$GITHUB_OUTPUT"; echo "n=$n" >> "$GITHUB_OUTPUT"
+          echo "matrix=$(python3 -c "import json;print(json.dumps(list(range($n))))")" >> "$GITHUB_OUTPUT"
+          echo "wave $W: other jobs busy=$busy -> shards=$n" | tee -a "$GITHUB_STEP_SUMMARY"
+  shard:
+    needs: plan
+    if: needs.plan.outputs.go == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 80
+    strategy:
+      fail-fast: false
+      max-parallel: 16
+      matrix:
+        shard: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    env:
+      S: /opt/nv
+      I: ${{ matrix.shard }}
+      N: ${{ needs.plan.outputs.n }}
+      W: ${{ fromJSON(needs.plan.outputs.cfg).wave }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { sparse-checkout: scripts/novelty, sparse-checkout-cone-mode: true }
+      - name: Setup game data, bundle, start images (quiet)
+        env: { GH_TOKEN: '${{ secrets.PRIVATE_REPO_TOKEN }}' }
+        run: |
+          set -euo pipefail; t0=$(date +%s)
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/share/boost >/dev/null 2>&1 &
+          RM=$!
+          sudo mkdir -p $S && sudo chown "$(id -u):$(id -g)" $S && mkdir -p $S/dl $S/game $S/art $S/img $S/tmp
+          dl(){ for t in 1 2 3 4; do gh release download "$@" --clobber >/dev/null 2>&1 && return 0; sleep $((t*10)); done; echo "download failed"; return 1; }
+          dl novelty-cover -R $DATA -D $S/dl -p bundle.tzst
+          zstd -dcq $S/dl/bundle.tzst | tar -xf - -C $S
+          names=$(python3 scripts/novelty/novelty_shard.py --bundle $S/bundle --imgdir $S/img --wave $W --shard $I --nshards $N --list)
+          echo "fixtures: $(echo $names | wc -w)"
+          pats=""; for n in $names; do pats="$pats -p img-$n.tzst"; done
+          dl novelty-cover -R $DATA -D $S/dl $pats &
+          IP=$!
+          wait $RM || true
+          dl data-v2 -R $DATA -D $S/dl -p 'game.tzst.*' -p art.tzst
+          wait $IP
+          (cat $S/dl/game.tzst.* | zstd -dcq | tar -xf - -C $S/game) & G=$!
+          zstd -dcq $S/dl/art.tzst | tar -xf - -C $S/art
+          for f in $S/dl/img-*.tzst; do zstd -dcq "$f" | tar -xf - -C $S/img; done
+          wait $G
+          rm -rf $S/dl
+          echo "setup secs=$(( $(date +%s)-t0 )) nproc=$(nproc) disk_free=$(df -h / | awk 'NR==2{print $4}')"
+      - name: Shard ${{ matrix.shard }} (counts only)
+        env: { S5_GAME: /opt/nv/game, S5_ARTIFACTS: /opt/nv/art }
+        run: |
+          python3 scripts/novelty/novelty_shard.py --bundle $S/bundle --imgdir $S/img --wave $W --shard $I --nshards $N \
+            --forks ${{ fromJSON(needs.plan.outputs.cfg).forks }} --reps ${{ fromJSON(needs.plan.outputs.cfg).reps }} \
+            --strats ${{ fromJSON(needs.plan.outputs.cfg).strats }} --budget-min ${{ fromJSON(needs.plan.outputs.cfg).budget_min }} --tmp $S/tmp \
+            --out $RUNNER_TEMP/w$W-s$I.json
+      - name: Upload shard result (private release)
+        if: always()
+        env: { GH_TOKEN: '${{ secrets.PRIVATE_REPO_TOKEN }}' }
+        run: |
+          [ -f $RUNNER_TEMP/w$W-s$I.json ] || { echo "no result"; exit 1; }
+          gzip -f $RUNNER_TEMP/w$W-s$I.json
+          for t in 1 2 3; do gh release upload novelty-cover-results -R $DATA $RUNNER_TEMP/w$W-s$I.json.gz --clobber && break; sleep $((t*10)); done
+  merge:
+    needs: [plan, shard]
+    if: always() && needs.plan.outputs.go == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      W: ${{ fromJSON(needs.plan.outputs.cfg).wave }}
+      CFG: ${{ needs.plan.outputs.cfg }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { sparse-checkout: scripts/novelty, sparse-checkout-cone-mode: true }
+      - name: Merge wave against union3 + known.json
+        env: { GH_TOKEN: '${{ secrets.PRIVATE_REPO_TOKEN }}' }
+        run: |
+          set -euo pipefail; cd $RUNNER_TEMP; mkdir -p r
+          gh release download novelty-cover-results -R $DATA -D r -p "w$W-s*.json.gz" --clobber
+          gh release download novelty-cover-results -R $DATA -p known.json --clobber 2>/dev/null || echo '{"addrs":[],"first":{}}' > known.json
+          python3 $GITHUB_WORKSPACE/scripts/novelty/novelty_merge.py --known known.json --out w$W-merged.json --known-out known.new.json r/*.json.gz | tee -a "$GITHUB_STEP_SUMMARY"
+          cp known.new.json known.json
+          gh release upload novelty-cover-results -R $DATA w$W-merged.json known.json --clobber
+      - name: Next wave
+        env: { GH_TOKEN: '${{ github.token }}', PAT: '${{ secrets.PRIVATE_REPO_TOKEN }}', R: '${{ github.repository }}' }
+        run: |
+          if gh api "repos/$R/contents/novelty/STOP?ref=$GITHUB_REF_NAME" >/dev/null 2>&1; then echo "STOP flag -> chain ends" | tee -a "$GITHUB_STEP_SUMMARY"; exit 0; fi
+          MW=$(jq -r .max_waves <<<"$CFG")
+          [ "$W" -ge "$MW" ] && { echo "max_waves reached -> chain ends" | tee -a "$GITHUB_STEP_SUMMARY"; exit 0; }
+          args=$(jq -r --arg w $((W+1)) '.wave=$w|to_entries|map("-f \(.key)=\(.value)")|join(" ")' <<<"$CFG")
+          if gh workflow run novelty-cover.yml -R "$R" --ref "$GITHUB_REF_NAME" $args; then
+            echo "dispatched wave $((W+1))" | tee -a "$GITHUB_STEP_SUMMARY"; exit 0; fi
+          # workflow_dispatch needs the file on the default branch: otherwise start the next wave by updating
+          # novelty/RUN on this branch with the PAT (a GITHUB_TOKEN push would not trigger the push event)
+          body=$(jq -r --arg w $((W+1)) '.wave=$w|to_entries|map("\(.key)=\(.value)")|join("\n")' <<<"$CFG")
+          sha=$(GH_TOKEN=$PAT gh api "repos/$R/contents/novelty/RUN?ref=$GITHUB_REF_NAME" -q .sha 2>/dev/null || true)
+          GH_TOKEN=$PAT gh api -X PUT "repos/$R/contents/novelty/RUN" -f message="novelty-cover: wave $((W+1))" \
+            -f branch="$GITHUB_REF_NAME" -f content="$(printf '%s\n' "$body" | base64 -w0)" ${sha:+-f sha=$sha} >/dev/null
+          echo "started wave $((W+1)) via novelty/RUN" | tee -a "$GITHUB_STEP_SUMMARY"
