@@ -107,7 +107,7 @@ def reduce_cover(path):
 
 lock = threading.Lock()
 res = {'gen': 'state_cmds', 'poke': not A.no_poke, 'wave': A.wave, 'shard': A.shard, 'nshards': A.nshards,
-       'only': A.only, 'forks_per_fixture': A.forks, 'reps': A.reps, 'workers': A.workers, 'fixtures': [],
+       'only': A.only, 'forks_per_fixture': A.forks, 'reps': A.reps, 'strats': A.strats, 'workers': A.workers, 'fixtures': [],
        'advances': [], 'probes': [], 'curve': [], 'union_logic': set(), 'turns_sim': 0, 'probe_wall': 0.0,
        'adv_wall': 0.0, 'stopped_by_budget': False}
 
