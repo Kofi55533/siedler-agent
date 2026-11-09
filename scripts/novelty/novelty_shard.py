@@ -38,6 +38,7 @@ ap.add_argument('--list', action='store_true', help='print this shard\'s fixture
 ap.add_argument('--only', default='')
 ap.add_argument('--forks', type=int, default=24)
 ap.add_argument('--reps', type=int, default=1)
+ap.add_argument('--strats', default=','.join(STRATS), help='comma list of command strategies per fork')
 ap.add_argument('--budget-min', type=float, default=40.0)
 ap.add_argument('--workers', type=int, default=os.cpu_count() or 4)
 ap.add_argument('--tmp', default='/tmp/nv')
@@ -144,7 +145,7 @@ def reduce_cover(path):
 
 
 lock = threading.Lock()
-res = {'wave': A.wave, 'shard': A.shard, 'nshards': A.nshards, 'only': A.only, 'forks_per_fixture': A.forks,
+res = {'strats': A.strats, 'wave': A.wave, 'shard': A.shard, 'nshards': A.nshards, 'only': A.only, 'forks_per_fixture': A.forks,
        'reps': A.reps, 'workers': A.workers, 'fixtures': [], 'advances': [], 'probes': [],
        'union_logic': set(), 'turns_sim': 0, 'probe_wall': 0.0, 'adv_wall': 0.0, 'stopped_by_budget': False}
 
@@ -228,13 +229,13 @@ def main():
             forks = fq.get()
             if forks is None:
                 break
-            futs = [ex.submit(probe, f, t, img, s, r) for (f, t, img) in forks for s in STRATS for r in range(A.reps)]
+            futs = [ex.submit(probe, f, t, img, s, r) for (f, t, img) in forks for s in A.strats.split(',') for r in range(A.reps)]
             for fu in futs:
                 fu.result()
             for (_, _, img) in forks:
                 img.unlink(missing_ok=True); pathlib.Path(str(img) + '.state.json').unlink(missing_ok=True)
             n = len(res['probes'])
-            print(f'  {forks[0][0]["name"] if forks else "?"}: forks={len(forks)} probes_total={n} '
+            print(f'  fixture {len(res["advances"])}/{len(fxs)}: forks={len(forks)} probes_total={n} '
                   f't={time.time()-T0:.0f}s', flush=True)
     res['union_logic'] = [f'0x{a:06x}' for a in sorted(res['union_logic'])]
     res['union_new'] = sorted({a for p in res['probes'] for a in p.get('new', [])})
