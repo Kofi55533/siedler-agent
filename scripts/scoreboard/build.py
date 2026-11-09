@@ -1656,6 +1656,8 @@ def main():
                      "issues": [{"n": int(i), "url": f"https://github.com/{PUB}/issues/{i}"} for i in sorted(f["issues"], key=int)],
                      "desc": describe(map_, start, turns, what)})
     data["scenarios"] = rows
+    # Funktionsüberblick: snapshot written on the box by make_functions.py (box-only inputs); counts only
+    data["functions"] = safe(lambda: json.load(open(os.path.join(HERE, "functions.json"))), None, "functions.json")
     if live:
         e, (sha, _) = live
         data["matrix_source"] = {"time": e["time"], "agent": e["agent"], "line": e["line"], "sha": sha,

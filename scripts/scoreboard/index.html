@@ -130,6 +130,14 @@ details{margin-top:8px}summary{cursor:pointer;color:var(--ink2);font-size:.88rem
 
 <section class="kpis" id="kpis"></section>
 
+<section class="card" id="fncard" hidden><h2>Funktionsüberblick</h2>
+  <div class="sub" id="fnsub"></div>
+  <div class="kpis" id="fnkpis"></div>
+  <div id="fndet" class="small" style="margin-top:12px"></div>
+  <h2 style="font-size:.92rem;margin-top:16px">Wo die Szenarien abweichen <span class="mute small" id="frsum"></span></h2>
+  <table><thead><tr><th>Szenario</th><th class="num">gleich bis Zug</th><th class="num">Länge</th><th class="hide-m">gemessen</th></tr></thead><tbody id="frrows"></tbody></table>
+</section>
+
 <section class="card"><h2>Wie weit ist das ganze Spiel?</h2>
   <div class="sub">Alle Funktionen des Originalspiels, nach dem, was mit ihnen passiert. Gezählt ist nur, was geprüft und in <code>clean/integration</code> übernommen ist.</div>
   <div class="stack" id="stack"></div><div class="legend" id="stackleg"></div>
@@ -184,7 +192,10 @@ const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;"
 const fmt=n=>n==null?"–":Number(n).toLocaleString("de-DE");
 const pct=(a,b,d=1)=>b?(100*a/b).toLocaleString("de-DE",{maximumFractionDigits:d}):"–";
 const NOW=Date.now();
-const berlin=s=>s?Date.parse(s.replace(" ","T")+":00+02:00"):NaN; // "YYYY-MM-DD HH:MM" Berlin (CEST until 25.10.)
+const lastSun=(y,m)=>{const d=new Date(Date.UTC(y,m+1,0));return d.getUTCDate()-d.getUTCDay()};
+const berlin=s=>{if(!s)return NaN;const y=+s.slice(0,4),mo=+s.slice(5,7)-1,dd=+s.slice(8,10); // "YYYY-MM-DD HH:MM" Berlin (CEST/CET)
+  const summer=(mo>2&&mo<9)||(mo==2&&dd>=lastSun(y,2))||(mo==9&&dd<lastSun(y,9));
+  return Date.parse(s.slice(0,16).replace(" ","T")+":00"+(summer?"+02:00":"+01:00"))};
 function ago(t){if(!t||isNaN(t))return"–";const m=Math.max(0,Math.round((NOW-t)/60000));
   return m<1?"gerade eben":m<60?`vor ${m} min`:m<2880?`vor ${Math.floor(m/60)} h`:`vor ${Math.floor(m/1440)} Tagen`}
 const SEV={critical:["Kritisch","⛔"],warning:["Achtung","⚠️"],info:["Hinweis","ℹ️"],good:["Läuft","✓"]};
@@ -238,6 +249,33 @@ function barChart(rows){ // [{day,count}]
 
 const dm=s=>{if(!s)return"–";const d=new Date(s+"T12:00:00");return d.toLocaleDateString("de-DE",d.getFullYear()===new Date(NOW).getFullYear()?{day:"2-digit",month:"2-digit"}:{day:"2-digit",month:"2-digit",year:"numeric"})};
 const STAGE={script:"Musterübersetzer",deepseek:"DeepSeek-Fließband",agent:"Agent-Worker",hand:"Claude von Hand"};
+
+const OLD=24*3600e3;
+const stamp=s=>{const t=berlin(s),old=!isNaN(t)&&NOW-t>OLD;return`<span class="${old?"":"mute"}" style="${old?"color:var(--crit);font-weight:650":""}">Stand ${esc(s||"–")} (MEZ)${old?" · veraltet":""}</span>`};
+function renderFunctions(d){
+  const F=d.functions,SR=d.scenarios||[];if(!F&&!SR.length)return;$("fncard").hidden=false;
+  const R=(F||{}).rewrite||{},X=(F||{}).xc,D=(F||{}).discovery||{},K=(F||{}).sim_known||{};
+  $("fnsub").innerHTML=F?`Wie viele Original-Funktionen laufen in unseren Szenarien, wie viele davon stecken schon im sauberen Rust-Nachbau, und was hat die Funktionssuche Neues gefunden. Zuletzt aktualisiert: ${stamp(F.generated_berlin)}. Werte älter als 24 h sind rot als „veraltet“ markiert.`:"Funktionsdaten fehlen (functions.json).";
+  if(F){
+    const k=[
+      {l:"Simulation im Nachbau",v:`${pct(R.sim_cited,R.sim_total,1)} %`,h:`${fmt(R.sim_cited)} von ${fmt(R.sim_total)} Simulations-Funktionen aus den Scoreboard-Szenarien sind im Clean-Rewrite (<code>clean/integration</code> @ <code>${esc(R.tip)}</code>, ${esc(R.tip_time)}) per Originaladresse eingebaut · ${fmt(R.sim_uncited)} fehlen noch · ${fmt(R.sim_unmodelled)} davon nur als <code>unmodelled(…)</code>-Lücke<br>${stamp(R.as_of)}`},
+      {l:"Logik im Nachbau",v:`${fmt(R.logic_cited)}<small> / ${fmt(R.logic_total)}</small>`,h:`${pct(R.logic_cited,R.logic_total,1)} % aller in den Szenarien ausgeführten Logikfunktionen · ${fmt(R.unmodelled_calls)} <code>unmodelled(…)</code>-Aufrufe im Code<br>${stamp(R.as_of)}`},
+      X?{l:"Am Original geprüft (Aufrufe)",v:`${fmt(X.pass)}<small> ok · ${fmt(X.fail)} falsch</small>`,h:`von ${fmt(X.of_sim)} Simulations-Funktionen: ${fmt(X.pass)} mit echten Aufruf-Stichproben identisch, ${fmt(X.fail)} abweichend${X.fail_addrs.length?" ("+X.fail_addrs.map(esc).join(", ")+")":""}, ${fmt(X.of_sim-X.with_kind)} ohne Messpunkt, ${fmt(X.zero_samples)} ohne Stichprobe · Messung @ <code>${esc(X.worklist_sha)}</code><br>${stamp(X.as_of)}`}:null,
+      {l:"Neu gefunden (Funktionssuche)",v:`${fmt(D.total_new)}`,h:`Logikfunktionen, die in keinem Scoreboard-Szenario laufen (dedupliziert, keine Summe), davon ${fmt(D.total_new_sim)} Simulation<br>${stamp(D.as_of)}`},
+      {l:"Simulation bekannt",v:`${fmt(K.classified_sim)}`,h:`als Simulation klassifiziert · ${fmt(K.seen_in_scoreboard)} laufen in den Szenarien, mit Funktionssuche ${fmt(K.seen_incl_search)} gesehen · ${fmt(K.unseen)} noch nie ausgeführt<br>${stamp(K.as_of)}`},
+    ].filter(Boolean);
+    $("fnkpis").innerHTML=k.map(x=>`<div class="kpi"><div class="l">${x.l}</div><div class="v num">${x.v}</div><div class="h">${x.h}</div></div>`).join("");
+    $("fndet").innerHTML=`<details><summary>Quellen und Aufschlüsselung</summary><ul>
+      <li><b>Nachbau:</b> ${esc(R.source)}. Eine Funktion zählt, wenn ihre Startadresse oder eine Adresse in ihrem Körper zitiert ist. Lücken-Regel: ${esc(R.unmodelled_rule||"")}.</li>
+      ${X?`<li><b>Prüfung:</b> ${esc(X.source)}; insgesamt ${fmt(X.calls.samples-X.calls.failing)} von ${fmt(X.calls.samples)} Aufruf-Stichproben gleich; abweichende Funktionen überhaupt: ${X.fail_all_kinds.map(esc).join(", ")||"keine"}.</li>`:""}
+      <li><b>Funktionssuche:</b> ${esc(D.source)}. Teilergebnisse (überlappen sich): ${(D.parts||[]).map(p=>`${esc(p.name)} ${fmt(p.new)} (${esc(p.as_of)})`).join(" · ")}.</li>
+      <li><b>Klassifikation:</b> ${esc(K.source)}.</li>
+      <li>Erzeugt von <code>${esc(F.generator)}</code>.</li></ul></details>`;
+  }
+  const fr=SR.filter(r=>r.measured&&!r.identical).sort((a,b)=>(b.total||0)-(a.total||0));
+  $("frsum").innerHTML=`${fr.length} von ${SR.filter(r=>r.measured).length} gemessenen Szenarien`;
+  $("frrows").innerHTML=fr.map(r=>`<tr><td>${esc(r.name)} <span class="mute small">${esc(r.map||"")}</span></td><td class="num">${fmt(r.turn)}</td><td class="num">${r.total?fmt(r.total):"–"}</td><td class="hide-m">${stamp(r.when)} <span class="mute small">${esc(r.source||"")}</span></td></tr>`).join("");
+}
 function renderPlan(p){
   if(!p)return;$("plancard").hidden=false;
   const A=p.classes.find(c=>c.key==="A")||{},pa=p.phases.find(x=>x.key==="a")||{},pw=p.phases.find(x=>x.key==="whole")||{};
@@ -297,6 +335,7 @@ fetch("data.json?t="+NOW).then(r=>r.json()).then(d=>{
     kp[1]={l:"Gleiche Züge",v:`${it.pct!=null?it.pct.toLocaleString("de-DE"):"–"} %`,h:`${fmt(it.ok)} von ${fmt(it.total)} Zügen über alle gemessenen Szenarien · gemessen ${ago(berlin(it.as_of))}`};
     kp[2]=fn;
   }
+  try{renderFunctions(d)}catch(e){console.error(e)}
   $("kpis").innerHTML=kp.map(k=>`<div class="kpi"><div class="l">${k.l}</div><div class="v num">${k.v}</div><div class="h">${k.h}</div></div>`).join("");
 
   // whole game

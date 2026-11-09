@@ -1,0 +1,81 @@
+{
+ "generated_berlin": "2026-11-09 23:39",
+ "generator": "scripts/scoreboard/make_functions.py (Box)",
+ "rewrite": {
+  "source": "Recount: Zitate 0x...... in crates/s5clean/src @ clean/integration fd5df15ca gegen die in den Scoreboard-Szenarien ausgeführten Funktionen (union3)",
+  "tip": "fd5df15ca",
+  "tip_time": "2026-11-08 20:32",
+  "as_of": "2026-11-09 23:39",
+  "sim_total": 2172,
+  "sim_cited": 1775,
+  "sim_uncited": 397,
+  "sim_unmodelled": 20,
+  "unmodelled_calls": 72,
+  "unmodelled_rule": "Adresse (oder deren Funktionskörper) steht in einem unmodelled(\"...\")-Text, auch über eine Text-Variable (let what = match ...)",
+  "logic_total": 2944,
+  "logic_cited": 2265,
+  "cited_addresses": 8022
+ },
+ "xc": {
+  "source": "siedler-data Release xc-worklist (worklist.json)",
+  "worklist_sha": "fd5df15caac2",
+  "as_of": "2026-11-09 18:02",
+  "of_sim": 2172,
+  "with_kind": 1294,
+  "pass": 682,
+  "fail": 1,
+  "fail_addrs": [
+   "0x4F47B1"
+  ],
+  "zero_samples": 611,
+  "fail_all_kinds": [
+   "0x5A16BD",
+   "0x4F47B1"
+  ],
+  "calls": {
+   "samples": 28621,
+   "failing": 9
+  }
+ },
+ "discovery": {
+  "source": "deduplizierte Vereinigung aller Funktionssuch-Ergebnisse, nur Logikfunktionen, die in keinem Scoreboard-Szenario (union3) laufen",
+  "as_of": "2026-11-09 23:27",
+  "total_new": 574,
+  "total_new_sim": 391,
+  "parts": [
+   {
+    "name": "Kartenstarts (49 Karten, je 60 Züge)",
+    "new": 63,
+    "as_of": "2026-11-09 22:03"
+   },
+   {
+    "name": "Befehle aus Spielstand, Box-Welle 1",
+    "new": 516,
+    "as_of": "2026-11-09 23:22"
+   },
+   {
+    "name": "frühere Box-Suchläufe",
+    "new": 245,
+    "as_of": "2026-11-09 21:36"
+   },
+   {
+    "name": "Novelty-Schleife (Box)",
+    "new": 77,
+    "as_of": "2026-11-09 21:13"
+   },
+   {
+    "name": "GitHub-Funktionssuche (2 Shards)",
+    "new": 239,
+    "as_of": "2026-11-09 23:27"
+   }
+  ]
+ },
+ "sim_known": {
+  "source": "Funktionsklassifikation (SettlersHoK.exe, Bereich Simulation)",
+  "as_of": "2026-11-09 19:57",
+  "classified_sim": 9148,
+  "seen_in_scoreboard": 2172,
+  "seen_incl_search": 2563,
+  "unseen": 6585
+ }
+}
