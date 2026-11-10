@@ -171,7 +171,8 @@ def main():
         rel = json.loads(subprocess.run(["gh", "release", "view", "novelty-cover-results", "-R", "Kofi55533/siedler-data", "--json", "assets"],
                                         capture_output=True, check=True).stdout)
         srcs[f"GitHub-Funktionssuche ({len(gh)} Shards)"]["as_of"] = max(
-            datetime.fromisoformat(a["updatedAt"].replace("Z", "+00:00")).astimezone(BERLIN).strftime("%Y-%m-%d %H:%M") for a in rel["assets"])
+            datetime.fromisoformat(a["updatedAt"].replace("Z", "+00:00")).astimezone(BERLIN).strftime("%Y-%m-%d %H:%M")
+            for a in rel["assets"] if a["name"].endswith(".json.gz"))  # shard results only (known.json/merged uploads are not new data)
         srcs[f"GitHub-Funktionssuche ({len(gh)} Shards)"]["path"] = "siedler-data Release novelty-cover-results"
     union_new = set().union(*(v["new"] for v in srcs.values())) if srcs else set()
 
