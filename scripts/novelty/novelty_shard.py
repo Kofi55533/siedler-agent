@@ -226,6 +226,35 @@ def probe(f, t, img, st, strategy, rep):
         shutil.rmtree(run, ignore_errors=True)
 
 
+GRACE = 240  # s after DEADLINE: in-flight probes are capped at ~DEADLINE+30s, advances at DEADLINE+120s
+
+
+def write_result(path, partial):
+    """snapshot of res (always with elapsed/union_new) -> path, atomically; caller holds `lock` or owns res"""
+    if not path:
+        return
+    snap = dict(res, union_logic=[f'0x{a:06x}' for a in sorted(res['union_logic'])],
+                union_new=sorted({a for p in res['probes'] for a in p.get('new', [])}),
+                elapsed=round(time.time() - T0, 2), partial=partial)
+    tmp = pathlib.Path(path + '.tmp'); tmp.write_text(json.dumps(snap)); os.replace(tmp, path)
+
+
+def watchdog():
+    """last resort: if the shard is still alive GRACE s after its budget, write what it has and exit 0"""
+    while time.time() < DEADLINE + GRACE + 60:
+        time.sleep(10)
+    got = lock.acquire(timeout=20)   # a snapshot without the lock is still better than nothing
+    try:
+        res['watchdog_exit'] = True
+        write_result(A.out, partial=True)
+    finally:
+        if got:
+            lock.release()
+    print(f'watchdog: shard still running {time.time()-DEADLINE:.0f}s after budget -> wrote partial result, exit',
+          flush=True)
+    os._exit(0)
+
+
 def main():
     if A.list:
         print('\n'.join(f['name'] for f in my_fixtures()))
@@ -253,15 +282,27 @@ def main():
             except Exception as e:  # one broken fixture must not stop the shard
                 with lock: res['advances'].append({'fixture': f['name'], 'rc': f'exc {type(e).__name__}', 'forks': 0})
                 fq.put([])
+        # NEVER block on fq while holding `lock`: fq has maxsize=1, the consumer only drains it after the previous
+        # fixture's probes finished, and every probe takes `lock` -> put(None) under the lock deadlocked the shard
+        # after its last fixture (wave 2, run 42720260758: all 11 shards hung until the hard timeout).
         with lock:
             done_producers[0] += 1
-            if done_producers[0] == A.adv_par:
-                fq.put(None)
+            last = done_producers[0] == A.adv_par
+        if last:
+            fq.put(None)
     for _ in range(A.adv_par):
         threading.Thread(target=producer, daemon=True).start()
+    if A.out:
+        threading.Thread(target=watchdog, daemon=True).start()
     with ThreadPoolExecutor(A.workers) as ex:
         while True:
-            forks = fq.get()
+            try:   # bounded wait: a stuck producer must not keep the shard alive past its budget
+                forks = fq.get(timeout=30)
+            except queue.Empty:
+                if time.time() > DEADLINE + GRACE:
+                    res['stopped_by_budget'] = True; res['producer_stuck'] = True
+                    break
+                continue
             if forks is None:
                 break
             futs = []
@@ -295,13 +336,13 @@ def main():
             print(f'  fixture {len(res["advances"])}/{len(fxs)}: forks={len(forks)} probes_total={n} '
                   f'new={len(res["union_logic"] - KNOWN)} t={time.time()-T0:.0f}s', flush=True)
             if A.out:   # partial result after every fixture (a killed run keeps what it found)
-                snap = dict(res, union_logic=[f'0x{a:06x}' for a in sorted(res['union_logic'])])
-                pathlib.Path(A.out + '.part').write_text(json.dumps(snap))
-    res['union_logic'] = [f'0x{a:06x}' for a in sorted(res['union_logic'])]
-    res['union_new'] = sorted({a for p in res['probes'] for a in p.get('new', [])})
+                with lock:
+                    write_result(A.out + '.part', partial=True)
+    with lock:
+        write_result(A.out, partial=bool(res.get('producer_stuck')))
     res['elapsed'] = round(time.time() - T0, 2)
+    res['union_new'] = sorted({a for p in res['probes'] for a in p.get('new', [])})
     ok = sum(1 for p in res['probes'] if p.get('rc') == 0)
-    pathlib.Path(A.out).write_text(json.dumps(res))
     print(f'done: probes={len(res["probes"])} ok={ok} forks={sum(a["forks"] for a in res["advances"])} '
           f'turns_sim={res["turns_sim"]} elapsed={res["elapsed"]}s new={len(res["union_new"])} '
           f'budget_stop={res["stopped_by_budget"]}', flush=True)

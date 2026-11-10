@@ -122,12 +122,15 @@ jobs:
         env: { S5_GAME: /opt/nv/game, S5_ARTIFACTS: /opt/nv/art }
         run: |
           # hard wall: budget + 5 min for last in-flight probes; SIGKILL 30s later so upload can still run
+          # no `set -e` here: a timeout (124) must still reach the .part promotion below (wave 2 lost it that way)
+          set +e
           BMIN=${{ fromJSON(needs.plan.outputs.cfg).budget_min }}
           timeout -k 30 $(( BMIN * 60 + 300 )) \
             python3 scripts/novelty/novelty_shard.py --bundle $S/bundle --imgdir $S/img --wave $W --shard $I --nshards $N \
               --forks ${{ fromJSON(needs.plan.outputs.cfg).forks }} --reps ${{ fromJSON(needs.plan.outputs.cfg).reps }} \
               --strats ${{ fromJSON(needs.plan.outputs.cfg).strats }} --budget-min $BMIN --tmp $S/tmp \
               --out $RUNNER_TEMP/w$W-s$I.json
+          rc=$?; echo "shard exit code $rc"
           # if killed after writing only .part, promote it so upload still has a result
           if [ ! -f $RUNNER_TEMP/w$W-s$I.json ] && [ -f $RUNNER_TEMP/w$W-s$I.json.part ]; then
             python3 - <<'PY' "$RUNNER_TEMP/w$W-s$I.json.part" "$RUNNER_TEMP/w$W-s$I.json"
@@ -138,6 +141,8 @@ jobs:
           print(f"promoted .part probes={len(r.get('probes',[]))} fixtures={len(r.get('advances',[]))}")
           PY
           fi
+          # result present -> job ok (upload follows); a timeout is visible in the log line above and in partial:true
+          [ -f $RUNNER_TEMP/w$W-s$I.json ] || { echo "no result (rc=$rc)"; exit 1; }
       - name: Upload shard result (private release)
         if: always()
         env: { GH_TOKEN: '${{ secrets.PRIVATE_REPO_TOKEN }}' }

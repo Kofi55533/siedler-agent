@@ -31,12 +31,22 @@ for p in A.box_known:
 waves, shards, probes, ok, forks, turns, el = set(), 0, 0, 0, 0, 0, []
 first = {}
 fails = 0
+partial, bad = 0, 0
 for p in A.results:
-    r = load(p); shards += 1; waves.add(r['wave'])
-    probes += len(r['probes']); ok += sum(1 for x in r['probes'] if x.get('rc') == 0)
-    fails += sum(1 for a in r['advances'] if a['rc'] != 0)
-    forks += sum(a['forks'] for a in r['advances']); turns += r['turns_sim']; el.append(r['elapsed'])
-    for x in r['probes']:
+    # tolerate partial shard results (killed/promoted .part: no 'elapsed', maybe missing lists) and unreadable files
+    try:
+        r = load(p)
+    except Exception:
+        bad += 1; continue
+    shards += 1; waves.add(r.get('wave'))
+    partial += bool(r.get('partial') or 'elapsed' not in r)
+    pr = r.get('probes') or []; adv = r.get('advances') or []
+    probes += len(pr); ok += sum(1 for x in pr if x.get('rc') == 0)
+    fails += sum(1 for a in adv if a.get('rc') != 0)
+    forks += sum(a.get('forks', 0) for a in adv); turns += r.get('turns_sim', 0)
+    if r.get('elapsed') is not None:
+        el.append(r['elapsed'])
+    for x in pr:
         for a in x.get('new', []):
             first.setdefault(a, x['k'])
 wave_new = set(first)
@@ -44,8 +54,9 @@ fresh = wave_new - prev
 for a in sorted(fresh):
     known['first'][a] = first[a]
 known['addrs'] = sorted(prev | wave_new)
-m = {'waves': sorted(waves), 'shards': shards, 'probes': probes, 'probes_ok': ok, 'adv_fail': fails, 'forks': forks,
-     'turns_sim': turns, 'shard_elapsed_max': max(el) if el else 0, 'shard_elapsed_sum': round(sum(el), 1),
+m = {'waves': sorted(w for w in waves if w is not None), 'shards': shards, 'shards_partial': partial,
+     'files_unreadable': bad, 'probes': probes, 'probes_ok': ok, 'adv_fail': fails, 'forks': forks,
+     'turns_sim': turns, 'shards_with_elapsed': len(el), 'shard_elapsed_max': max(el) if el else 0, 'shard_elapsed_sum': round(sum(el), 1),
      'new_vs_union3_this_wave': len(wave_new), 'new_vs_known_this_wave': len(fresh),
      'known_vs_union3_total': len(known['addrs']),
      'not_in_box_runs': len(set(known['addrs']) - box) if box else None,
