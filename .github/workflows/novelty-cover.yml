@@ -61,6 +61,7 @@ jobs:
       - id: p
         env:
           GH_TOKEN: '${{ github.token }}'
+          PAT: '${{ secrets.PRIVATE_REPO_TOKEN }}'
           R: '${{ github.repository }}'
           MAXS: '${{ fromJSON(steps.c.outputs.cfg).shards }}'
           FREE: '${{ fromJSON(steps.c.outputs.cfg).keep_free }}'
@@ -71,6 +72,12 @@ jobs:
           busy=0
           for id in $(gh run list -R "$R" -L 60 --json databaseId,status,workflowName -q '.[]|select(.status!="completed" and .workflowName!="novelty-cover")|.databaseId'); do
             n=$(gh api "repos/$R/actions/runs/$id/jobs" -q '[.jobs[]|select(.status!="completed")]|length' 2>/dev/null || echo 1); busy=$((busy+n))
+          done
+          # the 20 slots are shared with the other repos of the account (siedler-sim-rs CI): count their running jobs too
+          for OR in Kofi55533/siedler-sim-rs; do
+            for id in $(GH_TOKEN=$PAT gh run list -R "$OR" -L 60 --json databaseId,status -q '.[]|select(.status!="completed")|.databaseId' 2>/dev/null); do
+              n=$(GH_TOKEN=$PAT gh api "repos/$OR/actions/runs/$id/jobs" -q '[.jobs[]|select(.status!="completed")]|length' 2>/dev/null || echo 1); busy=$((busy+n))
+            done
           done
           n=$((20-FREE-busy)); [ $n -gt $MAXS ] && n=$MAXS; [ $n -lt 2 ] && n=2
           echo "go=true" >> "$GITHUB_OUTPUT"; echo "n=$n" >> "$GITHUB_OUTPUT"

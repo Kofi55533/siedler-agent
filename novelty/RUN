@@ -1,6 +1,6 @@
-wave=2
+wave=3
 max_waves=8
-shards=14
+shards=16
 keep_free=4
 budget_min=40
 forks=48
