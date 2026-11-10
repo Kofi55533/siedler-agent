@@ -1,11 +1,11 @@
 {
- "generated_berlin": "2026-11-10 11:25",
+ "generated_berlin": "2026-11-10 14:26",
  "generator": "scripts/scoreboard/make_functions.py (Box)",
  "rewrite": {
-  "source": "Recount: Zitate 0x...... in crates/s5clean/src @ clean/integration fd5df15ca gegen die in den Scoreboard-Szenarien ausgeführten Funktionen (union3)",
-  "tip": "fd5df15ca",
-  "tip_time": "2026-11-08 20:32",
-  "as_of": "2026-11-10 11:25",
+  "source": "Recount: Zitate 0x...... in crates/s5clean/src @ clean/integration 8cc22d442 gegen die in den Scoreboard-Szenarien ausgeführten Funktionen (union3)",
+  "tip": "8cc22d442",
+  "tip_time": "2026-11-10 14:12",
+  "as_of": "2026-11-10 14:26",
   "set_basis": "Funktionsmenge union3: Ausführungsspuren der Scoreboard-Szenarien (102er-Board vom 07.11. 17:40, Spuren für 99), Stand 2026-11-09 01:17",
   "sim_total": 2172,
   "sim_cited": 1775,
@@ -14,8 +14,8 @@
   "unmodelled_calls": 72,
   "unmodelled_rule": "Adresse (oder deren Funktionskörper) steht in einem unmodelled(\"...\")-Text, auch über eine Text-Variable (let what = match ...)",
   "logic_total": 2944,
-  "logic_cited": 2265,
-  "cited_addresses": 8022
+  "logic_cited": 2266,
+  "cited_addresses": 8038
  },
  "xc": {
   "source": "siedler-data Release xc-worklist (worklist.json)",
@@ -39,8 +39,8 @@
  },
  "discovery": {
   "source": "deduplizierte Vereinigung aller Funktionssuch-Ergebnisse, nur Logikfunktionen, die in keinem Scoreboard-Szenario (union3) laufen",
-  "as_of": "2026-11-10 11:24",
-  "total_new": 592,
+  "as_of": "2026-11-10 12:48",
+  "total_new": 625,
   "total_new_sim": 404,
   "parts": [
    {
@@ -64,9 +64,9 @@
     "as_of": "2026-11-09 21:13"
    },
    {
-    "name": "GitHub-Funktionssuche (29 Shards)",
-    "new": 339,
-    "as_of": "2026-11-10 11:24"
+    "name": "GitHub-Funktionssuche (109 Shards)",
+    "new": 387,
+    "as_of": "2026-11-10 12:48"
    }
   ]
  },
