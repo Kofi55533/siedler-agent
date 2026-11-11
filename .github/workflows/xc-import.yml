@@ -1,0 +1,100 @@
+name: xc-import
+# Imports the passed changes of an own-repo pool (scripts/xc_own/README.md): the pool account works in its own private
+# results repo (XC_OWN_RESULTS) and never writes here. This workflow, with the main account's token, lists the pool's
+# result branches xc/<kind>, keeps the kinds the fleet rules leave available (xc.py available(): no open PR, no live
+# claim, no merge since the census, attempts left), claims them like a pick, and hands each change to the unchanged
+# scripts/xc/worker.sh as its one model round (scripts/xc_own/import.sh): worker.sh measures the base, verify.sh decides,
+# and only a PASS is committed, opened as PR and squash-merged into clean/integration, exactly as an xc-worker job.
+# Off until repository variable XC_IMPORT_ENABLED=true; no schedule yet (uncomment it to run every 30 min).
+on:
+  workflow_dispatch:
+    inputs:
+      n: { description: 'max imports in this run', default: '2' }
+  # schedule:
+  #   - cron: '12,42 * * * *'
+permissions:
+  contents: read
+  issues: write
+env:
+  XC_PROJECT: Kofi55533/siedler-sim-rs
+  XC_DATA: Kofi55533/siedler-data
+  XC_AGENT: Kofi55533/siedler-agent
+  XC_OWN_RESULTS: ${{ vars.XC_OWN_RESULTS }}
+  XC_IMPORT_MAX: ${{ vars.XC_IMPORT_MAX || '2' }}   # import jobs at once (each one main-account job slot)
+jobs:
+  discover:
+    if: github.repository == 'Kofi55533/siedler-agent' && vars.XC_IMPORT_ENABLED == 'true' && vars.XC_OWN_RESULTS != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # its own group: sharing xc-pick would cancel a pick waiting there (one pending run per group)
+    concurrency: { group: xc-import, cancel-in-progress: false }
+    outputs:
+      imports: ${{ steps.d.outputs.imports }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { sparse-checkout: scripts, persist-credentials: false }
+      # the heads tried already (one try per head: the pool's next pass is a new head)
+      - uses: actions/cache/restore@v4
+        with: { path: seen.json, key: 'xc-import-seen-${{ github.run_id }}', restore-keys: 'xc-import-seen-' }
+      - name: Result branches to import, claimed in the tracking issues
+        id: d
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          RES_TOKEN: ${{ secrets.XC_OWN_RESULTS_TOKEN || secrets.PRIVATE_REPO_TOKEN }}
+          N: ${{ inputs.n || '2' }}
+          XC_CLAIM_TOKEN: import-${{ github.run_id }}
+        run: |
+          gh release download xc-worklist -R $XC_DATA -D $RUNNER_TEMP -p worklist.json
+          git ls-remote "https://x-access-token:${RES_TOKEN}@github.com/$XC_OWN_RESULTS.git" 'refs/heads/xc/*' > $RUNNER_TEMP/heads.txt
+          echo "$(wc -l < $RUNNER_TEMP/heads.txt) result branches in the pool's repo"
+          i=$(python3 scripts/xc_own/own.py imports $RUNNER_TEMP/worklist.json "$N" $RUNNER_TEMP/heads.txt seen.json --claim)
+          echo "imports=$i" >> "$GITHUB_OUTPUT"; echo "importing: $i" | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/cache/save@v4
+        if: always()
+        with: { path: seen.json, key: 'xc-import-seen-${{ github.run_id }}' }
+  import:
+    needs: discover
+    if: needs.discover.outputs.imports != '[]' && needs.discover.outputs.imports != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include: ${{ fromJSON(needs.discover.outputs.imports) }}
+    steps:
+      - name: Job start
+        run: echo "${{ matrix.kind }}" > "$RUNNER_TEMP/kind"
+      - uses: actions/checkout@v4
+        with: { persist-credentials: false }
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - name: Setup game data, toolchain, build cache, native decompilation (quiet)
+        env: { T: '${{ secrets.PRIVATE_REPO_TOKEN }}', GIT_LFS_SKIP_SMUDGE: '1' }
+        run: |
+          # the same layout as an xc-worker fix job: worker.sh writes the task context before its (stand-in) model round
+          ( git clone -q --depth 1 --filter=blob:none --sparse "https://x-access-token:${T}@github.com/Kofi55533/siedler-forschung.git" $RUNNER_TEMP/forschung \
+            && git -C $RUNNER_TEMP/forschung sparse-checkout set --no-cone /cloud-re/results/rust_handoff/source/ ) > /dev/null 2>&1 &
+          FP=$!
+          scripts/s5-setup.sh clean/integration 1
+          wait $FP || { echo "siedler-forschung clone failed"; exit 1; }
+          echo "XC_NATIVE=$RUNNER_TEMP/forschung/cloud-re/results/rust_handoff/source" >> "$GITHUB_ENV"
+          echo "W=$RUNNER_TEMP/work" >> "$GITHUB_ENV"
+          git -C $RUNNER_TEMP/forschung remote set-url origin https://github.com/Kofi55533/siedler-forschung.git
+          git -C /opt/s5/siedler-sim-rs remote set-url origin "https://github.com/$XC_PROJECT.git"
+          mkdir -p /opt/s5/xc && GH_TOKEN=$T gh release download xc-worklist -R $XC_DATA -D /opt/s5/xc -p worklist.json --clobber
+      - name: Import ${{ matrix.kind }} (re-measured and verified by worker.sh; counts and verdicts only)
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          XC_IMPORT_FETCH_TOKEN: ${{ secrets.XC_OWN_RESULTS_TOKEN }}
+          XC_BUDGET_MIN: '150'
+          XC_CLAIM_TOKEN: import-${{ github.run_id }}
+        run: |
+          rc=0; scripts/xc_own/import.sh "${{ matrix.kind }}" "${{ matrix.sha }}" || rc=$?
+          echo "import ${{ matrix.kind }}: exit $rc" | tee -a "$GITHUB_STEP_SUMMARY"
+          [ $rc = 2 ] && exit 1
+          rm -f "$RUNNER_TEMP/kind"
+      - name: Release the claim
+        if: failure() || cancelled()
+        env: { GH_TOKEN: '${{ secrets.PRIVATE_REPO_TOKEN }}' }
+        run: '[ ! -s "$RUNNER_TEMP/kind" ] || python3 scripts/xc/xc.py issue "$(cat "$RUNNER_TEMP/kind")" unclaim'

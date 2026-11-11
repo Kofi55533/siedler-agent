@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# pre-push of the own-repo pool's jobs (core.hooksPath, xc-own.yml): no push to a repo of the main account
+case "$2" in
+  *github.com/Kofi55533/*|*github.com:Kofi55533/*) echo "push-guard: refused, $(sed 's#//[^@]*@#//#' <<<"$2") belongs to the main account" >&2; exit 1 ;;
+esac
+exit 0

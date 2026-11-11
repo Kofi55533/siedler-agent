@@ -1,0 +1,130 @@
+name: xc-own
+# The xc worker of an own-repo pool (scripts/xc_own/README.md): another account adds model jobs without writing to a
+# repo of the main account. Its repo calls this workflow (pool/xc-own-pool.yml is the whole file); here it only reads
+# (work list, tracking issues, open PRs, code, data) and does everything else in its own private results repo
+# (repository variable XC_OWN_RESULTS): it claims there, works with the unchanged scripts/xc/worker.sh on a snapshot of
+# the main project's clean/integration, and leaves every passed change as branch xc/<kind> there. The main account
+# imports and re-verifies those (xc-import.yml). In the main repo this workflow never runs (workflow_call only, and the
+# jobs refuse the main account).
+# Guards: XC_OWN_RESULTS must belong to the calling account; gh refuses every writing call outside that account
+# (scripts/xc_own/guard/gh); a pre-push hook refuses every push to the main account (scripts/xc_own/guard/hooks).
+on:
+  workflow_call:
+    inputs:
+      n: { type: string, default: '3' }
+    secrets:
+      # read siedler-sim-rs/-data/-forschung of the main account, write XC_OWN_RESULTS (contents, issues, PRs)
+      PRIVATE_REPO_TOKEN: { required: true }
+      OPENCODE_API_KEY: { required: true }
+permissions:
+  contents: read
+env:
+  XC_DATA: Kofi55533/siedler-data
+  XC_MAIN_PROJECT: Kofi55533/siedler-sim-rs
+  XC_MAIN_AGENT: Kofi55533/siedler-agent
+  XC_OWN_RESULTS: ${{ vars.XC_OWN_RESULTS }}
+  XC_OWN_OWNER: ${{ github.repository_owner }}
+  # worker.sh and xc.py work in the results repo: its clean/integration, its PRs, its tracking issues
+  XC_PROJECT: ${{ vars.XC_OWN_RESULTS }}
+  XC_AGENT: ${{ vars.XC_OWN_RESULTS }}
+  XC_OWN_PARTITION: ${{ vars.XC_OWN_PARTITION || '1/2' }}
+  XC_OWN_SKIP: ${{ vars.XC_OWN_SKIP || '12' }}
+  XC_OWN_REDO_H: ${{ vars.XC_OWN_REDO_H || '24' }}
+  XC_WORKERS: ${{ vars.XC_WORKERS || '3' }}
+jobs:
+  pick:
+    if: >-
+      github.repository_owner != 'Kofi55533' && vars.XC_OWN_RESULTS != ''
+      && startsWith(vars.XC_OWN_RESULTS, format('{0}/', github.repository_owner))
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    concurrency: { group: xc-own-pick, cancel-in-progress: false }
+    outputs:
+      kinds: ${{ steps.p.outputs.kinds }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { repository: Kofi55533/siedler-agent, ref: main, sparse-checkout: scripts, persist-credentials: false }
+      - name: Guards
+        run: |
+          echo "$GITHUB_WORKSPACE/scripts/xc_own/guard" >> "$GITHUB_PATH"
+          git config --global core.hooksPath "$GITHUB_WORKSPACE/scripts/xc_own/guard/hooks"
+      - name: Pick and claim (claims in the results repo only)
+        id: p
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          N: ${{ inputs.n || '3' }}
+          XC_CLAIM_TOKEN: ${{ github.run_id }}-pick
+        run: |
+          L=$(( XC_WORKERS > 4 ? 4 : XC_WORKERS ))   # at most 4 jobs at once
+          gh release download xc-worklist -R $XC_DATA -D $RUNNER_TEMP -p worklist.json
+          k=$(python3 scripts/xc_own/own.py pick $RUNNER_TEMP/worklist.json "$N" --claim --limit="$L")
+          echo "kinds=$k" >> "$GITHUB_OUTPUT"; echo "picked: $k" | tee -a "$GITHUB_STEP_SUMMARY"
+  fix:
+    needs: pick
+    if: needs.pick.outputs.kinds != '[]' && needs.pick.outputs.kinds != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        kind: ${{ fromJSON(needs.pick.outputs.kinds) }}
+    steps:
+      - name: Job start
+        run: echo "XC_T0=$(date +%s)" >> "$GITHUB_ENV"; echo "${{ matrix.kind }}" > "$RUNNER_TEMP/kind"
+      - uses: actions/checkout@v4
+        with: { repository: Kofi55533/siedler-agent, ref: main, persist-credentials: false }
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - name: Guards
+        run: |
+          echo "$GITHUB_WORKSPACE/scripts/xc_own/guard" >> "$GITHUB_PATH"
+          git config --global core.hooksPath "$GITHUB_WORKSPACE/scripts/xc_own/guard/hooks"
+      - name: Setup game data, toolchain, build cache, native decompilation (quiet; reads only)
+        env: { T: '${{ secrets.PRIVATE_REPO_TOKEN }}', GIT_LFS_SKIP_SMUDGE: '1' }
+        run: |
+          ( git clone -q --depth 1 --filter=blob:none --sparse "https://x-access-token:${T}@github.com/Kofi55533/siedler-forschung.git" $RUNNER_TEMP/forschung \
+            && git -C $RUNNER_TEMP/forschung sparse-checkout set --no-cone /cloud-re/results/rust_handoff/source/ ) > /dev/null 2>&1 &
+          FP=$!
+          scripts/s5-setup.sh clean/integration 1
+          wait $FP || { echo "siedler-forschung clone failed"; exit 1; }
+          echo "XC_NATIVE=$RUNNER_TEMP/forschung/cloud-re/results/rust_handoff/source" >> "$GITHUB_ENV"
+          echo "W=$RUNNER_TEMP/work" >> "$GITHUB_ENV"
+          ls $RUNNER_TEMP/forschung/cloud-re/results/rust_handoff/source/functions.jsonl > /dev/null
+          # no credential stays in a checkout the model can read
+          git -C $RUNNER_TEMP/forschung remote set-url origin https://github.com/Kofi55533/siedler-forschung.git
+          git -C /opt/s5/siedler-sim-rs remote set-url origin "https://github.com/$XC_OWN_RESULTS.git"
+          mkdir -p /opt/s5/xc && GH_TOKEN=$T gh release download xc-worklist -R $XC_DATA -D /opt/s5/xc -p worklist.json --clobber
+      - name: Install opencode
+        run: npm i -g opencode-ai > /dev/null 2>&1 && opencode --version
+      - name: Work on ${{ matrix.kind }}, then on further kinds (model output private; counts and verdicts only)
+        env:
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          XC_MODEL: ${{ vars.XC_MODEL || 'opencode/deepseek-v4.1-flash-free' }}
+          XC_BUNDLE: '1'   # one kind per result branch: the import re-verifies it alone
+          XC_CLAIM_TOKEN: ${{ github.run_id }}/${{ matrix.kind }}
+        run: |
+          mkdir -p ~/.local/share/opencode; umask 077
+          printf '{"opencode":{"type":"api","key":"%s"}}' "$OPENCODE_API_KEY" > ~/.local/share/opencode/auth.json
+          unset OPENCODE_API_KEY; umask 022
+          kind=$(cat "$RUNNER_TEMP/kind"); n=0; L=$(( XC_WORKERS > 4 ? 4 : XC_WORKERS ))
+          while :; do
+            n=$((n + 1)); echo "$kind" > "$RUNNER_TEMP/kind"
+            # every kind starts on the main project's current clean/integration
+            scripts/xc_own/snapshot.sh || exit 1
+            left=$(( 330 - ($(date +%s) - XC_T0) / 60 - 25 ))
+            rc=0; XC_BUDGET_MIN=$(( left < 170 ? left : 170 )) scripts/xc/worker.sh "$kind" || rc=$?
+            [ $rc = 2 ] && exit 1
+            [ $(( 330 - ($(date +%s) - XC_T0) / 60 )) -ge 90 ] || break
+            gh release download xc-worklist -R $XC_DATA -D /opt/s5/xc -p worklist.json --clobber || break
+            kind=$(python3 scripts/xc_own/own.py pick /opt/s5/xc/worklist.json 1 --claim --limit=$((L + 1)) | jq -r '.[0] // empty') || kind=""
+            [ -n "$kind" ] || break
+            echo "next kind ($((n + 1)) in this job): $kind" | tee -a "$GITHUB_STEP_SUMMARY"
+          done
+          echo "$n kinds in this job" | tee -a "$GITHUB_STEP_SUMMARY"
+          rm -f "$RUNNER_TEMP/kind"
+      - name: Release the claim (results repo)
+        if: failure() || cancelled()
+        env: { GH_TOKEN: '${{ secrets.PRIVATE_REPO_TOKEN }}' }
+        run: '[ ! -s "$RUNNER_TEMP/kind" ] || python3 scripts/xc/xc.py issue "$(cat "$RUNNER_TEMP/kind")" unclaim'
