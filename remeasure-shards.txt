@@ -1,2 +1,5 @@
 # one job per line
-campaign-08-unexploredland
+campaign-08-unexploredland campaign-03-darknessuprise ai-builds-active late-ai
+map-arcanum 01-thalgrund castrum colorsofbelief
+campaign-03-divineanger campaign-04-wolfslair map-winterrealm map-fouronone
+ai-long genb-ailong-mixed
