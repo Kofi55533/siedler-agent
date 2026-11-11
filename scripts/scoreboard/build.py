@@ -1310,6 +1310,19 @@ def rate_per_day(points, hours=72):
     return sum((x - mx) * (v - my) for x, (_, v) in zip(xs, pts)) / den
 
 
+SCOPE_BASIS = ("Regel-Einteilung aller 29.723 EXE-Logikfunktionen (scripts/scope_classes.json, 23.10.; 18.706 davon unklassifiziert "
+               "und pauschal als Logik gezählt): Schätzung, keine Messung")
+
+
+def sim_known(data):
+    """Simulation functions known so far (classification, box snapshot functions.json); the real total is unknown."""
+    k = ((data.get("functions") or {}).get("sim_known") or {})
+    if not k.get("classified_sim"):
+        return None
+    return {"total": k["classified_sim"], "seen": k.get("seen_in_scoreboard"), "as_of": k.get("as_of"),
+            "basis": f"bisher als Simulation klassifiziert ({k.get('source')}, Stand {k.get('as_of')}); Gesamtzahl unbekannt"}
+
+
 def plan_view(data, hist, plan=None, classes=None, progress=None):
     """The whole-game plan (plan.json): phases with planned dates, all functions per scope class (verified / ported but not
     verified yet / open), the measured pace of verified functions over the last 72 h and the finish date it gives."""
@@ -1319,6 +1332,9 @@ def plan_view(data, hist, plan=None, classes=None, progress=None):
     if classes is None:
         with open(os.path.join(HERE, "..", "scope_classes.json")) as f:
             classes = {k: len(v) for k, v in json.load(f)["addresses"].items()}
+    sk = sim_known(data)
+    if sk and "A" in classes:  # 10.734 of the rule split is no measured total: use the classified count (a lower bound)
+        classes = {**classes, "A": sk["total"]}
     now = NOW.astimezone(BERLIN)
     start = datetime.fromisoformat(plan["start"]).replace(tzinfo=BERLIN)
     day = (now - start).days
@@ -1338,6 +1354,9 @@ def plan_view(data, hist, plan=None, classes=None, progress=None):
         else:
             ver = ported = 0
         rows.append({"key": k, "label": label, "what": what, "total": total, "verified": ver,
+                     "total_kind": "klassifiziert" if (k == "A" and sk) else "Schätzung",
+                     "total_basis": sk["basis"] if (k == "A" and sk) else SCOPE_BASIS,
+                     **({"seen": sk["seen"]} if (k == "A" and sk) else {}),
                      "unverified": max(ported - ver, 0), "open": max(total - max(ported, ver), 0), "port": k in ("A", "B")})
     a = next(r for r in rows if r["key"] == "A")
     pts = [(datetime.strptime(h["recorded"], "%Y-%m-%d %H:%M").replace(tzinfo=BERLIN), h.get("plan_a", h.get("fn_ok")))
@@ -1361,7 +1380,11 @@ def plan_view(data, hist, plan=None, classes=None, progress=None):
             "days_left": round(days_left, 1) if days_left is not None else None, "need_per_day": need, "phases": phases, "classes": rows,
             "stages": (progress or {}).get("stages"), "progress_updated": (progress or {}).get("updated"),
             "source": "pipeline" if pc else "census", "rate_per_day": round(rate, 1) if rate is not None else None,
-            "eta": eta, "planned": {"A": due.get("a"), "AB": due.get("b"), "all": due.get("whole") or due.get("b")},
+            "eta": eta, "eta_basis": ("Schätzung: offene = bekannte Anzahl minus geprüft; A-Basis " + (sk["basis"] if sk else SCOPE_BASIS)
+                                      + "; B-Basis " + SCOPE_BASIS),
+            "verified_source": ("Fließband progress.json" if pc else "xc-Messung (Release xc-worklist), selbst geprüft + mit abgedeckt"),
+            "verified_as_of": (progress or {}).get("updated") if pc else ((data.get("xc") or {}).get("worklist") or {}).get("updated"),
+            "planned": {"A": due.get("a"), "AB": due.get("b"), "all": due.get("whole") or due.get("b")},
             "curve": [[t.strftime("%Y-%m-%d %H:%M"), v] for t, v in sorted(pts)[-200:]]}
 
 
@@ -1375,7 +1398,10 @@ def overview(data, merges):
     scope = []
     for k, (label, what) in SCOPE_LABELS.items():
         sp = ((dash or {}).get("scope") or {}).get(k) or {}
-        scope.append({"key": k, "label": label, "what": what, "total": sp.get("obligations"),
+        sk = sim_known(data) if k == "A" else None
+        scope.append({"key": k, "label": label, "what": what, "total": sk["total"] if sk else sp.get("obligations"),
+                      "total_kind": "klassifiziert" if sk else "Schätzung", "total_basis": sk["basis"] if sk else SCOPE_BASIS,
+                      **({"seen": sk["seen"], "rule_total": sp.get("obligations")} if sk else {}),
                       "done": sp.get("integrated"), "now": sp.get("ported_now", k == "A")})
     # pipeline
     status = {}
@@ -1489,7 +1515,8 @@ def overview(data, merges):
     gen = [r for r in data["scenarios"] if r["new"]]
     return {
         "health": health, "attention": att,
-        "goal": {"inventory": (dash or {}).get("inventory") or av.get("total"),
+        "goal": {"inventory_basis": "statisches EXE-Inventar: 29.723 Logikfunktionen, davon 18.706 unklassifiziert pauschal mitgezählt (Schätzung des Umfangs)",
+                 "inventory": (dash or {}).get("inventory") or av.get("total"),
                  "done": (dash or {}).get("reported_reference_verified_and_integrated"), "scope": scope},
         "scenarios": {"base_total": len(base), "base_identical": sum(1 for r in base if r["identical"]),
                       "gen_total": len(gen), "gen_identical": sum(1 for r in gen if r["identical"]),
@@ -1656,6 +1683,8 @@ def main():
                      "issues": [{"n": int(i), "url": f"https://github.com/{PUB}/issues/{i}"} for i in sorted(f["issues"], key=int)],
                      "desc": describe(map_, start, turns, what)})
     data["scenarios"] = rows
+    # Funktionsüberblick: snapshot written on the box by make_functions.py (box-only inputs); counts only
+    data["functions"] = safe(lambda: json.load(open(os.path.join(HERE, "functions.json"))), None, "functions.json")
     if live:
         e, (sha, _) = live
         data["matrix_source"] = {"time": e["time"], "agent": e["agent"], "line": e["line"], "sha": sha,
