@@ -1,0 +1,81 @@
+{
+ "generated_berlin": "2026-11-10 14:26",
+ "generator": "scripts/scoreboard/make_functions.py (Box)",
+ "rewrite": {
+  "source": "Recount: Zitate 0x...... in crates/s5clean/src @ clean/integration 8cc22d442 gegen die in den Scoreboard-Szenarien ausgeführten Funktionen (union3)",
+  "tip": "8cc22d442",
+  "tip_time": "2026-11-10 14:12",
+  "as_of": "2026-11-10 14:26",
+  "set_basis": "Funktionsmenge union3: Ausführungsspuren der Scoreboard-Szenarien (102er-Board vom 07.11. 17:40, Spuren für 99), Stand 2026-11-09 01:17",
+  "sim_total": 2172,
+  "sim_cited": 1775,
+  "sim_uncited": 397,
+  "sim_unmodelled": 20,
+  "unmodelled_calls": 72,
+  "unmodelled_rule": "Adresse (oder deren Funktionskörper) steht in einem unmodelled(\"...\")-Text, auch über eine Text-Variable (let what = match ...)",
+  "logic_total": 2944,
+  "logic_cited": 2266,
+  "cited_addresses": 8038
+ },
+ "xc": {
+  "source": "siedler-data Release xc-worklist (worklist.json)",
+  "worklist_sha": "fd5df15caac2",
+  "as_of": "2026-11-10 10:29",
+  "of_sim": 2172,
+  "with_kind": 878,
+  "pass": 570,
+  "fail": 1,
+  "fail_addrs": [
+   "0x4F47B1"
+  ],
+  "zero_samples": 307,
+  "fail_all_kinds": [
+   "0x4F47B1"
+  ],
+  "calls": {
+   "samples": 20043,
+   "failing": 3
+  }
+ },
+ "discovery": {
+  "source": "deduplizierte Vereinigung aller Funktionssuch-Ergebnisse, nur Logikfunktionen, die in keinem Scoreboard-Szenario (union3) laufen",
+  "as_of": "2026-11-10 12:48",
+  "total_new": 625,
+  "total_new_sim": 404,
+  "parts": [
+   {
+    "name": "Kartenstarts (49 Karten, je 60 Züge)",
+    "new": 63,
+    "as_of": "2026-11-09 22:03"
+   },
+   {
+    "name": "Befehle aus Spielstand, Box-Welle 1",
+    "new": 516,
+    "as_of": "2026-11-09 23:22"
+   },
+   {
+    "name": "frühere Box-Suchläufe",
+    "new": 245,
+    "as_of": "2026-11-09 21:36"
+   },
+   {
+    "name": "Novelty-Schleife (Box)",
+    "new": 77,
+    "as_of": "2026-11-09 21:13"
+   },
+   {
+    "name": "GitHub-Funktionssuche (109 Shards)",
+    "new": 387,
+    "as_of": "2026-11-10 12:48"
+   }
+  ]
+ },
+ "sim_known": {
+  "source": "Funktionsklassifikation (SettlersHoK.exe, Bereich Simulation)",
+  "as_of": "2026-11-09 19:57",
+  "classified_sim": 9148,
+  "seen_in_scoreboard": 2172,
+  "seen_incl_search": 2576,
+  "unseen": 6572
+ }
+}

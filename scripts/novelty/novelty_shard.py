@@ -19,7 +19,8 @@ usage: novelty_shard.py --bundle B --imgdir I --wave W --shard S --nshards N --o
 env: S5_GAME, S5_ARTIFACTS (verify.remap_for)
 """
 from __future__ import annotations
-import argparse, bisect, hashlib, json, os, pathlib, queue, random, shutil, subprocess, sys, threading, time
+import argparse, bisect, hashlib, importlib.util, json, os, pathlib, queue, random, shutil, subprocess, sys, threading, time
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 
 SHORT = 50
@@ -46,6 +47,7 @@ ap.add_argument('--adv-par', type=int, default=1, help='fixtures advanced in par
 ap.add_argument('--budget-min', type=float, default=40.0)
 ap.add_argument('--workers', type=int, default=os.cpu_count() or 4)
 ap.add_argument('--tmp', default='/tmp/nv')
+ap.add_argument('--xcheck-config', help='private forced_xcheck.Discovery configuration; compare every encoded probe')
 A = ap.parse_args()
 
 B = pathlib.Path(A.bundle); IMG = pathlib.Path(A.imgdir); TMP = pathlib.Path(A.tmp)
@@ -125,6 +127,8 @@ def reduce_cover(path):
 
 
 lock = threading.Lock()
+BRIDGE = None
+preserve_images = set()
 res = {'gen': 'state_cmds', 'poke': not A.no_poke, 'wave': A.wave, 'shard': A.shard, 'nshards': A.nshards,
        'only': A.only, 'forks_per_fixture': A.forks, 'reps': A.reps, 'strats': A.strats, 'workers': A.workers, 'fixtures': [],
        'advances': [], 'probes': [], 'curve': [], 'union_logic': set(), 'turns_sim': 0, 'probe_wall': 0.0,
@@ -192,16 +196,24 @@ def probe(f, t, img, st, strategy, rep):
     if time.time() > DEADLINE:
         res['stopped_by_budget'] = True
         return
-    run = TMP/f'p-{f["name"]}-{t}-{strategy}-{rep}'; shutil.rmtree(run, ignore_errors=True); (run/'x').mkdir(parents=True)
+    run = TMP/f'p-{f["name"]}-{t}-{strategy}-{rep}'
+    if BRIDGE is None:
+        shutil.rmtree(run, ignore_errors=True)
+    (run/'x').mkdir(parents=True)
+    comparison = {'verdict': 'NOT_ENCODED', 'preserved': False} if BRIDGE else None
     try:
         rng = random.Random(key)
         rows = [S.poke_row(st, st['turn'])] + S.gen(st, strategy, st['turn'], rng, SHORT)
         (run/'c.jsonl').write_text(''.join(json.dumps(r) + '\n' for r in rows))
         if not ingest(run/'c.jsonl', run/'c.bin'):
-            with lock: res['probes'].append({'k': key, 'rc': 'encode'})
+            with lock: res['probes'].append({'k': key, 'rc': 'encode', 'xcheck': comparison})
             return
         if not A.no_poke:
             S.add_pokes(run/'c.bin', st['pokes'])
+        if BRIDGE is not None:
+            # Seal the actual binary AFTER state pokes and BEFORE either native execution or scratch cleanup.
+            # Do this for known functions too: discovery novelty does not imply clean comparison coverage.
+            comparison = BRIDGE.capture(img, run/'c.bin', SHORT, key)
         cov = run/'o.cover'
         env = dict(os.environ, S5_REMAP=verify.remap_for(str(img), str(run/'rm')), COMMANDS=str(run/'c.bin'),
                    COVER=str(cov), TMPDIR=str(run/'x'))
@@ -219,11 +231,16 @@ def probe(f, t, img, st, strategy, rep):
             res['probes'].append({'k': key, 'rc': p.returncode, 'wall': round(dt, 2), 'nf': len(hits), 'nl': len(lg),
                                   'h': h, 'n_cmds': len(rows) - 1, 'posted': posted,
                                   'events': sorted({r['id'] for r in rows[1:]}),
+                                  'xcheck': comparison,
                                   'new': [f'0x{a:06x}' for a in new]})
             res['union_logic'] |= lg; res['turns_sim'] += SHORT; res['probe_wall'] += dt
             res['curve'].append([round(time.time() - T0, 1), len(res['probes']), len(res['union_logic'] - KNOWN)])
     finally:
-        shutil.rmtree(run, ignore_errors=True)
+        if comparison is not None and not comparison['preserved']:
+            with lock:
+                preserve_images.add(img)
+        else:
+            shutil.rmtree(run, ignore_errors=True)
 
 
 GRACE = 240  # s after DEADLINE: in-flight probes are capped at ~DEADLINE+30s, advances at DEADLINE+120s
@@ -236,6 +253,8 @@ def write_result(path, partial):
     snap = dict(res, union_logic=[f'0x{a:06x}' for a in sorted(res['union_logic'])],
                 union_new=sorted({a for p in res['probes'] for a in p.get('new', [])}),
                 elapsed=round(time.time() - T0, 2), partial=partial)
+    if BRIDGE is not None:
+        snap['xcheck'] = dict(Counter(p['xcheck']['verdict'] for p in res['probes'] if p.get('xcheck')))
     tmp = pathlib.Path(path + '.tmp'); tmp.write_text(json.dumps(snap)); os.replace(tmp, path)
 
 
@@ -256,10 +275,22 @@ def watchdog():
 
 
 def main():
+    global BRIDGE
     if A.list:
         print('\n'.join(f['name'] for f in my_fixtures()))
         return
-    TMP.mkdir(parents=True, exist_ok=True)
+    if A.xcheck_config:
+        config = json.loads(pathlib.Path(A.xcheck_config).read_text())
+        archive = pathlib.Path(config['out']).resolve()
+        checkout = pathlib.Path(__file__).resolve().parents[2]
+        if archive == checkout or checkout in archive.parents:
+            raise ValueError('private discovery inputs must be outside the source checkout')
+        spec = importlib.util.spec_from_file_location('s5_forced_xcheck', config['tool'])
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        BRIDGE = module.Discovery(A.xcheck_config, TMP)
+    # Never reuse scratch that could contain inputs from an earlier failed preservation.
+    TMP.mkdir(parents=True, exist_ok=BRIDGE is None)
     fxs = my_fixtures(); res['fixtures'] = [f['name'] for f in fxs]
     print(f'shard {A.shard}/{A.nshards} wave {A.wave}: {len(fxs)} fixtures, workers {A.workers}', flush=True)
     fq: queue.Queue = queue.Queue(maxsize=1)  # at most one fixture's forks waiting on disk
@@ -318,7 +349,8 @@ def main():
             for fu in futs:
                 fu.result()
             for (_, _, img) in forks:
-                img.unlink(missing_ok=True); pathlib.Path(str(img) + '.state.json').unlink(missing_ok=True)
+                if img not in preserve_images:
+                    img.unlink(missing_ok=True); pathlib.Path(str(img) + '.state.json').unlink(missing_ok=True)
             if time.time() > DEADLINE:
                 res['stopped_by_budget'] = True
                 # drain producer so we can exit cleanly
