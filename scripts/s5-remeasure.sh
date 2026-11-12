@@ -80,34 +80,6 @@ sc="$S5_V/fixtures/bc-full/scenario.json"
 img="$S5_ARTIFACTS/bc/gs_h.img"
 record="$work/bc-full-oracle.jsonl.gz"
 
-repo=Kofi55533/siedler-sim-rs
-archive=oracle-bc-full-rng-1f5fd5735587262c776fa6b48decd05d0c587630
-gh release download "$archive" -R "$repo" -p bc-full-oracle.jsonl.gz -D "$work" >> "$log" 2>&1
-python - "$record" >> "$log" 2>&1 <<'PY'
-from collections import Counter
-import gzip
-import json
-import sys
-
-sites = (0x4494CB, 0x4EB033, 0x4F72BD, 0x571047)
-counts = {site: Counter() for site in sites}
-first = {}
-with gzip.open(sys.argv[1], "rt") as stream:
-    next(stream)
-    for line in stream:
-        row = json.loads(line)
-        for event in row["seed"]:
-            site = event["site"]
-            if site in counts:
-                returns = tuple(hex(frame[0]) for frame in event["frames"][:4])
-                candidates = tuple(sorted(event["entity_candidates"]))
-                counts[site][returns, candidates] += 1
-                first.setdefault(site, row["state"]["turn"])
-for site, counts_at_site in counts.items():
-    print(f"{site:#x}: {sum(counts_at_site.values())} draws, first boundary {first.get(site)}")
-    for (returns, candidates), count in counts_at_site.most_common():
-        print(f"  {count}: frames={returns}, entity registers={candidates}")
-PY
 S5_INSTALL="$S5_GAME" ORACLE_SCRATCH="$work/assembly" ORACLE_RUNTIME="$S5_ARTIFACTS/boot/runtime" \
   RESTORE="$snapshot" MODS=1 python - >> "$log" 2>&1 <<'PY'
 import sys
@@ -116,7 +88,7 @@ import run
 from capstone import Cs, CS_ARCH_X86, CS_MODE_32
 e = run.build()
 decoder = Cs(CS_ARCH_X86, CS_MODE_32)
-ranges = ((0x4494CB, 0x449510), (0x4EB033, 0x4EB095), (0x4F72BD, 0x4F7340), (0x571047, 0x571095), (0x5002F0, 0x500335), (0x500928, 0x500980), (0x4EB2C9, 0x4EB315), (0x4F8908, 0x4F8940), (0x44CBD3, 0x44CC15))
+ranges = ((0x4EB2C1, 0x4EB2DE), (0x4EAFFC, 0x4EB079), (0x4F7292, 0x4F72E9), (0x4F73A3, 0x4F7420), (0x4F8898, 0x4F8940), (0x571037, 0x571064), (0x500250, 0x5002FC), (0x50089B, 0x500930), (0x44CB9D, 0x44CC0E), (0x14B46725, 0x14B46760))
 for start, end in ranges:
     print(f"Code near {start:#x}")
     for insn in decoder.disasm(e.rb(start, end - start), start):
