@@ -1,5 +1,5 @@
 # one job per line
-gen-enter-building-0x1500d gen-attack-building gen-siege-cannon gen-recruit-attack
-genb-ailong-mixed ai-long gen-leader-aggressive gen-leader-patrol
-gen-leader-defend gen-civilian-death gen-barracks-recruit combat
-gen-leader-guard gen-leader-stance genb-combat-ops late-ai
+gen-enter-building-0x1500d build build-long gen-construct-site
+gen-cancel-research gen-upgrade-building-category gen-upgrade-research gen-attack-building
+ai-builds-active gen-siege-cannon gen-recruit-attack genb-ailong-mixed
+ai-long gen-civilian-death combat gen-leader-aggressive
