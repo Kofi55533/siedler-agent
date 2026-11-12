@@ -85,7 +85,7 @@ case "$mode" in
   *) exit 2 ;;
 esac
 export CARGO_TARGET_DIR="$S5_REPO/recomp/target"
-cargo build --locked --release -j 2 --example observe >> "$log" 2>&1
+(cd crates/s5clean && cargo build --locked --release -j 2 --example observe) >> "$log" 2>&1
 diff="$CARGO_TARGET_DIR/release/examples/observe"
 if [ "$mode" = animal-smoke ]; then
   run_ticks=192
@@ -94,7 +94,7 @@ else
   tag=oracle-bc-full-windows-43301884274
   release="repos/Kofi55533/siedler-sim-rs/releases/tags/$tag"
   for attempt in $(seq 1 90); do
-    asset=$(gh api "$release" --jq '.assets[] | select(.name | endswith(".jsonl.gz")) | .url' 2>/dev/null || true)
+    asset=$(gh api "$release" --jq '.assets[] | select(.name == "bc-full-oracle.jsonl.gz") | .url' 2>/dev/null || true)
     [ -n "$asset" ] && break
     sleep 10
   done
@@ -112,5 +112,9 @@ tail -40 "$log"
 if [ "$mode" = animal-smoke ]; then
   test "$status" -eq 0
 else
-  grep -q 'RNG.*differ\|rng.*differ\|diverg\|matched' "$log"
+  [ "$status" -eq 0 ] || [ "$status" -eq 1 ]
+  grep -E '^bc-full: (DIVERGENT turn [0-9]+|IDENTICAL [0-9]+ ticks)' "$log"
+  grep -E '^[1-9][0-9]+ verified matching draw recipients
+fi
+ "$log"
 fi
