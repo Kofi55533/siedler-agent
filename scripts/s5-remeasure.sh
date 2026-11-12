@@ -102,8 +102,17 @@ cd crates/s5clean
 limit=()
 scope=()
 if [ "$mode" = combined-smoke ]; then
-  cargo check --locked --no-default-features --lib >> "$log" 2>&1
-  echo "Clean builds without the observation harness" >> "$log"
+  base=27b3d69f81ba52bcccb32704d95fef1752bc049e
+  git -C "$S5_REPO" fetch -q origin "$base" >> "$log" 2>&1
+  git -C "$S5_REPO" worktree add --detach "$work/base" "$base" >> "$log" 2>&1
+  candidate_rc=0
+  base_rc=0
+  cargo check --locked --no-default-features --lib > "$work/candidate-feature.txt" 2>&1 || candidate_rc=$?
+  (cd "$work/base/crates/s5clean" && cargo check --locked --no-default-features --lib) > "$work/base-feature.txt" 2>&1 || base_rc=$?
+  cat "$work/candidate-feature.txt" "$work/base-feature.txt" >> "$log"
+  [ "$candidate_rc" = "$base_rc" ]
+  diff -u <(grep '^error\[' "$work/base-feature.txt" | sort) <(grep '^error\[' "$work/candidate-feature.txt" | sort) >> "$log"
+  echo "No-default-features result matches the base revision" >> "$log"
   cargo test --locked --release -j 2 --lib rng::trace::tests >> "$log" 2>&1
   cargo test --locked --release -j 2 --example observe >> "$log" 2>&1
   limit=(64)
