@@ -23,14 +23,14 @@ cd "$S5_REPO"
 for attempt in $(seq 1 150); do
   git fetch -q origin "$S5_REMEASURE_REF" >> "$log" 2>&1
   git checkout -q --detach FETCH_HEAD >> "$log" 2>&1
-  [ -f tools/oracle_task_hashes.c ] && break
+  grep -q 's5_entity_rows' tools/oracle_task_hashes.c 2>/dev/null && break
   sleep 10
 done
-test -f tools/oracle_task_hashes.c
+grep -q 's5_entity_rows' tools/oracle_task_hashes.c
 rev=$(git rev-parse HEAD)
 echo "candidate $rev" >> "$log"
 cc -O3 -shared -fPIC tools/oracle_task_hashes.c -o "$work/task-hasher.so" >> "$log" 2>&1
-hasher=(--task-hasher "$work/task-hasher.so")
+hasher=(--task-hasher "$work/task-hasher.so" --entity-reader "$work/task-hasher.so")
 python -m pip install --quiet pefile capstone >> "$log" 2>&1
 snapshot="$S5_ARTIFACTS/lift/snap_gs_h.bin"
 if [ ! -s "$snapshot" ]; then
@@ -98,13 +98,13 @@ if [ "$mode" = benchmark ]; then
   for backend in python native; do
     args=()
     if [ "$backend" = native ]; then args=("${hasher[@]}"); fi
-    echo "Measuring full recording with $backend task hashes" | tee -a "$log"
+    echo "Measuring full recording with $backend entity reads and task hashes" | tee -a "$log"
     python tools/oracle_observe.py --scenario "$sc" --snapshot "$snapshot" --game "$S5_GAME" \
       --runtime "$S5_ARTIFACTS/boot/runtime" --output "$work/benchmark-$backend.jsonl.gz" \
       --ticks 512 --benchmark full "${args[@]}" 2>> "$log" | tee -a "$log"
   done
   cmp <(gzip -dc "$work/benchmark-python.jsonl.gz") <(gzip -dc "$work/benchmark-native.jsonl.gz")
-  echo "Python and native recorder output is identical" | tee -a "$log"
+  echo "Python and native entity capture output is identical" | tee -a "$log"
   exit 0
 fi
 repo=Kofi55533/siedler-sim-rs
