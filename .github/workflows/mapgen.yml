@@ -1,0 +1,52 @@
+name: mapgen
+# push-triggered map-start image capture: each non-comment line of mapgen-list.txt is one job (space-separated
+# <out>:<pack>:<kind>:<subpath>:<catalogue> tokens). Images go to the PRIVATE release siedler-data/mapimg; logs print only
+# names and numbers (scripts/s5-mapgen.sh).
+on:
+  push:
+    branches: ['claude/mapgen-*']
+permissions: { contents: read }
+jobs:
+  shards:
+    runs-on: ubuntu-latest
+    outputs: { list: '${{ steps.s.outputs.list }}' }
+    steps:
+      - uses: actions/checkout@v4
+      - id: s
+        run: echo "list=$(grep -v '^#' mapgen-list.txt | grep . | jq -R . | jq -sc .)" >> "$GITHUB_OUTPUT"
+  mapgen:
+    needs: shards
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix: { fx: '${{ fromJSON(needs.shards.outputs.list) }}' }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - name: Setup (quiet)
+        env: { T: '${{ secrets.PRIVATE_REPO_TOKEN }}' }
+        run: scripts/s5-setup.sh clean/integration 1
+      - name: Gold install (private release, streamed)
+        env: { GH_TOKEN: '${{ secrets.PRIVATE_REPO_TOKEN }}' }
+        run: |
+          source scripts/s5-env.sh; mkdir -p $S5/goldfull
+          for n in 001 002 003 004 005 006 007; do
+            for try in 1 2 3; do
+              gh release download gold-edition-full-snapshot-2026-10-03 -R Kofi55533/siedler-forschung \
+                -p "GoldEdition_full_2026-10-03.tar.part$n" -D /tmp/gp --clobber >/dev/null 2>&1 && break; sleep 20; done
+            [ -s /tmp/gp/GoldEdition_full_2026-10-03.tar.part$n ] || { echo "gold part $n missing"; exit 1; }
+          done
+          cat /tmp/gp/GoldEdition_full_2026-10-03.tar.part* | tar -x -C $S5/goldfull; rm -rf /tmp/gp
+          # the archive may carry one top-level folder: flatten so $S5/goldfull/base exists
+          [ -d $S5/goldfull/base ] || { d=$(find $S5/goldfull -maxdepth 2 -type d -name base | head -1); echo "gold root: ${d#$S5/goldfull/}"; [ -n "$d" ] && echo "GOLD=$(dirname $d)" >> $GITHUB_ENV; }
+          echo "gold ok: $(find $(dirname $(find $S5/goldfull -maxdepth 2 -type d -name base | head -1)) -maxdepth 3 -ipath '*shr/graphics' | wc -l) graphics dirs, free $(df -h / | awk 'NR==2{print $4}')"
+      - name: Build s5render + s5verify
+        run: |
+          source scripts/s5-env.sh; cd $S5_REPO/recomp; t0=$(date +%s)
+          cargo build --release -j 4 -p s5gfx -p s5verify > $S5/build.log 2>&1; echo "build rc=$? secs=$(( $(date +%s)-t0 ))"
+          ls target/release/s5render target/release/s5verify > /dev/null
+      - name: Capture
+        env: { GH_TOKEN: '${{ secrets.PRIVATE_REPO_TOKEN }}', FX: '${{ matrix.fx }}' }
+        run: scripts/s5-mapgen.sh $FX

@@ -1,0 +1,4 @@
+# <out>:<pack>:<kind>:<subpath under shr/maps>:<catalogue>; one job per line
+map-europe:base:mp:Multiplayer/(2)Europe:
+map-siege:extra1:sp:Singleplayer/Siege: map-atthegates:extra1:mp:Multiplayer/(2)AtTheGates:
+campaign-02-villageattack:base:camp:Campaign/Main/02_VillageAttack:Main campaign-01-hugebridge:extra1:camp:Campaign/Extra1/01_HugeBridge:Extra2_1
