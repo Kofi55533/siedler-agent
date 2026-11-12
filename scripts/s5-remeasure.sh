@@ -23,10 +23,10 @@ cd "$S5_REPO"
 for attempt in $(seq 1 150); do
   git fetch -q origin "$S5_REMEASURE_REF" >> "$log" 2>&1
   git checkout -q --detach FETCH_HEAD >> "$log" 2>&1
-  grep -q -- '--rng-all' crates/s5clean/examples/observe.rs 2>/dev/null && break
+  grep -q 'recorded clock, tasks, entities and RNG timeline' crates/s5clean/examples/observe.rs 2>/dev/null && break
   sleep 10
 done
-grep -q -- '--rng-all' crates/s5clean/examples/observe.rs
+grep -q 'recorded clock, tasks, entities and RNG timeline' crates/s5clean/examples/observe.rs
 rev=$(git rev-parse HEAD)
 echo "candidate $rev" >> "$log"
 cc -O3 -shared -fPIC tools/oracle_task_hashes.c -o "$work/task-hasher.so" >> "$log" 2>&1
@@ -85,7 +85,7 @@ fast=oracle-bc-full-rng-1f5fd5735587262c776fa6b48decd05d0c587630
 prior=oracle-bc-full-acc27e172e500233a61fcb6eb177142b5db664c8
 export CARGO_TARGET_DIR="$S5_REPO/recomp/target"
 (cd crates/s5clean && cargo build --locked --release -j 2 --example observe) >> "$log" 2>&1
-if [ "$mode" = timeline-smoke ]; then
+if [ "$mode" = combined-smoke ]; then
   python tools/oracle_observe.py --scenario "$sc" --snapshot "$snapshot" --game "$S5_GAME" \
     --runtime "$S5_ARTIFACTS/boot/runtime" --output "$record" --ticks 64 "${hasher[@]}" >> "$log" 2>&1
   python tools/oracle_observe.py show "$record" "$(jq -er '.start_turn + 2' "$sc")" >/dev/null 2>> "$log"
@@ -100,21 +100,20 @@ fi
 
 cd crates/s5clean
 limit=()
-scope="--$mode"
-if [ "$mode" = timeline-smoke ]; then
+scope=()
+if [ "$mode" = combined-smoke ]; then
   cargo check --locked --no-default-features --lib >> "$log" 2>&1
   echo "Clean builds without the observation harness" >> "$log"
   cargo test --locked --release -j 2 --lib rng::trace::tests >> "$log" 2>&1
   cargo test --locked --release -j 2 --example observe >> "$log" 2>&1
-  scope=--rng-all
   limit=(64)
 fi
 rc=0
-/usr/bin/time -f 'wall %e s' "$CARGO_TARGET_DIR/release/examples/observe" "$sc" "$img" "$record" "${limit[@]}" "$scope" \
+/usr/bin/time -f 'wall %e s' "$CARGO_TARGET_DIR/release/examples/observe" "$sc" "$img" "$record" "${limit[@]}" \
   > "$work/compare.txt" 2>&1 || rc=$?
 cat "$work/compare.txt" >> "$log"
 [ "$rc" -le 1 ]
-if [ "$mode" = timeline-smoke ]; then
+if [ "$mode" = combined-smoke ]; then
   [ "$rc" = 0 ]
   grep -E '^[1-9][0-9]* verified matching draw recipients "$work/compare.txt"
 fi

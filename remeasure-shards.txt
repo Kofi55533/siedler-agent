@@ -1,2 +1,2 @@
-timeline-smoke
-rng-all
+combined-smoke
+combined-full
