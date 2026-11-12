@@ -1,0 +1,35 @@
+name: window
+# push-triggered reference windows (scripts/s5-window.sh): each line of window-jobs.txt is one job, a space-separated list
+# of <fixture>:<divergent turn>[:<lead>[:<tail>]]. The windows go to the private siedler-data release "window"; the log
+# names only fixtures, turn numbers and sizes.
+on:
+  push:
+    branches: ['claude/window-*']
+permissions: { contents: read }
+jobs:
+  jobs:
+    runs-on: ubuntu-latest
+    outputs: { list: '${{ steps.s.outputs.list }}' }
+    steps:
+      - uses: actions/checkout@v4
+      - id: s
+        run: echo "list=$(grep -v '^#' window-jobs.txt | grep . | jq -R . | jq -sc .)" >> "$GITHUB_OUTPUT"
+  window:
+    needs: jobs
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix: { fx: '${{ fromJSON(needs.jobs.outputs.list) }}' }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - name: Setup (quiet)
+        env: { T: '${{ secrets.PRIVATE_REPO_TOKEN }}' }
+        run: scripts/s5-setup.sh clean/integration 1
+      - name: Record windows
+        env: { GH_TOKEN: '${{ secrets.PRIVATE_REPO_TOKEN }}', FX: '${{ matrix.fx }}' }
+        run: |
+          ref=$(grep -v '^#' window-ref.txt 2>/dev/null | grep -m1 . || echo clean/integration)
+          echo "ref $ref"; S5_WINDOW_REF=$ref timeout 140m scripts/s5-window.sh $FX
