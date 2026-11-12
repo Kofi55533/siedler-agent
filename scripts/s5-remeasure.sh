@@ -104,6 +104,7 @@ else
 fi
 python tools/oracle_observe.py show "$record" 266 | jq -e '[.seed[] | select(.owner.kind == "animal_wander" and .owner.entity == 80404)] | length == 2' >> "$log" 2>&1
 echo "Oracle entering tick 266: both animal draws identify entity 80404" >> "$log"
+cd crates/s5clean
 set +e
 /usr/bin/time -f 'wall=%e user=%U sys=%S' "$diff" "$sc" "$img" "$record" "$run_ticks" --rng-all >> "$log" 2>&1
 status=$?
