@@ -14,7 +14,7 @@ for tok in "$@"; do
   IFS=: read -r out pack kind sub cat <<<"$tok"
   name=${sub##*/}; W=/tmp/mg/$out; rm -rf "$W"; mkdir -p "$W/overlay" "$W/png"; cp -r "$S5_ARTIFACTS/boot/user" "$W/user"
   log=$W/capture.log
-  if [ ! -d "$GOLD/$pack/shr/maps/$sub" ]; then echo "$out: FAILED no map dir; have: $(ls "$GOLD/$pack/shr/maps/$(dirname "$sub")" 2>&1 | head -30 | tr '\n' ' ')"; continue; fi
+  if [ ! -d "$GOLD/$pack/shr/maps/$sub" ] && [ ! -d "$S5_GAME/$pack/shr/maps/$sub" ]; then echo "$out: FAILED no map dir; have: $(ls "$GOLD/$pack/shr/maps/$(dirname "$sub")" 2>&1 | head -30 | tr '\n' ' ')"; continue; fi
   case $kind in
     mp) args="2, nil"; rel=$sub ;;
     sp) args="0, nil"; rel=$sub ;;
@@ -23,7 +23,7 @@ for tok in "$@"; do
   if [ "$pack" = extra1 ]; then   # relocate into the mounted extra2 pack, Key 2
     case $kind in camp) dst=Campaign/Extra2_1/$name ;; *) dst=$rel ;; esac
     mkdir -p "$W/overlay/extra2/shr/maps/$(dirname "$dst")"
-    cp -r "$GOLD/extra1/shr/maps/$sub" "$W/overlay/extra2/shr/maps/$dst"
+    cp -r "$( [ -d "$GOLD/extra1/shr/maps/$sub" ] && echo $GOLD || echo $S5_GAME )/extra1/shr/maps/$sub" "$W/overlay/extra2/shr/maps/$dst"
     python3 - "$W/overlay/extra2/shr/maps/$dst/Info.xml" <<'PY'
 import re, sys
 p = sys.argv[1]; t = open(p, encoding="utf-8-sig").read()
@@ -41,7 +41,7 @@ chunks = [{"code": f'Framework.StartMap("{name}", {args})', "tag": "startmap", "
           {"code": close, "tag": "close", "state": "XGlobalScript", "at": 0, "result": True}]
 json.dump(chunks, open(out, "w"))
 PY
-  ( cd "$R" && BOOT=$GOLD,$S5_ARTIFACTS/boot/runtime,$W/overlay,$W/user INJECT=$W/inject.json STOP_TURN=25 \
+  ( cd "$R" && BOOT=$GOLD,$S5_GAME,$S5_ARTIFACTS/boot/runtime,$W/overlay,$W/user INJECT=$W/inject.json STOP_TURN=25 \
       DUMP_MEM=$W/start.mem PNG_EVERY=100000 timeout 900 ./target/release/s5render - 2000 "$W/png" ) > "$log" 2>&1; rc=$?
   if [ $rc != 0 ] || [ ! -s "$W/start.mem" ]; then
     echo "$out: FAILED s5render rc=$rc $(grep -m1 -oE 'MessageBoxA: .{0,100}|panicked at .{0,80}' "$log" | tr -d '\r')"
