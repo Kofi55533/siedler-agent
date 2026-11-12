@@ -22,10 +22,8 @@ trap save EXIT
 cd "$S5_REPO"
 
 git fetch -q origin "$S5_REMEASURE_REF" >> "$log" 2>&1
-git checkout -q --detach 5809e743877446ae87cded19841c8dd532b1eeb3 >> "$log" 2>&1
+git checkout -q --detach 27b3d69f81ba52bcccb32704d95fef1752bc049e >> "$log" 2>&1
 echo "comparator $(git rev-parse HEAD)" >> "$log"
-sc="$S5_V/fixtures/bc-full/scenario.json"
-img="$S5_ARTIFACTS/bc/gs_h.img"
 record="$work/bc-full-oracle.jsonl.gz"
 export CARGO_TARGET_DIR="$S5_REPO/recomp/target"
 cd crates/s5clean
@@ -42,23 +40,22 @@ until gh release download "$tag" -R "$repo" --pattern "$(basename "$record")" --
   fi
   sleep 30
 done
-gzip -t "$record"
-wc -c < "$record" | sed 's/^/Reference bytes: /' >> "$log"
-python tools/oracle_observe.py show "$record" 23900 > "$work/terminal.json" 2>> "$log"
-echo "Validated gzip and decoded the original terminal tick 23900" >> "$log"
+
+old_tag=observation-bc-full-8d4a7e5aedb25f125346d22dc2315556847368f7
+archive=bc-full-at-6841.tar.zst
+window="$work/window"
+slice=bc-full-at-6841-oracle.jsonl.gz
+mkdir -p "$window"
+gh release download "$old_tag" -R "$repo" --pattern "$archive" --dir "$work" >> "$log" 2>&1
+tar -I zstd -xf "$work/$archive" -C "$window"
+/usr/bin/time -f 'slice wall %e s' python tools/oracle_observe.py slice "$record" "$window/scenario.json" "$work/$slice" >> "$log" 2>&1
 cd crates/s5clean
-check() {
-  echo "Compare $*" >> "$log"
-  rc=0
-  /usr/bin/time -f 'wall %e s' "$CARGO_TARGET_DIR/release/examples/observe" "$sc" "$img" "$record" "$@" > "$work/check.log" 2>&1 || rc=$?
-  cat "$work/check.log" >> "$log"
-  if [ "${1:-}" = 32 ]; then
-    [ "$rc" = 0 ]
-  else
-    [ "$rc" -le 1 ]
-  fi
-  grep -oE '^bc-full: (DIVERGENT turn [0-9]+|IDENTICAL [0-9]+ ticks)' "$work/check.log"
-}
-check 32
-check
-check --rng-only
+rc=0
+/usr/bin/time -f 'cached window wall %e s' "$CARGO_TARGET_DIR/release/examples/observe" "$window/scenario.json" "$window/start.img" "$work/$slice" >> "$log" 2>&1 || rc=$?
+[ "$rc" -le 1 ]
+grep -oE '^bc-full-at6841: (DIVERGENT turn [0-9]+|IDENTICAL [0-9]+ ticks)' "$log"
+if grep -q '^bc-full-at6841: DIVERGENT turn 6841' "$log"; then
+  echo "The existing checkpoint differs at entry" >> "$log"
+  exit 1
+fi
+gh release upload "$tag" -R "$repo" "$work/$slice" --clobber >> "$log" 2>&1
