@@ -1,14 +1,3 @@
-# map-start batch B (mapimg release)
-campaign-01-demondays campaign-01-hugebridge campaign-02-bigriver
-campaign-02-villageattack campaign-03-bigcity campaign-03-thebeautifulland
-campaign-04-tradingcaravans campaign-05-headhunter campaign-06-cleycourt
-campaign-06-techorresources campaign-08-barmecia campaign-11-norfolk
-campaign-12-kaloix campaign-13-plague campaign-15-oldkingscastle
-campaign-17-cloudymountains campaign-18-evelance campaign-19-wasteland
-campaign-20-battleofevelance map-atthegates map-banditforrest
-map-battleisle map-burningsteppe map-citygates
-map-clanwar map-crater map-darkland
-map-europe map-goldenriddles map-hauntedruins
-map-hillsoffriendship map-koenigsforst map-oldenemies
-map-sabotagemoor map-siege map-summerstorm
-map-supplylines map-winterassault 
+map-demomap map-frozenfjord map-peacefulland
+map-sandbox map-smalldale map-spreadland
+map-summerisland
