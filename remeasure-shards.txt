@@ -1,1 +1,2 @@
-animal-wander
+animal-smoke
+animal-full

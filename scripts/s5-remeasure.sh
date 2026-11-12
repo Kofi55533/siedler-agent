@@ -80,35 +80,37 @@ sc="$S5_V/fixtures/bc-full/scenario.json"
 img="$S5_ARTIFACTS/bc/gs_h.img"
 record="$work/bc-full-oracle.jsonl.gz"
 
-repo=Kofi55533/siedler-sim-rs
-archive=oracle-bc-full-rng-1f5fd5735587262c776fa6b48decd05d0c587630
-gh release download "$archive" -R "$repo" -p bc-full-oracle.jsonl.gz -D "$work" >> "$log" 2>&1
-python - "$record" >> "$log" 2>&1 <<'PY'
-from collections import Counter
-import gzip
-import json
-import sys
-sites = {0x511CA7, 0x511CD6}
-count, candidates = Counter(), Counter()
-with gzip.open(sys.argv[1], "rt") as stream:
-    next(stream)
-    for line in stream:
-        for event in json.loads(line)["seed"]:
-            site = event["site"]
-            if site in sites:
-                count[site] += 1
-                candidates[site] += int("ebx" in event["entity_candidates"])
-print("Animal wander sites and EBX evidence", {hex(k): (candidates[k], v) for k, v in count.items()})
-PY
-S5_INSTALL="$S5_GAME" ORACLE_SCRATCH="$work/assembly" ORACLE_RUNTIME="$S5_ARTIFACTS/boot/runtime" \
-  RESTORE="$snapshot" MODS=1 python - >> "$log" 2>&1 <<'PY'
-import sys
-sys.path.insert(0, "oracle")
-import run
-from capstone import Cs, CS_ARCH_X86, CS_MODE_32
-e = run.build()
-decoder = Cs(CS_ARCH_X86, CS_MODE_32)
-for start, end in ((0x511B03, 0x511DF9), (0x511DF9, 0x511E52)):
-    for insn in decoder.disasm(e.rb(start, end - start), start):
-        print(f"{insn.address:#x} {insn.mnemonic} {insn.op_str}")
-PY
+case "$mode" in
+  animal-smoke|animal-full) ;;
+  *) exit 2 ;;
+esac
+export CARGO_TARGET_DIR="$S5_REPO/recomp/target"
+cargo build --locked --release -j 2 --example observe >> "$log" 2>&1
+diff="$CARGO_TARGET_DIR/release/examples/observe"
+if [ "$mode" = animal-smoke ]; then
+  run_ticks=192
+  python tools/oracle_observe.py --snapshot "$snapshot" --game "$S5_GAME" --scenario "$sc" --runtime "$S5_ARTIFACTS/boot/runtime" --output "$record" --ticks "$run_ticks" "${hasher[@]}" >> "$log" 2>&1
+else
+  tag=oracle-bc-full-windows-43301884274
+  release="repos/Kofi55533/siedler-sim-rs/releases/tags/$tag"
+  for attempt in $(seq 1 90); do
+    asset=$(gh api "$release" --jq '.assets[] | select(.name | endswith(".jsonl.gz")) | .url' 2>/dev/null || true)
+    [ -n "$asset" ] && break
+    sleep 10
+  done
+  test -n "$asset"
+  curl --fail --silent --show-error --location --retry 3 -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/octet-stream' "$asset" -o "$record" >> "$log" 2>&1
+  run_ticks=23900
+fi
+python tools/oracle_observe.py show "$record" 266 | jq -e '[.seed[] | select(.owner.kind == "animal_wander" and .owner.entity == 80404)] | length == 2' >> "$log" 2>&1
+echo "Oracle entering tick 266: both animal draws identify entity 80404" >> "$log"
+set +e
+/usr/bin/time -f 'wall=%e user=%U sys=%S' "$diff" "$sc" "$img" "$record" "$run_ticks" --rng-all >> "$log" 2>&1
+status=$?
+set -e
+tail -40 "$log"
+if [ "$mode" = animal-smoke ]; then
+  test "$status" -eq 0
+else
+  grep -q 'RNG.*differ\|rng.*differ\|diverg\|matched' "$log"
+fi
