@@ -14,7 +14,7 @@ for tok in "$@"; do
   IFS=: read -r out pack kind sub cat <<<"$tok"
   name=${sub##*/}; W=/tmp/mg/$out; rm -rf "$W"; mkdir -p "$W/overlay" "$W/png"; cp -r "$S5_ARTIFACTS/boot/user" "$W/user"
   log=$W/capture.log
-  if [ ! -d "$GOLD/$pack/shr/maps/$sub" ]; then echo "$out: FAILED no map dir"; continue; fi
+  if [ ! -d "$GOLD/$pack/shr/maps/$sub" ]; then echo "$out: FAILED no map dir; have: $(ls "$GOLD/$pack/shr/maps/$(dirname "$sub")" 2>&1 | head -30 | tr '\n' ' ')"; continue; fi
   case $kind in
     mp) args="2, nil"; rel=$sub ;;
     sp) args="0, nil"; rel=$sub ;;
@@ -48,7 +48,7 @@ PY
     cp "$log" /tmp/mg/up/mapgen-$out.log; continue; fi
   python3 "$R/mem2img.py" "$W/start.mem" "$S5_ARTIFACTS/bc/gs_h.img" "$W/start.img" >> "$log" 2>&1 || { echo "$out: FAILED mem2img"; continue; }
   rm -f "$W/start.mem"
-  ck=$( cd "$R" && ./target/release/s5verify checksum ../data/scope/schema.json "$W/start.img" 2>>"$log" )
+  ck=$( cd "$R" && : > "$W/none.jsonl" && ./target/release/s5verify checksum "$W/start.img" "$W/none.jsonl" 0 2>>"$log" )
   turn=$(python3 -c "import json,sys;print(json.loads(sys.argv[1])['turn'])" "$ck" 2>/dev/null)
   if [ -z "$turn" ]; then echo "$out: FAILED checksum"; cp "$log" /tmp/mg/up/mapgen-$out.log; continue; fi
   T=$W/pk; rm -rf "$T"; mkdir -p "$T/fixtures/$out" "$T/images/$out"
