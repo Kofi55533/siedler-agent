@@ -88,21 +88,17 @@ from collections import Counter
 import gzip
 import json
 import sys
-
-seen = Counter()
-wait_regs = Counter()
-with gzip.open(sys.argv[1], "rt") as f:
-    next(f)
-    for line in f:
-        row = json.loads(line)
-        for draw in row["seed"]:
-            site = draw["site"]
-            seen[site] += 1
-            if site == 0x5881CA:
-                wait_regs.update(draw["entity_candidates"])
-            if seen[site] <= 3:
-                print(hex(site), row["state"]["turn"], json.dumps(draw))
-print("Wait event candidates by register", dict(wait_regs))
+sites = {0x511CA7, 0x511CD6}
+count, candidates = Counter(), Counter()
+with gzip.open(sys.argv[1], "rt") as stream:
+    next(stream)
+    for line in stream:
+        for event in json.loads(line)["seed"]:
+            site = event["site"]
+            if site in sites:
+                count[site] += 1
+                candidates[site] += int("ebx" in event["entity_candidates"])
+print("Animal wander sites and EBX evidence", {hex(k): (candidates[k], v) for k, v in count.items()})
 PY
 S5_INSTALL="$S5_GAME" ORACLE_SCRATCH="$work/assembly" ORACLE_RUNTIME="$S5_ARTIFACTS/boot/runtime" \
   RESTORE="$snapshot" MODS=1 python - >> "$log" 2>&1 <<'PY'
@@ -112,8 +108,7 @@ import run
 from capstone import Cs, CS_ARCH_X86, CS_MODE_32
 e = run.build()
 decoder = Cs(CS_ARCH_X86, CS_MODE_32)
-for start, end in ((0x588199, 0x58821E), (0x588025, 0x5880A6)):
-    print(f"Wait function {start:#x}")
+for start, end in ((0x511B03, 0x511DF9), (0x511DF9, 0x511E52)):
     for insn in decoder.disasm(e.rb(start, end - start), start):
         print(f"{insn.address:#x} {insn.mnemonic} {insn.op_str}")
 PY
