@@ -32,6 +32,14 @@ case "$x" in
     [ -f "$cs/start.img" ] || { mkdir -p "$cs" && ln -sf ../camp-crawford/start.img "$cs/start.img" \
       && ln -sf ../camp-crawford/start.img.state.json "$cs/start.img.state.json"; } ;;
 esac
+# 0. private map-start images captured on runners (scripts/s5-mapgen.sh): siedler-data release mapimg, asset <fixture>.tzst
+#    = fixtures/<fixture>/{scenario.json,commands.jsonl} + images/<fixture>/start.img{,.state.json}
+mkdir -p "$S5_NF/.dl"
+if gh release download mapimg -R Kofi55533/siedler-data -p "$x.tzst" -D "$S5_NF/.dl" --clobber >/dev/null 2>&1 && [ -s "$S5_NF/.dl/$x.tzst" ]; then
+  zstd -dcq "$S5_NF/.dl/$x.tzst" | tar -x -C "$S5_NF" 2>/dev/null && rm -f "$S5_NF/.dl/$x.tzst"
+  [ -f "$dst/scenario.json" ] && fix "release mapimg" && exit 0
+  rm -rf "$dst"
+fi
 mkdir -p "$S5_NF/.dl"
 meta=$(mktemp -d "$S5_NF/.dl/metadata-$x.XXXXXX")
 trap 'rm -rf "$meta"' EXIT
