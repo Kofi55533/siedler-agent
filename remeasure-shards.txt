@@ -1,5 +1,1 @@
-combined-smoke
-combined-full
-rng-all
-rng-streams
-entities
+rng-consumers
