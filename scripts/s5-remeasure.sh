@@ -101,7 +101,10 @@ fi
 cd crates/s5clean
 limit=()
 scope=()
-if [ "$mode" = combined-smoke ]; then
+case "$mode" in
+  rng-owners|rng-streams|rng-all|entities) scope=("--$mode") ;;
+  combined-full) ;;
+  combined-smoke)
   base=27b3d69f81ba52bcccb32704d95fef1752bc049e
   git -C "$S5_REPO" fetch -q origin "$base" >> "$log" 2>&1
   git -C "$S5_REPO" worktree add --detach "$work/base" "$base" >> "$log" 2>&1
@@ -115,18 +118,17 @@ if [ "$mode" = combined-smoke ]; then
   echo "No-default-features result matches the base revision" >> "$log"
   cargo test --locked --release -j 2 --lib rng::trace::tests >> "$log" 2>&1
   cargo test --locked --release -j 2 --example observe >> "$log" 2>&1
-  limit=(64)
-fi
+    limit=(64)
+    ;;
+  *) echo "Unknown observation mode $mode"; exit 2 ;;
+esac
 rc=0
-/usr/bin/time -f 'wall %e s' "$CARGO_TARGET_DIR/release/examples/observe" "$sc" "$img" "$record" "${limit[@]}" \
-  > "$work/compare.txt" 2>&1 || rc=$?
+/usr/bin/time -f 'wall %e s' "$CARGO_TARGET_DIR/release/examples/observe" "$sc" "$img" "$record" \
+  "${limit[@]}" "${scope[@]}" > "$work/compare.txt" 2>&1 || rc=$?
 cat "$work/compare.txt" >> "$log"
 [ "$rc" -le 1 ]
 if [ "$mode" = combined-smoke ]; then
   [ "$rc" = 0 ]
-  grep -E '^[1-9][0-9]* verified matching draw recipients "$work/compare.txt"
-fi
-grep -oE '^bc-full: (DIVERGENT turn [0-9]+|IDENTICAL [0-9]+ ticks)' "$work/compare.txt"
- "$work/compare.txt"
+  grep -E '^[1-9][0-9]* verified matching draw recipients$' "$work/compare.txt"
 fi
 grep -oE '^bc-full: (DIVERGENT turn [0-9]+|IDENTICAL [0-9]+ ticks)' "$work/compare.txt"
