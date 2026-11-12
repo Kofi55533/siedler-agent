@@ -80,45 +80,56 @@ sc="$S5_V/fixtures/bc-full/scenario.json"
 img="$S5_ARTIFACTS/bc/gs_h.img"
 record="$work/bc-full-oracle.jsonl.gz"
 
+
 repo=Kofi55533/siedler-sim-rs
-archive=oracle-bc-full-rng-1f5fd5735587262c776fa6b48decd05d0c587630
-gh release download "$archive" -R "$repo" -p bc-full-oracle.jsonl.gz -D "$work" >> "$log" 2>&1
+checkpoint_tag=oracle-bc-full-rng-1f5fd5735587262c776fa6b48decd05d0c587630
+gh release download "$checkpoint_tag" -R "$repo" -p turn-23000.bin -D "$work" >> "$log" 2>&1
+export CARGO_TARGET_DIR="$S5_REPO/recomp/target"
+(cd crates/s5clean && cargo build --locked --release -j 2 --example observe) >> "$log" 2>&1
+python tools/oracle_observe.py --scenario "$sc" --snapshot "$work/turn-23000.bin" --game "$S5_GAME" \
+  --runtime "$S5_ARTIFACTS/boot/runtime" --output "$record" --from-turn 23000 --ticks 1021 \
+  --checkpoint-dir "$work" --checkpoint-at 23477 --checkpoint-at 23830 "${hasher[@]}" >> "$log" 2>&1
+python tools/oracle_observe.py coverage "$record" > "$work/coverage.json" 2>> "$log"
+cat "$work/coverage.json" >> "$log"
+jq -e '.shared_sites["0x4eb033"] == {"mapped":3,"unmapped":0} and .shared_sites["0x4f72bd"] == {"mapped":32,"unmapped":0}' \
+  "$work/coverage.json" >> "$log"
 python - "$record" >> "$log" 2>&1 <<'PY'
-from collections import Counter
 import gzip
 import json
 import sys
-
-sites = (0x4494CB, 0x4EB033, 0x4F72BD, 0x571047)
-counts = {site: Counter() for site in sites}
-first = {}
 with gzip.open(sys.argv[1], "rt") as stream:
     next(stream)
     for line in stream:
         row = json.loads(line)
-        for event in row["seed"]:
-            site = event["site"]
-            if site in counts:
-                returns = tuple(hex(frame[0]) for frame in event["frames"][:4])
-                candidates = tuple(sorted(event["entity_candidates"]))
-                counts[site][returns, candidates] += 1
-                first.setdefault(site, row["state"]["turn"])
-for site, counts_at_site in counts.items():
-    print(f"{site:#x}: {sum(counts_at_site.values())} draws, first boundary {first.get(site)}")
-    for (returns, candidates), count in counts_at_site.most_common():
-        print(f"  {count}: frames={returns}, entity registers={candidates}")
+        for draw in row["seed"]:
+            owner = draw.get("owner", {})
+            if owner.get("kind") in ("leader_training_animation", "formation_idle_animation"):
+                assert owner["entity"], owner
+                print(f"Entering {row['state']['turn']}: {owner}")
 PY
-S5_INSTALL="$S5_GAME" ORACLE_SCRATCH="$work/assembly" ORACLE_RUNTIME="$S5_ARTIFACTS/boot/runtime" \
-  RESTORE="$snapshot" MODS=1 python - >> "$log" 2>&1 <<'PY'
+for turn in 23477 23830; do
+  scenario="$work/turn-$turn.json"
+  python - "$sc" "$scenario" "$turn" <<'PY'
+import json
+from pathlib import Path
 import sys
-sys.path.insert(0, "oracle")
-import run
-from capstone import Cs, CS_ARCH_X86, CS_MODE_32
-e = run.build()
-decoder = Cs(CS_ARCH_X86, CS_MODE_32)
-ranges = ((0x4494CB, 0x449510), (0x4EB033, 0x4EB095), (0x4F72BD, 0x4F7340), (0x571047, 0x571095), (0x5002F0, 0x500335), (0x500928, 0x500980), (0x4EB2C9, 0x4EB315), (0x4F8908, 0x4F8940), (0x44CBD3, 0x44CC15))
-for start, end in ranges:
-    print(f"Code near {start:#x}")
-    for insn in decoder.disasm(e.rb(start, end - start), start):
-        print(f"{insn.address:#x} {insn.mnemonic} {insn.op_str}")
+source, target = map(Path, sys.argv[1:3])
+start = int(sys.argv[3])
+scenario = json.loads(source.read_text())
+commands = target.with_suffix(".jsonl")
+with commands.open("w") as out:
+    if scenario.get("commands"):
+        for line in (source.parent / scenario["commands"]).read_text().splitlines():
+            if line.strip() and json.loads(line)["turn"] == start:
+                print(line, file=out)
+scenario.update(start_turn=start, turns=1, commands=commands.name)
+target.write_text(json.dumps(scenario))
 PY
+  python tools/oracle_observe.py slice "$record" "$scenario" "$work/turn-$turn.jsonl.gz" >> "$log" 2>&1
+  python recomp/export_image.py "$work/turn-$turn.bin" "$work/turn-$turn.img" --mem-only >> "$log" 2>&1
+  rc=0
+  (cd crates/s5clean && "$CARGO_TARGET_DIR/release/examples/observe" "$scenario" \
+      "$work/turn-$turn.img" "$work/turn-$turn.jsonl.gz" --rng-all) >> "$log" 2>&1 || rc=$?
+  [ "$rc" -le 1 ]
+done
+echo "Oracle animation recipients and late Clean comparisons recorded"

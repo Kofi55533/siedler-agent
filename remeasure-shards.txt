@@ -1,1 +1,1 @@
-rng-recipient-inventory
+combat-recipients
