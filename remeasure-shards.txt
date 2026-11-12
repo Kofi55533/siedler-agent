@@ -1,2 +1,4 @@
 # one job per line
-map-mornheim
+map-mornheim castrum gen-cannon-place
+map-highland-siege map-siege 02-defendingthedrymoat
+combat-waves gen-leader-defend
