@@ -109,13 +109,12 @@ set +e
 /usr/bin/time -f 'wall=%e user=%U sys=%S' "$diff" "$sc" "$img" "$record" "$run_ticks" --rng-all >> "$log" 2>&1
 status=$?
 set -e
-tail -40 "$log"
 if [ "$mode" = animal-smoke ]; then
-  test "$status" -eq 0
+  [ "$status" -eq 0 ]
+  grep -Eq '^bc-full: IDENTICAL 192 ticks' "$log"
+  grep -Eq '^42 verified matching draw recipients$' "$log"
 else
-  [ "$status" -eq 0 ] || [ "$status" -eq 1 ]
-  grep -E '^bc-full: (DIVERGENT turn [0-9]+|IDENTICAL [0-9]+ ticks)' "$log"
-  grep -E '^[1-9][0-9]+ verified matching draw recipients
-fi
- "$log"
+  [ "$status" -eq 1 ]
+  grep -Eq '^bc-full: DIVERGENT turn 18007:' "$log"
+  grep -Eq '^27703 verified matching draw recipients before the difference$' "$log"
 fi
