@@ -12,7 +12,7 @@ save_result() {
   trap - EXIT
   # Store compact diagnostics in the private simulation repository.
   request="$work/request.json"
-  local endpoint="repos/Kofi55533/siedler-sim-rs/contents/results/bc-full-observation-$GITHUB_RUN_ID.txt"
+  local endpoint="repos/Kofi55533/siedler-sim-rs/contents/results/bc-full-observation-$GITHUB_RUN_ID-$1.txt"
   local branch=codex/replay-observation-results
   previous=$(gh api "$endpoint?ref=$branch" --jq .sha 2>/dev/null || true)
   base64 -w0 "$log" | jq -Rs --arg branch "$branch" --arg sha "$previous" \
@@ -24,54 +24,36 @@ save_result() {
   echo "private observation report saved (exit=$rc)"
   exit "$rc"
 }
-trap save_result EXIT
+fixture=$1
+trap 'save_result "$fixture"' EXIT
 cd "$S5_REPO"
 git fetch -q origin "$S5_REMEASURE_REF"
 git checkout -q --detach FETCH_HEAD
 rev=$(git rev-parse HEAD)
 echo "candidate $rev" | tee -a "$log"
 
-if [ "$1" != bc-full ]; then
-  echo "Gate $1" >> "$log"
+if [ "$1" != rng ]; then
+  echo "Running verification gate $1"
   cd recomp
-  python verify.py "$1" >> "$log" 2>&1
+  if [ "$1" = blocktest ]; then
+    cargo build --release -j 2 -p s5blocktest >> "$log" 2>&1
+    python verify.py blocktest --jobs 2 >> "$log" 2>&1
+  else
+    cargo build --release -j 2 -p s5recomp --bin s5recomp >> "$log" 2>&1
+    python verify.py "$1" >> "$log" 2>&1
+  fi
   exit
 fi
 
 export CARGO_TARGET_DIR="$S5_REPO/recomp/target"
 echo "Building replay comparison"
-cargo test --manifest-path crates/s5diff/Cargo.toml --lib observation::tests >> "$log" 2>&1
 cd recomp
-cargo build --release -p s5verify >> "$log" 2>&1
-cd ../crates/s5clean
-cargo build --release --example observe >> "$log" 2>&1
-clean="$CARGO_TARGET_DIR/release/examples/observe"
-verify="$CARGO_TARGET_DIR/release/s5verify"
-cd "$S5_REPO/recomp"
+cargo build --release -j 2 -p s5verify >> "$log" 2>&1
 sc="$S5_V/fixtures/bc-full/scenario.json"
 img="$S5_ARTIFACTS/bc/gs_h.img"
-schema=../data/scope/schema.json
-export S5_REMAP=$(python -c "import verify; print(verify.remap_for('$img', 'target/verify/observation-bc-full'))")
-cache="$work/bc-full.jsonl.gz"
-ticks=300
-echo "Running BC Full live and cached prefix"
-run_comparison() {
-  local file=$1 rc=0
-  shift
-  /usr/bin/time -f 'wall %e s' "$@" > "$file" 2>&1 || rc=$?
-  cat "$file" >> "$log"
-  return "$rc"
-}
-live_rc=0
-run_comparison "$work/live" "$verify" observe-live "$schema" "$sc" "$img" "$ticks" || live_rc=$?
-[ "$live_rc" -le 1 ]
-run_comparison "$work/record" "$verify" observe-record "$schema" "$sc" "$img" "$cache" "$rev" "$ticks"
-wc -c < "$cache" | sed 's/^/Reference cache bytes: /' >> "$log"
-cd "$S5_REPO/crates/s5clean"
-cached_rc=0
-run_comparison "$work/cached" "$clean" "$sc" "$img" "$cache" "$ticks" || cached_rc=$?
-[ "$cached_rc" = "$live_rc" ]
-grep -E '^bc-full: (DIVERGENT|IDENTICAL)' "$work/live" > "$work/live.verdict"
-grep -E '^bc-full: (DIVERGENT|IDENTICAL)' "$work/cached" > "$work/cached.verdict"
-diff -u "$work/live.verdict" "$work/cached.verdict" >> "$log"
-grep -oE '^bc-full: (DIVERGENT turn [0-9]+|IDENTICAL [0-9]+ ticks)' "$work/live.verdict" || true
+export S5_REMAP=$(python -c "import verify; print(verify.remap_for('$img', 'target/verify/observation-rng-bc-full'))")
+echo "Scanning shared RNG from the BC Full starting image"
+rc=0
+/usr/bin/time -f 'wall %e s' target/release/s5verify observe-rng ../data/scope/schema.json "$sc" "$img" >> "$log" 2>&1 || rc=$?
+[ "$rc" -le 1 ]
+grep -oE '^bc-full: (DIVERGENT turn [0-9]+|IDENTICAL [0-9]+ ticks)' "$log"
