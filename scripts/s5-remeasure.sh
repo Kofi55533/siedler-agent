@@ -40,6 +40,40 @@ if [ ! -s "$snapshot" ]; then
     -o "$snapshot" >> "$log" 2>&1
 fi
 test "$(git hash-object "$snapshot")" = f6561c747709e308c2e0581fa366b243da2f7bfb
+# data-v2 intentionally omits some media. Restore every original game file that
+# the canonical snapshot still holds open, using the same installation it came from.
+python - "$snapshot" "$S5_GAME" > "$work/missing-install.txt" 2>> "$log" <<'PY'
+from pathlib import Path
+import pickle
+import sys
+
+with Path(sys.argv[1]).open("rb") as file:
+    snapshot = pickle.load(file)
+install = Path(sys.argv[2])
+paths = [value[1] for value in snapshot["handles"].values() if value[0] == "file"]
+paths += [value[1] for value in snapshot["mods"].values()]
+marker = "/cloud-re/inputs/game/"
+missing = set()
+for path in paths:
+    path = path.replace("\\", "/")
+    if marker in path:
+        relative = Path(path.split(marker, 1)[1])
+        if relative.is_absolute() or ".." in relative.parts:
+            raise ValueError("unsafe snapshot installation path")
+        if not (install / relative).is_file():
+            missing.add(relative.as_posix())
+print(*sorted(missing), sep="\n")
+PY
+while IFS= read -r path; do
+  [ -n "$path" ] || continue
+  url_path=$(python -c 'from urllib.parse import quote; import sys; print(quote(sys.argv[1]))' "$path")
+  mkdir -p "$(dirname "$S5_GAME/$path")"
+  curl --fail --silent --show-error --location --retry 3 \
+    -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github.raw+json' \
+    "https://api.github.com/repos/Kofi55533/siedler-forschung/contents/cloud-re/inputs/game/$url_path" \
+    -o "$work/install-file" >> "$log" 2>&1
+  mv "$work/install-file" "$S5_GAME/$path"
+done < "$work/missing-install.txt"
 sc="$S5_V/fixtures/bc-full/scenario.json"
 img="$S5_ARTIFACTS/bc/gs_h.img"
 record="$work/bc-full-oracle.jsonl.gz"
