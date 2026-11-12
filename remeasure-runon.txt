@@ -1,2 +1,2 @@
 # turns past first divergence
-12
+3
