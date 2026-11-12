@@ -1,4 +1,1 @@
-state
-cache
-boot
 blocktest

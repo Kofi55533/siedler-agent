@@ -45,9 +45,13 @@ case "$1" in
     cargo build --release -j 2 -p s5blocktest >> "$log" 2>&1
     mkdir -p "$S5_ARTIFACTS/blocktest"
     for file in g20h.img g20h.img.state.json; do
-      endpoint="repos/Kofi55533/siedler-forschung/contents/cloud-re/artifacts/recomp/blocktest/$file"
-      gh api -H 'Accept: application/vnd.github.raw+json' "$endpoint" > "$S5_ARTIFACTS/blocktest/$file" 2>> "$log"
+      url="https://api.github.com/repos/Kofi55533/siedler-forschung/contents/cloud-re/artifacts/recomp/blocktest/$file"
+      curl --fail --silent --show-error --location --retry 3 \
+        -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github.raw+json' \
+        "$url" -o "$S5_ARTIFACTS/blocktest/$file" 2>> "$log"
     done
+    [ "$(git hash-object "$S5_ARTIFACTS/blocktest/g20h.img")" = 9c63ed072614bd7b042129b4089370c18ea23633 ]
+    [ "$(git hash-object "$S5_ARTIFACTS/blocktest/g20h.img.state.json")" = d10c39a5e2b9a8dfa7ba218a8d660edaddf14d02 ]
     python verify.py blocktest --jobs 2 >> "$log" 2>&1
     ;;
   state|cache)
