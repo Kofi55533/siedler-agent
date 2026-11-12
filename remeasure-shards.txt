@@ -1,2 +1,2 @@
-# one job per line
+# shards
 gen-enter-building-0x1500d
