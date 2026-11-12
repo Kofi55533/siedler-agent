@@ -18,7 +18,7 @@ jobs:
   remeasure:
     needs: shards
     runs-on: ubuntu-latest
-    timeout-minutes: 150
+    timeout-minutes: 250
     strategy:
       fail-fast: false
       matrix: { fx: '${{ fromJSON(needs.shards.outputs.list) }}' }
@@ -37,25 +37,4 @@ jobs:
           export S5_TRACE=$(grep -v '^#' remeasure-trace.txt 2>/dev/null | grep -m1 . || true)
           # remeasure-runon.txt (optional): S5_RUNON, turns to keep stepping past the first divergence (diagnostic refs only)
           export S5_RUNON=$(grep -v '^#' remeasure-runon.txt 2>/dev/null | grep -m1 . || true)
-          echo "ref $ref"; S5_REMEASURE_REF=$ref S5_LIVE_TIMEOUT=7000 timeout 130m scripts/s5-remeasure.sh $FX
-      - name: Upload divergence details (private release, nothing printed)
-        if: always()
-        env: { GH_TOKEN: '${{ secrets.PRIVATE_REPO_TOKEN }}', FX: '${{ matrix.fx }}' }
-        run: |
-          source scripts/s5-env.sh; mkdir -p /tmp/up; n=0
-          ref=$(grep -v '^#' remeasure-ref.txt 2>/dev/null | grep -m1 . || echo clean/integration); tag=""
-          [ "$ref" = clean/integration ] || tag=$(echo "$ref" | tr '/' '-')-
-          for x in $FX; do
-            l=$S5/live/$x.log; o=/tmp/up/live-$tag$x.txt
-            { echo "fixture $x on $ref @$(git -C $S5_REPO rev-parse --short=10 HEAD)"
-              if [ -f "$l" ]; then grep -m2 "clean image import\|^Error\|panicked" "$l"
-                grep -m1 -A42 -E ": (DIVERGENT|IDENTICAL)" "$l" || tail -n 20 "$l"
-                grep "^trace " "$l" | tail -n 300; grep "^dbg " "$l" | tail -n 400
-              else echo "no live log (not installable?)"; grep -m3 "^$x:" $S5/remeasure/install.txt; fi
-            } > "$o" 2>/dev/null || true; n=$((n+1))
-          done
-          # one release per measured ref, rm-<ref> (xc-hand reached GitHub's 1000-asset limit on 08.11.), created on first use
-          rel=rm-$(echo "$ref" | tr '/' '-'); D=Kofi55533/siedler-data
-          gh release view $rel -R $D > /dev/null 2>&1 || gh release create $rel -R $D --title $rel --notes "remeasure details for $ref" > /dev/null 2>&1 || true
-          ok=0; for i in 1 2 3; do gh release upload $rel -R $D --clobber /tmp/up/live-*.txt > /dev/null 2>&1 && { ok=1; break; }; sleep 10; done
-          [ $ok = 1 ] && echo "uploaded $n to $rel" || echo "upload failed ($n files)"
+          echo "ref $ref"; S5_REMEASURE_REF=$ref S5_LIVE_TIMEOUT=7000 timeout 235m scripts/s5-remeasure.sh $FX

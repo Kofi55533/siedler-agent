@@ -20,13 +20,13 @@ save() {
 }
 trap save EXIT
 cd "$S5_REPO"
-for attempt in $(seq 1 50); do
+for attempt in $(seq 1 150); do
   git fetch -q origin "$S5_REMEASURE_REF" >> "$log" 2>&1
   git checkout -q --detach FETCH_HEAD >> "$log" 2>&1
-  [ -f tools/oracle_observe.py ] && break
+  [ -f tools/oracle_rng_lanes.py ] && break
   sleep 10
 done
-test -f tools/oracle_observe.py
+test -f tools/oracle_rng_lanes.py
 rev=$(git rev-parse HEAD)
 echo "candidate $rev" >> "$log"
 python -m pip install --quiet pefile capstone >> "$log" 2>&1
@@ -78,25 +78,54 @@ sc="$S5_V/fixtures/bc-full/scenario.json"
 img="$S5_ARTIFACTS/bc/gs_h.img"
 record="$work/bc-full-oracle.jsonl.gz"
 ticks=()
-if [ "$mode" = smoke ]; then ticks=(--ticks 32); fi
-echo "Starting original Oracle recording ($mode)"
-# The recorder's stdout contains only progress counters. Full diagnostics stay private.
-python tools/oracle_observe.py --scenario "$sc" --snapshot "$snapshot" --game "$S5_GAME" \
-  --runtime "$S5_ARTIFACTS/boot/runtime" --output "$record" "${ticks[@]}" 2>> "$log" | tee -a "$log"
-wc -c < "$record" | sed 's/^/Reference bytes: /' >> "$log"
+checkpoints=()
+if [ "$mode" = smoke ]; then
+  ticks=(--ticks 32)
+  checkpoints=(--checkpoint-dir "$work/checkpoints" --checkpoint-at 16)
+fi
 if [ "$mode" = full ]; then
-  tag="oracle-bc-full-$rev"
-  gh release view "$tag" -R Kofi55533/siedler-sim-rs >/dev/null 2>&1 ||
-    gh release create "$tag" -R Kofi55533/siedler-sim-rs --target "$rev" --prerelease \
-      --title "BC Full Oracle observation" --notes "Oracle reference and recorded coverage for BC Full." >> "$log" 2>&1
-  gh release upload "$tag" -R Kofi55533/siedler-sim-rs "$record" --clobber >> "$log" 2>&1
+  checkpoints=(--checkpoint-dir "$work/checkpoints")
+  for turn in 4000 7000 10000 13000 15000 17000 19000 20500 22000 23000; do
+    checkpoints+=(--checkpoint-at "$turn")
+  done
+fi
+if [ "$mode" = benchmark ]; then
+  for profile in engine seed full; do
+    echo "Measuring $profile"
+    python tools/oracle_observe.py --scenario "$sc" --snapshot "$snapshot" --game "$S5_GAME" \
+      --runtime "$S5_ARTIFACTS/boot/runtime" --output "$work/benchmark-$profile.jsonl.gz" \
+      --ticks 512 --benchmark "$profile" 2>> "$log" | tee -a "$log"
+  done
+  exit 0
+fi
+echo "Starting original Oracle recording ($mode)"
+python tools/oracle_observe.py --scenario "$sc" --snapshot "$snapshot" --game "$S5_GAME" \
+  --runtime "$S5_ARTIFACTS/boot/runtime" --output "$record" "${ticks[@]}" "${checkpoints[@]}" 2>> "$log" | tee -a "$log"
+repo=Kofi55533/siedler-sim-rs
+tag="oracle-bc-full-rng-$rev"
+if [ "$mode" = full ]; then
+  gzip -t "$record"
+  python tools/oracle_observe.py show "$record" 23900 > "$work/terminal.json" 2>> "$log"
+  gh release view "$tag" -R "$repo" >/dev/null 2>&1 ||
+    gh release create "$tag" -R "$repo" --target "$rev" --prerelease \
+      --title "BC Full original Oracle RNG and state recording" --notes "Complete BC Full tick range for the recorded profile. Private native checkpoint files support replay windows." >> "$log" 2>&1
+  gh release upload "$tag" -R "$repo" "$record" --clobber >> "$log" 2>&1
+  for image in "$work/checkpoints/"*.bin; do
+    zstd -T2 -q -o "$image.zst" "$image"
+    gh release upload "$tag" -R "$repo" "$image.zst" --clobber >> "$log" 2>&1
+  done
+else
+  test -s "$work/checkpoints/turn-16.bin"
+  python tools/oracle_observe.py --scenario "$sc" --snapshot "$snapshot" --game "$S5_GAME" \
+    --runtime "$S5_ARTIFACTS/boot/runtime" --output "$work/native-rng-probe.jsonl.gz" \
+    --ticks 1 --probe-rng 2>> "$log" | tee -a "$log"
 fi
 export CARGO_TARGET_DIR="$S5_REPO/recomp/target"
 cd crates/s5clean
 cargo build --locked --release -j 2 --example observe >> "$log" 2>&1
+rc=0
 limit=()
 if [ "$mode" = smoke ]; then limit=(32); fi
-rc=0
 /usr/bin/time -f 'wall %e s' "$CARGO_TARGET_DIR/release/examples/observe" "$sc" "$img" "$record" "${limit[@]}" >> "$log" 2>&1 || rc=$?
 if [ "$mode" = smoke ]; then
   [ "$rc" = 0 ]

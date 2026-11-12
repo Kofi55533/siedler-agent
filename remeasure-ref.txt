@@ -1,1 +1,1 @@
-codex/oracle-observation
+codex/oracle-rng-coverage
