@@ -77,11 +77,14 @@ done < "$work/missing-install.txt"
 sc="$S5_V/fixtures/bc-full/scenario.json"
 img="$S5_ARTIFACTS/bc/gs_h.img"
 record="$work/bc-full-oracle.jsonl.gz"
+start_turn=$(jq -er '.start_turn' "$sc")
+terminal_turn=$(jq -er '.start_turn + .turns' "$sc")
+checkpoint_turn=$((start_turn + 16))
 ticks=()
 checkpoints=()
 if [ "$mode" = smoke ]; then
   ticks=(--ticks 32)
-  checkpoints=(--checkpoint-dir "$work/checkpoints" --checkpoint-at 16)
+  checkpoints=(--checkpoint-dir "$work/checkpoints" --checkpoint-at "$checkpoint_turn")
 fi
 if [ "$mode" = full ]; then
   checkpoints=(--checkpoint-dir "$work/checkpoints")
@@ -105,7 +108,7 @@ repo=Kofi55533/siedler-sim-rs
 tag="oracle-bc-full-rng-$rev"
 if [ "$mode" = full ]; then
   gzip -t "$record"
-  python tools/oracle_observe.py show "$record" 23900 > "$work/terminal.json" 2>> "$log"
+  python tools/oracle_observe.py show "$record" "$terminal_turn" > "$work/terminal.json" 2>> "$log"
   gh release view "$tag" -R "$repo" >/dev/null 2>&1 ||
     gh release create "$tag" -R "$repo" --target "$rev" --prerelease \
       --title "BC Full original Oracle RNG and state recording" --notes "Complete BC Full tick range for the recorded profile. Private native checkpoint files support replay windows." >> "$log" 2>&1
@@ -115,7 +118,43 @@ if [ "$mode" = full ]; then
     gh release upload "$tag" -R "$repo" "$image.zst" --clobber >> "$log" 2>&1
   done
 else
-  test -s "$work/checkpoints/turn-16.bin"
+  checkpoint="$work/checkpoints/turn-$checkpoint_turn.bin"
+  test -s "$checkpoint"
+  python - "$sc" "$work/window.json" "$checkpoint_turn" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+original, window = map(Path, sys.argv[1:3])
+turn = int(sys.argv[3])
+scenario = json.loads(original.read_text())
+commands_path = scenario.get("commands")
+commands = []
+if commands_path:
+    commands = [json.loads(line) for line in (original.parent / commands_path).read_text().splitlines()
+                if line.strip()]
+commands = [command for command in commands if turn <= command["turn"] < turn + 16]
+(window.parent / "commands.jsonl").write_text("".join(json.dumps(command) + "\n" for command in commands))
+scenario.update(start_turn=turn, turns=16, commands="commands.jsonl")
+window.write_text(json.dumps(scenario))
+PY
+  python tools/oracle_observe.py --scenario "$work/window.json" --snapshot "$checkpoint" --game "$S5_GAME" \
+    --runtime "$S5_ARTIFACTS/boot/runtime" --output "$work/resumed.jsonl.gz" 2>> "$log" | tee -a "$log"
+  python tools/oracle_observe.py slice "$record" "$work/window.json" "$work/expected.jsonl.gz" 2>> "$log"
+  python - "$work/expected.jsonl.gz" "$work/resumed.jsonl.gz" >> "$log" 2>&1 <<'PY'
+import gzip
+import json
+import sys
+from itertools import zip_longest
+
+with gzip.open(sys.argv[1], "rt") as expected, gzip.open(sys.argv[2], "rt") as resumed:
+    next(expected)
+    next(resumed)
+    for want, have in zip_longest(expected, resumed):
+        if want is None or have is None or json.loads(want) != json.loads(have):
+            raise ValueError("resumed Oracle trace differs from the uninterrupted run")
+print("Oracle checkpoint replay matched all recorded fields and events")
+PY
   python tools/oracle_observe.py --scenario "$sc" --snapshot "$snapshot" --game "$S5_GAME" \
     --runtime "$S5_ARTIFACTS/boot/runtime" --output "$work/native-rng-probe.jsonl.gz" \
     --ticks 1 --probe-rng 2>> "$log" | tee -a "$log"
