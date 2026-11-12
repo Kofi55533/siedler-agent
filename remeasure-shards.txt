@@ -1,2 +1,7 @@
 # shards
 ai-long
+genb-ailong-mixed late-ai-long
+ai-builds-active ai-builds-oldkings late-ai
+genc-campcrawford-5000 camp-crawford-long camp-crawford
+gen-hero-activation gen-hero-npc combat-big
+campaign-04-wolfslair campaign-03-divineanger late-economy gen-serf-repair
