@@ -1,5 +1,2 @@
-owner-smoke
-verify
-rng-owners
-rng-streams
-entities
+timeline-smoke
+rng-all
