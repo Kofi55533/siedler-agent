@@ -11,6 +11,7 @@ on:
     inputs:
       mode: { description: 'warm | check-old | check-new | verify-merge | regate | remeasure', default: 'warm' }
       pr: { description: 'PR number (check modes) or merge commit sha (verify-merge)', default: '' }
+      observation_commit: { description: 'Optional reviewed simulation SHA for a parallel BC Full observation in remeasure mode', default: '' }
 permissions:
   contents: read
 jobs:
@@ -157,3 +158,12 @@ jobs:
       - name: Re-measure genb/genc on clean/integration (no LLM)
         env: { GH_TOKEN: '${{ secrets.PRIVATE_REPO_TOKEN }}', FX: '${{ inputs.pr }}' }
         run: S5_LIVE_TIMEOUT=1800 timeout 100m scripts/s5-remeasure.sh $FX
+
+  observation:
+    if: inputs.mode == 'remeasure' && inputs.observation_commit != ''
+    uses: ./.github/workflows/replay-observation.yml
+    with:
+      sim_commit: ${{ inputs.observation_commit }}
+      mode: full
+    secrets:
+      PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}

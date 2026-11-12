@@ -1,0 +1,82 @@
+name: Replay observation
+run-name: Replay observation ${{ inputs.sim_commit || 'pilot' }}
+on:
+  workflow_call:
+    inputs:
+      sim_commit:
+        type: string
+        required: true
+      mode:
+        type: string
+        default: both
+    secrets:
+      PRIVATE_REPO_TOKEN:
+        required: true
+  workflow_dispatch:
+    inputs:
+      sim_commit:
+        description: Reviewed commit SHA in the private simulation repository
+        required: true
+        default: 8d4a7e5aedb25f125346d22dc2315556847368f7
+      mode:
+        description: BC Full comparison depth
+        type: choice
+        options: [quick, full, both]
+        default: both
+  push:
+    branches: [codex/replay-observation-ci]
+permissions:
+  contents: read
+env:
+  REFERENCE_TAG: observation-bc-full-8d4a7e5aedb25f125346d22dc2315556847368f7
+  SIM_COMMIT: ${{ inputs.sim_commit || '8d4a7e5aedb25f125346d22dc2315556847368f7' }}
+jobs:
+  reference:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency:
+      group: bc-full-observation-inputs
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Prepare the private start bundle if needed
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+        run: scripts/s5-observation-inputs.sh
+  replay:
+    needs: reference
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: ${{ fromJSON(inputs.mode == 'quick' && '["quick"]' || inputs.mode == 'full' && '["full"]' || '["quick","full"]') }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Validate candidate revision
+        run: '[[ "$SIM_COMMIT" =~ ^[0-9a-f]{40}$ ]]'
+      - uses: actions/checkout@v4
+        with:
+          repository: Kofi55533/siedler-sim-rs
+          ref: ${{ env.SIM_COMMIT }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          path: sim
+          persist-credentials: false
+      - name: Download private inputs
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+        run: |
+          gh release download "$REFERENCE_TAG" -R Kofi55533/siedler-sim-rs \
+            -p bc-full-start.tar.zst -p bc-full-reference.jsonl.gz -p bc-full-expected.txt \
+            -D "$RUNNER_TEMP/observation-inputs"
+      - name: Run Clean comparison
+        env:
+          RUSTUP_TOOLCHAIN: '1.99.0'
+          MODE: ${{ matrix.mode }}
+        run: |
+          rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal
+          scripts/s5-observation.sh "$MODE" sim "$RUNNER_TEMP/observation-inputs"
