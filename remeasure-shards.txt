@@ -1,2 +1,5 @@
 # one job per line
 combat-waves
+genc-combatwaves-5000 genb-waves-assault combat-big
+combat-long gen-recruit-attack genb-combat-ops combat
+gen-leader-aggressive gen-leader-attach gen-leader-buy-soldier gen-leader-defend gen-leader-guard gen-leader-hold gen-leader-patrol gen-leader-stance
