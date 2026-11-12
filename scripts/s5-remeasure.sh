@@ -80,76 +80,92 @@ sc="$S5_V/fixtures/bc-full/scenario.json"
 img="$S5_ARTIFACTS/bc/gs_h.img"
 record="$work/bc-full-oracle.jsonl.gz"
 
-start=$(jq -er '.start_turn' "$sc")
-split=$((start + 16))
 repo=Kofi55533/siedler-sim-rs
-fast=oracle-bc-full-rng-1f5fd5735587262c776fa6b48decd05d0c587630
-prior=oracle-bc-full-acc27e172e500233a61fcb6eb177142b5db664c8
-
-echo "Reading the original shared RNG context at tick 18006"
-mkdir -p "$work/prior"
-gh release download "$prior" -R "$repo" -p bc-full-oracle.jsonl.gz -D "$work/prior" >> "$log" 2>&1
-python tools/oracle_observe.py show "$work/prior/bc-full-oracle.jsonl.gz" 18007 > "$work/18007.json"
-jq '{state, departure_draws: [.seed[] | select(.site == 4890195) | {before,after,site,stage,owner,entity_candidates}]}' \
-   "$work/18007.json" >> "$log"
-
-python tools/oracle_observe.py --scenario "$sc" --snapshot "$snapshot" --game "$S5_GAME" \
-  --runtime "$S5_ARTIFACTS/boot/runtime" --output "$work/control.jsonl.gz" --ticks 32 "${hasher[@]}" >> "$log" 2>&1
-python tools/oracle_observe.py --scenario "$sc" --snapshot "$snapshot" --game "$S5_GAME" \
-  --runtime "$S5_ARTIFACTS/boot/runtime" --output "$work/first.jsonl.gz" --ticks 16 \
-  --checkpoint-dir "$work" --checkpoint-at "$split" "${hasher[@]}" >> "$log" 2>&1
-python tools/oracle_observe.py --scenario "$sc" --snapshot "$work/turn-$split.bin" --game "$S5_GAME" \
-  --runtime "$S5_ARTIFACTS/boot/runtime" --output "$work/second.jsonl.gz" --from-turn "$split" --ticks 16 \
-  "${hasher[@]}" >> "$log" 2>&1
-python - "$sc" "$work/prefix.json" "$start" 32 "$work/short-commands.jsonl" <<'PY'
+original=oracle-bc-full-rng-1f5fd5735587262c776fa6b48decd05d0c587630
+tag="oracle-bc-full-windows-$GITHUB_RUN_ID"
+start=$(jq -er '.start_turn' "$sc")
+end=$(jq -er '.start_turn + .turns' "$sc")
+config="$GITHUB_WORKSPACE/remeasure-shards.txt"
+mapfile -t windows < <(grep -E '^[0-9]+-[0-9]+$' "$config")
+fetch_asset() {
+  until gh release download "$1" -R "$repo" -p "$2" -D "$3" --clobber > "$work/download.txt" 2>&1; do
+    sleep 30
+  done
+}
+if [ "$mode" = join ]; then
+  gh release create "$tag" -R "$repo" --target "$rev" --prerelease \
+    --title "BC Full parallel Oracle recording" \
+    --notes "These are repeatable windows from validated native checkpoints. bc-full-oracle.jsonl.gz appears after the join and comparison to the uninterrupted run." >> "$log" 2>&1
+  segments=()
+  for window in "${windows[@]}"; do
+    fetch_asset "$tag" "window-$window.jsonl.gz" "$work"
+    fetch_asset "$tag" "time-$window.txt" "$work"
+    segments+=("$work/window-$window.jsonl.gz")
+  done
+  /usr/bin/time -f 'join wall %e s' python tools/oracle_observe.py join "$sc" "$record" "${segments[@]}" >> "$log" 2>&1
+  gzip -t "$record"
+  mkdir -p "$work/original"
+  fetch_asset "$original" bc-full-oracle.jsonl.gz "$work/original"
+  python - "$work/original/bc-full-oracle.jsonl.gz" "$record" "$work" >> "$log" 2>&1 <<'PY'
+import gzip
+from itertools import zip_longest
 import json
 from pathlib import Path
 import sys
-source, target = map(Path, sys.argv[1:3])
-start, ticks = map(int, sys.argv[3:5])
-commands = Path(sys.argv[5])
-scenario = json.loads(source.read_text())
-with commands.open("w") as out:
-    if scenario.get("commands"):
-        for line in (source.parent / scenario["commands"]).read_text().splitlines():
-            if line.strip() and start <= json.loads(line)["turn"] < start + ticks:
-                print(line, file=out)
-scenario.update(start_turn=start, turns=ticks, commands=commands.name)
-target.write_text(json.dumps(scenario))
-PY
-python tools/oracle_observe.py join "$work/prefix.json" "$work/joined.jsonl.gz" \
-  "$work/first.jsonl.gz" "$work/second.jsonl.gz" >> "$log" 2>&1
-cmp <(gzip -dc "$work/control.jsonl.gz" | tail -n +2) <(gzip -dc "$work/joined.jsonl.gz" | tail -n +2)
-echo "Rejoined original checkpoint windows match the uninterrupted run byte for byte after the header" | tee -a "$log"
 
-late=4000
-gh release download "$fast" -R "$repo" -p "turn-$late.bin" -D "$work" >> "$log" 2>&1
-python recomp/export_image.py "$work/turn-$late.bin" "$work/late.img" --mem-only >> "$log" 2>&1
-python tools/oracle_observe.py --scenario "$sc" --snapshot "$work/turn-$late.bin" --game "$S5_GAME" \
-  --runtime "$S5_ARTIFACTS/boot/runtime" --output "$work/late.jsonl.gz" --from-turn "$late" --ticks 64 \
-  "${hasher[@]}" >> "$log" 2>&1
-python - "$sc" "$work/late-scenario.json" "$late" 64 <<'PY'
-import json
-from pathlib import Path
-import sys
-source, target = map(Path, sys.argv[1:3])
-start, ticks = map(int, sys.argv[3:5])
-commands = target.with_suffix(".jsonl")
-scenario = json.loads(source.read_text())
-with commands.open("w") as out:
-    if scenario.get("commands"):
-        for line in (source.parent / scenario["commands"]).read_text().splitlines():
-            if line.strip() and start <= json.loads(line)["turn"] < start + ticks:
-                print(line, file=out)
-scenario.update(start_turn=start, turns=ticks, commands=commands.name)
-target.write_text(json.dumps(scenario))
+original, joined, work = map(Path, sys.argv[1:])
+with gzip.open(original, "rt") as a, gzip.open(joined, "rt") as b:
+    old, new = json.loads(next(a)), json.loads(next(b))
+    for key in ("start", "turns", "scenario", "recorded_commands", "snapshot_sha256", "observation_profile"):
+        if old[key] != new[key]:
+            raise ValueError(f"joined recording differs in {key}")
+    n = 0
+    confirmed = 0
+    for raw_a, raw_b in zip_longest(a, b):
+        if raw_a is None or raw_b is None:
+            raise ValueError("joined recording has a different number of rows")
+        n += 1
+        prev, have = json.loads(raw_a), json.loads(raw_b)
+        for draw in have["seed"]:
+            owner = draw.pop("owner", None)
+            if owner is not None:
+                assert owner["kind"] == "building_departure" and draw["site"] == 0x4A9E53
+                candidate = draw["entity_candidates"].get("edi")
+                if candidate is not None:
+                    assert owner["building"] == candidate
+                    confirmed += 1
+        if prev != have:
+            raise ValueError(f"joined observations differ entering tick {prev['state']['turn']}")
+    assert n == new["turns"] + 1
+    print(f"{n} state rows and all recorded events equal to uninterrupted Oracle")
+    print(f"{confirmed} explicit building IDs also match the earlier EDI evidence")
+timings = {path.stem[5:]: float(path.read_text()) for path in work.glob("time-*.txt")}
+slowest = max(timings, key=timings.get)
+print(f"Each window, Oracle process seconds: {timings}")
+print(f"Slowest {slowest}: {timings[slowest]:.2f} seconds")
+print(f"Sequential process time of the same windows: {sum(timings.values()):.2f} seconds")
+print(f"Joined archive {joined.stat().st_size} bytes")
 PY
-export CARGO_TARGET_DIR="$S5_REPO/recomp/target"
-cd crates/s5clean
-cargo build --locked --release -j 2 --example observe >> "$log" 2>&1
-rc=0
-/usr/bin/time -f 'wall %e s' "$CARGO_TARGET_DIR/release/examples/observe" "$work/late-scenario.json" \
-  "$work/late.img" "$work/late.jsonl.gz" --entities > "$work/compare.txt" 2>&1 || rc=$?
-cat "$work/compare.txt" >> "$log"
-[ "$rc" -le 1 ]
-grep -oE '^bc-full: (DIVERGENT turn [0-9]+|IDENTICAL [0-9]+ ticks)' "$work/compare.txt"
+  gh release upload "$tag" -R "$repo" "$record" >> "$log" 2>&1
+  grep -E '(^[0-9]+ state rows|^Slowest |^Sequential process time|^Joined archive)' "$log"
+  exit
+fi
+
+[[ "$mode" =~ ^([0-9]+)-([0-9]+)$ ]]
+from="${BASH_REMATCH[1]}"
+to="${BASH_REMATCH[2]}"
+[[ "$start" -le "$from" && "$from" -lt "$to" && "$to" -le "$end" ]]
+if [ "$from" != "$start" ]; then
+  echo "Waiting for native checkpoint $from"
+  fetch_asset "$original" "turn-$from.bin" "$work"
+  snapshot="$work/turn-$from.bin"
+fi
+until gh release view "$tag" -R "$repo" >/dev/null 2>&1; do sleep 15; done
+window="$work/window-$mode.jsonl.gz"
+echo "Recording $from through $to"
+time_file="$work/time-$mode.txt"
+/usr/bin/time -f '%e' -o "$time_file" python tools/oracle_observe.py --scenario "$sc" --snapshot "$snapshot" \
+  --game "$S5_GAME" --runtime "$S5_ARTIFACTS/boot/runtime" --output "$window" --from-turn "$from" \
+  --ticks "$((to - from))" "${hasher[@]}" 2>> "$log" | tee -a "$log"
+gzip -t "$window"
+gh release upload "$tag" -R "$repo" "$window" "$time_file" --clobber >> "$log" 2>&1
