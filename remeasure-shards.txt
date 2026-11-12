@@ -1,5 +1,1 @@
-owner-smoke
-verify
-rng-owners
-rng-streams
-entities
+checkpoint-window

@@ -23,10 +23,10 @@ cd "$S5_REPO"
 for attempt in $(seq 1 150); do
   git fetch -q origin "$S5_REMEASURE_REF" >> "$log" 2>&1
   git checkout -q --detach FETCH_HEAD >> "$log" 2>&1
-  grep -q -- '--rng-owners' crates/s5clean/examples/observe.rs 2>/dev/null && break
+  grep -q '^def join_reference' tools/oracle_observe.py 2>/dev/null && break
   sleep 10
 done
-grep -q -- '--rng-owners' crates/s5clean/examples/observe.rs
+grep -q '^def join_reference' tools/oracle_observe.py
 rev=$(git rev-parse HEAD)
 echo "candidate $rev" >> "$log"
 cc -O3 -shared -fPIC tools/oracle_task_hashes.c -o "$work/task-hasher.so" >> "$log" 2>&1
@@ -80,116 +80,76 @@ sc="$S5_V/fixtures/bc-full/scenario.json"
 img="$S5_ARTIFACTS/bc/gs_h.img"
 record="$work/bc-full-oracle.jsonl.gz"
 
+start=$(jq -er '.start_turn' "$sc")
+split=$((start + 16))
 repo=Kofi55533/siedler-sim-rs
 fast=oracle-bc-full-rng-1f5fd5735587262c776fa6b48decd05d0c587630
 prior=oracle-bc-full-acc27e172e500233a61fcb6eb177142b5db664c8
-export CARGO_TARGET_DIR="$S5_REPO/recomp/target"
-if [ "$mode" != verify ]; then
-  (cd crates/s5clean && cargo build --locked --release -j 2 --example observe) >> "$log" 2>&1
-fi
-if [ "$mode" = owner-smoke ]; then
-  python tools/oracle_observe.py --scenario "$sc" --snapshot "$snapshot" --game "$S5_GAME" \
-    --runtime "$S5_ARTIFACTS/boot/runtime" --output "$record" --ticks 64 "${hasher[@]}" >> "$log" 2>&1
-  python tools/oracle_observe.py show "$record" "$(jq -er '.start_turn + 2' "$sc")" >/dev/null 2>> "$log"
-else
-  echo "Waiting for the verified Oracle archive"
-  until gh release download "$fast" -R "$repo" -p bc-full-oracle.jsonl.gz -D "$work" --clobber >> "$log" 2>&1; do
-    sleep 45
-  done
-  gzip -t "$record"
-  echo "Verified gzip integrity for $fast" >> "$log"
-fi
 
-if [ "$mode" = verify ]; then
-  mkdir -p "$work/prior"
-  gh release download "$prior" -R "$repo" -p bc-full-oracle.jsonl.gz -D "$work/prior" >> "$log" 2>&1
-  python - "$work/prior/bc-full-oracle.jsonl.gz" "$record" >> "$log" 2>&1 <<'PY'
-from collections import Counter
-import gzip
+echo "Reading the original shared RNG context at tick 18006"
+mkdir -p "$work/prior"
+gh release download "$prior" -R "$repo" -p bc-full-oracle.jsonl.gz -D "$work/prior" >> "$log" 2>&1
+python tools/oracle_observe.py show "$work/prior/bc-full-oracle.jsonl.gz" 18007 > "$work/18007.json"
+jq '{state, departure_draws: [.seed[] | select(.site == 4890195) | {before,after,site,stage,owner,entity_candidates}]}' \
+   "$work/18007.json" >> "$log"
+
+python tools/oracle_observe.py --scenario "$sc" --snapshot "$snapshot" --game "$S5_GAME" \
+  --runtime "$S5_ARTIFACTS/boot/runtime" --output "$work/control.jsonl.gz" --ticks 32 "${hasher[@]}" >> "$log" 2>&1
+python tools/oracle_observe.py --scenario "$sc" --snapshot "$snapshot" --game "$S5_GAME" \
+  --runtime "$S5_ARTIFACTS/boot/runtime" --output "$work/first.jsonl.gz" --ticks 16 \
+  --checkpoint-dir "$work" --checkpoint-at "$split" "${hasher[@]}" >> "$log" 2>&1
+python tools/oracle_observe.py --scenario "$sc" --snapshot "$work/turn-$split.bin" --game "$S5_GAME" \
+  --runtime "$S5_ARTIFACTS/boot/runtime" --output "$work/second.jsonl.gz" --from-turn "$split" --ticks 16 \
+  "${hasher[@]}" >> "$log" 2>&1
+python - "$sc" "$work/prefix.json" "$start" 32 "$work/short-commands.jsonl" <<'PY'
 import json
-from itertools import zip_longest
 from pathlib import Path
 import sys
-
-prior, current = map(Path, sys.argv[1:])
-with gzip.open(prior, "rt") as baseline, gzip.open(current, "rt") as reference:
-    old = json.loads(next(baseline))
-    new = json.loads(next(reference))
-    assert old["oracle_format"] == new["oracle_format"] == 1
-    assert new["observation_profile"] == "rng-and-entity-state-v1"
-    for key in ("start", "turns", "scenario", "recorded_commands", "snapshot_sha256"):
-        assert old[key] == new[key], key
-    start = new["start"]
-    end = start + new["turns"]
-    fields = new["entity_fields"]
-    entities = {}
-    events = Counter()
-    sites = Counter()
-    ownership = Counter()
-    draws = 0
-    rows = 0
-    for turn, (want, have) in enumerate(zip_longest(baseline, reference), start):
-        assert want is not None and have is not None and turn <= end, turn
-        a, b = json.loads(want), json.loads(have)
-        assert a["state"] == b["state"] and b["state"]["turn"] == turn, turn
-        for key in ("tasks", "task_updates", "task_removed"):
-            assert a[key] == b[key], (turn, key)
-        def draws_at(row):
-            return [tuple(draw[k] for k in ("before", "after", "stage", "site")) for draw in row["seed"]]
-        assert draws_at(a) == draws_at(b), turn
-        for entity in b["entity_removed"]:
-            del entities[entity]
-        for entity, values in b["entity_updates"]:
-            assert len(values) == len(fields), (turn, entity)
-            entities[entity] = values
-        events.update(event["lane"] for event in b["rng_events"])
-        for draw in b["seed"]:
-            site = draw["site"]
-            sites[site] += 1
-            if site == 0x4A9E53:
-                building = draw.get("owner", {}).get("building", draw.get("entity_candidates", {}).get("edi"))
-                if building is not None:
-                    ownership[site] += 1
-                if turn == 18007:
-                    print("RNG during tick 18006 entering 18007", {
-                        "site": hex(site), "before": hex(draw["before"]), "after": hex(draw["after"]),
-                        "building_id": f"{building:#x}" if building is not None else None,
-                        "raw_edi": hex(draw["registers"]["edi"]),
-                    })
-        draws += len(b["seed"])
-        rows += 1
-    assert rows == end - start + 1 and draws > 0 and entities
-    print(f"Ticks {start} through {end}, {rows} rows, {draws} shared writes match prior original capture")
-    print("Compared every recorded task field delta and shared write to prior original run")
-    print(f"{len(fields)} recorded fields per live entity, {len(entities)} live at final tick")
-    print("Additional events by lane", {key: events[key] for key in ("lua_crt", "object_local", "crandom")})
-    print("Shared writer sites and counts", {hex(site): count for site, count in sorted(sites.items())})
-    print("Verified building recipients", ownership[0x4A9E53], "of", sites[0x4A9E53], "site draws")
-    print(f"Compressed bytes {current.stat().st_size}")
+source, target = map(Path, sys.argv[1:3])
+start, ticks = map(int, sys.argv[3:5])
+commands = Path(sys.argv[5])
+scenario = json.loads(source.read_text())
+with commands.open("w") as out:
+    if scenario.get("commands"):
+        for line in (source.parent / scenario["commands"]).read_text().splitlines():
+            if line.strip() and start <= json.loads(line)["turn"] < start + ticks:
+                print(line, file=out)
+scenario.update(start_turn=start, turns=ticks, commands=commands.name)
+target.write_text(json.dumps(scenario))
 PY
-  grep -E '^(Ticks |Compared |[0-9]+ recorded fields|Additional events|Compressed bytes)' "$log"
-  exit
-fi
+python tools/oracle_observe.py join "$work/prefix.json" "$work/joined.jsonl.gz" \
+  "$work/first.jsonl.gz" "$work/second.jsonl.gz" >> "$log" 2>&1
+cmp <(gzip -dc "$work/control.jsonl.gz" | tail -n +2) <(gzip -dc "$work/joined.jsonl.gz" | tail -n +2)
+echo "Rejoined original checkpoint windows match the uninterrupted run byte for byte after the header" | tee -a "$log"
 
+late=4000
+gh release download "$fast" -R "$repo" -p "turn-$late.bin" -D "$work" >> "$log" 2>&1
+python recomp/export_image.py "$work/turn-$late.bin" "$work/late.img" --mem-only >> "$log" 2>&1
+python tools/oracle_observe.py --scenario "$sc" --snapshot "$work/turn-$late.bin" --game "$S5_GAME" \
+  --runtime "$S5_ARTIFACTS/boot/runtime" --output "$work/late.jsonl.gz" --from-turn "$late" --ticks 64 \
+  "${hasher[@]}" >> "$log" 2>&1
+python - "$sc" "$work/late-scenario.json" "$late" 64 <<'PY'
+import json
+from pathlib import Path
+import sys
+source, target = map(Path, sys.argv[1:3])
+start, ticks = map(int, sys.argv[3:5])
+commands = target.with_suffix(".jsonl")
+scenario = json.loads(source.read_text())
+with commands.open("w") as out:
+    if scenario.get("commands"):
+        for line in (source.parent / scenario["commands"]).read_text().splitlines():
+            if line.strip() and start <= json.loads(line)["turn"] < start + ticks:
+                print(line, file=out)
+scenario.update(start_turn=start, turns=ticks, commands=commands.name)
+target.write_text(json.dumps(scenario))
+PY
+export CARGO_TARGET_DIR="$S5_REPO/recomp/target"
 cd crates/s5clean
-limit=()
-scope="--$mode"
-if [ "$mode" = owner-smoke ]; then
-  cargo test --locked --release -j 2 --lib scopes_building_ownership_to_the_draw_inside_the_consumer >> "$log" 2>&1
-  cargo test --locked --release -j 2 --lib lua_seed_and_failed_draw_are_observed_in_command_order >> "$log" 2>&1
-  scope=--rng-owners
-  limit=(64)
-fi
+cargo build --locked --release -j 2 --example observe >> "$log" 2>&1
 rc=0
-/usr/bin/time -f 'wall %e s' "$CARGO_TARGET_DIR/release/examples/observe" "$sc" "$img" "$record" "${limit[@]}" "$scope" \
-  > "$work/compare.txt" 2>&1 || rc=$?
+/usr/bin/time -f 'wall %e s' "$CARGO_TARGET_DIR/release/examples/observe" "$work/late-scenario.json" \
+  "$work/late.img" "$work/late.jsonl.gz" --entities > "$work/compare.txt" 2>&1 || rc=$?
 cat "$work/compare.txt" >> "$log"
 [ "$rc" -le 1 ]
-if [ "$mode" = owner-smoke ]; then
-  [ "$rc" = 0 ]
-  grep -E '^[1-9][0-9]* verified matching draw recipients "$work/compare.txt"
-fi
-grep -oE '^bc-full: (DIVERGENT turn [0-9]+|IDENTICAL [0-9]+ ticks)' "$work/compare.txt"
- "$work/compare.txt"
-fi
 grep -oE '^bc-full: (DIVERGENT turn [0-9]+|IDENTICAL [0-9]+ ticks)' "$work/compare.txt"
