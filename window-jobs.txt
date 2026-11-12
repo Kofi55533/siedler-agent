@@ -1,11 +1,1 @@
-bc-0804:12754
-bc-full:17941
-07-flood:340 10-floodedland:100 10-folklung:679
-campaign-01-demondays:29 campaign-02-villageattack:358 campaign-03-thebeautifulland:30
-campaign-04-intoshadowintolight:197 campaign-06-cleycourt:301 campaign-08-barmecia:106
-campaign-08-unexploredland:590 campaign-12-kaloix:31 campaign-18-evelance:450
-caribeansurf:201 gen-enter-building-0x1500d:575 map-citygates:497
-map-clanwar:50 map-frozenfjord:690 map-mornheim:56
-map-oldenemies:36 map-peacefulland:31 map-sandbox:590
-map-siege:62 map-smalldale:391 map-spreadland:349
-map-summerisland:36 map-supplylines:29 rivercrossing:299
+map-supplylines:29::6
