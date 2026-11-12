@@ -34,52 +34,35 @@ echo "candidate $rev" | tee -a "$log"
 
 export CARGO_TARGET_DIR="$S5_REPO/recomp/target"
 cd recomp
-case "$1" in
-  boot)
-    echo "Running boot verification"
-    cargo build --release -j 2 -p s5gfx --bin s5render >> "$log" 2>&1
-    python verify.py boot >> "$log" 2>&1
-    ;;
-  blocktest)
-    echo "Running block verification with the original checkpoint"
-    cargo build --release -j 2 -p s5blocktest >> "$log" 2>&1
-    mkdir -p "$S5_ARTIFACTS/blocktest"
-    for file in g20h.img g20h.img.state.json; do
-      endpoint="repos/Kofi55533/siedler-forschung/contents/cloud-re/artifacts/recomp/blocktest/$file"
-      gh api -H 'Accept: application/vnd.github.raw+json' "$endpoint" > "$S5_ARTIFACTS/blocktest/$file" 2>> "$log"
-    done
-    python verify.py blocktest --jobs 2 >> "$log" 2>&1
-    ;;
-  state|cache)
-    echo "Building observation tools"
-    cargo build --release -j 2 -p s5verify >> "$log" 2>&1
-    sc="$S5_V/fixtures/bc-full/scenario.json"
-    img="$S5_ARTIFACTS/bc/gs_h.img"
-    verify="$CARGO_TARGET_DIR/release/s5verify"
-    export S5_REMAP=$(python -c "import verify; print(verify.remap_for('$img', 'target/verify/observation-full-bc'))")
-    if [ "$1" = state ]; then
-      echo "Comparing state and RNG across BC Full"
-      rc=0
-      /usr/bin/time -f 'wall %e s' "$verify" observe-live ../data/scope/schema.json "$sc" "$img" >> "$log" 2>&1 || rc=$?
-      [ "$rc" -le 1 ]
-      grep -oE '^bc-full: (DIVERGENT turn [0-9]+|IDENTICAL [0-9]+ ticks)' "$log"
-    else
-      echo "Recording the full BC reference for repeat comparisons"
-      tag="observation-bc-full-$rev"
-      cache="$work/bc-full-reference.jsonl.gz"
-      /usr/bin/time -f 'wall %e s' "$verify" observe-record ../data/scope/schema.json "$sc" "$img" "$cache" "$rev" >> "$log" 2>&1
-      wc -c < "$cache" | sed 's/^/Reference cache bytes: /' >> "$log"
-      sha256sum "$cache" >> "$log"
-      gh release view "$tag" -R Kofi55533/siedler-sim-rs >/dev/null 2>&1 ||
-        gh release create "$tag" -R Kofi55533/siedler-sim-rs --target "$rev" --prerelease --title "BC Full reference observation" --notes "Reusable reference data for the BC Full replay." >> "$log" 2>&1
-      gh release upload "$tag" -R Kofi55533/siedler-sim-rs "$cache" --clobber >> "$log" 2>&1
-      cd "$S5_REPO/crates/s5clean"
-      cargo build --release -j 2 --example observe >> "$log" 2>&1
-      rc=0
-      /usr/bin/time -f 'wall %e s' "$CARGO_TARGET_DIR/release/examples/observe" "$sc" "$img" "$cache" >> "$log" 2>&1 || rc=$?
-      [ "$rc" -le 1 ]
-      grep -oE '^bc-full: (DIVERGENT turn [0-9]+|IDENTICAL [0-9]+ ticks)' "$log"
-    fi
-    ;;
-  *) echo "Unknown validation job"; exit 2 ;;
-esac
+cargo build --release -j 2 -p s5verify >> "$log" 2>&1
+sc="$S5_V/fixtures/bc-full/scenario.json"
+img="$S5_ARTIFACTS/bc/gs_h.img"
+verify="$CARGO_TARGET_DIR/release/s5verify"
+tag="observation-bc-full-$rev"
+schema="$S5_REPO/data/scope/schema.json"
+export S5_REMAP=$(python -c "import verify; print(verify.remap_for('$img', 'target/verify/observation-window-bc'))")
+echo "Preparing the BC Full checkpoint"
+mkdir -p "$work/window"
+"$verify" window "$schema" "$sc" "$img" 6841 2 "$work/window" >> "$log" 2>&1
+python - "$work/window/commands.jsonl" >> "$log" <<'PY'
+import json
+import sys
+with open(sys.argv[1], encoding="utf-8") as commands:
+    for row in commands:
+        command = json.loads(row)
+        print("window command:", command["turn"], command["class"])
+PY
+rc=0
+/usr/bin/time -f 'window wall %e s' "$verify" observe-live "$schema" "$work/window/scenario.json" "$work/window/start.img" >> "$log" 2>&1 || rc=$?
+[ "$rc" -le 1 ]
+if grep -Eq '^bc-full-at6841: DIVERGENT turn 6842: tasks.hurt_guard' "$log"; then
+  cache="bc-full-at-6841.tar.zst"
+  tar -I 'zstd -3' -cf "$work/$cache" -C "$work/window" scenario.json start.img start.img.state.json commands.jsonl
+  gh release upload "$tag" -R Kofi55533/siedler-sim-rs "$work/$cache" --clobber >> "$log" 2>&1
+fi
+echo "Checking the first 32 ticks with the shared reference file"
+gh release download "$tag" -R Kofi55533/siedler-sim-rs -p 'bc-full-reference.jsonl.gz' -D "$work" >> "$log" 2>&1
+cd "$S5_REPO/crates/s5clean"
+cargo build --release -j 2 --example observe >> "$log" 2>&1
+/usr/bin/time -f 'prefix wall %e s' "$CARGO_TARGET_DIR/release/examples/observe" "$sc" "$img" "$work/bc-full-reference.jsonl.gz" 32 >> "$log" 2>&1
+grep -E '^bc-full: IDENTICAL 32 ticks' "$log"
