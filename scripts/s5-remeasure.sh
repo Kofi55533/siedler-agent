@@ -88,17 +88,25 @@ from collections import Counter
 import gzip
 import json
 import sys
-sites = {0x511CA7, 0x511CD6}
-count, candidates = Counter(), Counter()
+
+sites = (0x4494CB, 0x4EB033, 0x4F72BD, 0x571047)
+counts = {site: Counter() for site in sites}
+first = {}
 with gzip.open(sys.argv[1], "rt") as stream:
     next(stream)
     for line in stream:
-        for event in json.loads(line)["seed"]:
+        row = json.loads(line)
+        for event in row["seed"]:
             site = event["site"]
-            if site in sites:
-                count[site] += 1
-                candidates[site] += int("ebx" in event["entity_candidates"])
-print("Animal wander sites and EBX evidence", {hex(k): (candidates[k], v) for k, v in count.items()})
+            if site in counts:
+                returns = tuple(hex(frame[0]) for frame in event["frames"][:4])
+                candidates = tuple(sorted(event["entity_candidates"]))
+                counts[site][returns, candidates] += 1
+                first.setdefault(site, row["state"]["turn"])
+for site, counts_at_site in counts.items():
+    print(f"{site:#x}: {sum(counts_at_site.values())} draws, first boundary {first.get(site)}")
+    for (returns, candidates), count in counts_at_site.most_common():
+        print(f"  {count}: frames={returns}, entity registers={candidates}")
 PY
 S5_INSTALL="$S5_GAME" ORACLE_SCRATCH="$work/assembly" ORACLE_RUNTIME="$S5_ARTIFACTS/boot/runtime" \
   RESTORE="$snapshot" MODS=1 python - >> "$log" 2>&1 <<'PY'
@@ -108,7 +116,9 @@ import run
 from capstone import Cs, CS_ARCH_X86, CS_MODE_32
 e = run.build()
 decoder = Cs(CS_ARCH_X86, CS_MODE_32)
-for start, end in ((0x511B03, 0x511DF9), (0x511DF9, 0x511E52)):
+ranges = ((0x4494CB, 0x449510), (0x4EB033, 0x4EB095), (0x4F72BD, 0x4F7340), (0x571047, 0x571095), (0x5002F0, 0x500335), (0x500928, 0x500980), (0x4EB2C9, 0x4EB315), (0x4F8908, 0x4F8940), (0x44CBD3, 0x44CC15))
+for start, end in ranges:
+    print(f"Code near {start:#x}")
     for insn in decoder.disasm(e.rb(start, end - start), start):
         print(f"{insn.address:#x} {insn.mnemonic} {insn.op_str}")
 PY
