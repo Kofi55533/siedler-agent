@@ -1,1 +1,1 @@
-baseline of clean/integration @eee43de3 (106 + 28 map-start scenarios, after #2212-#2215)
+baseline of clean/integration @0afa1dd9 (106 + 70 map-start scenarios, after #2217 #2218 #2219)
