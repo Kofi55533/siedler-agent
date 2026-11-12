@@ -1,2 +1,6 @@
-# dark: trace turn 893
+# dark fix: master builder neutral bridge skip
 campaign-03-darknessuprise
+campaign-03-divineanger campaign-01-newbeginning campaign-01-restoringthefaith
+campaign-04-wolfslair campaign-08-unexploredland 01-revenge
+map-arcanum map-fouronone map-frontiercompanions
+map-highland-siege map-trade4technology map-winterrealm castrum
