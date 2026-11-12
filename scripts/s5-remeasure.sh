@@ -23,10 +23,10 @@ cd "$S5_REPO"
 for attempt in $(seq 1 150); do
   git fetch -q origin "$S5_REMEASURE_REF" >> "$log" 2>&1
   git checkout -q --detach FETCH_HEAD >> "$log" 2>&1
-  grep -q 's5_entity_rows' tools/oracle_task_hashes.c 2>/dev/null && break
+  grep -q -- '--rng-owners' crates/s5clean/examples/observe.rs 2>/dev/null && break
   sleep 10
 done
-grep -q 's5_entity_rows' tools/oracle_task_hashes.c
+grep -q -- '--rng-owners' crates/s5clean/examples/observe.rs
 rev=$(git rev-parse HEAD)
 echo "candidate $rev" >> "$log"
 cc -O3 -shared -fPIC tools/oracle_task_hashes.c -o "$work/task-hasher.so" >> "$log" 2>&1
@@ -79,128 +79,117 @@ done < "$work/missing-install.txt"
 sc="$S5_V/fixtures/bc-full/scenario.json"
 img="$S5_ARTIFACTS/bc/gs_h.img"
 record="$work/bc-full-oracle.jsonl.gz"
-start_turn=$(jq -er '.start_turn' "$sc")
-terminal_turn=$(jq -er '.start_turn + .turns' "$sc")
-checkpoint_turn=$((start_turn + 16))
-ticks=()
-checkpoints=()
-if [ "$mode" = smoke ]; then
-  ticks=(--ticks 32)
-  checkpoints=(--checkpoint-dir "$work/checkpoints" --checkpoint-at "$checkpoint_turn")
-fi
-if [ "$mode" = full ]; then
-  checkpoints=(--checkpoint-dir "$work/checkpoints")
-  for turn in 4000 7000 10000 13000 15000 17000 19000 20500 22000 23000; do
-    checkpoints+=(--checkpoint-at "$turn")
-  done
-fi
-if [ "$mode" = benchmark ]; then
-  for backend in python native; do
-    args=()
-    if [ "$backend" = native ]; then args=("${hasher[@]}"); fi
-    echo "Measuring full recording with $backend entity reads and task hashes" | tee -a "$log"
-    python tools/oracle_observe.py --scenario "$sc" --snapshot "$snapshot" --game "$S5_GAME" \
-      --runtime "$S5_ARTIFACTS/boot/runtime" --output "$work/benchmark-$backend.jsonl.gz" \
-      --ticks 512 --benchmark full "${args[@]}" 2>> "$log" | tee -a "$log"
-  done
-  cmp <(gzip -dc "$work/benchmark-python.jsonl.gz") <(gzip -dc "$work/benchmark-native.jsonl.gz")
-  echo "Python and native entity capture output is identical" | tee -a "$log"
-  exit 0
-fi
-repo=Kofi55533/siedler-sim-rs
-tag="oracle-bc-full-rng-$rev"
-if [ "$mode" = full ]; then
-  gh release view "$tag" -R "$repo" >/dev/null 2>&1 ||
-    gh release create "$tag" -R "$repo" --target "$rev" --prerelease \
-      --title "BC Full original Oracle RNG and state recording" --notes "Native checkpoints arrive during recording. The complete observation profile is available when bc-full-oracle.jsonl.gz is present." >> "$log" 2>&1
-fi
-stream_progress() {
-  local line old path branch tick
-  path="repos/Kofi55533/siedler-sim-rs/contents/results/oracle-progress-$GITHUB_RUN_ID-$mode.txt"
-  branch=codex/replay-observation-results
-  while IFS= read -r line; do
-    echo "$line"
-    if [[ "$mode" = full && "$line" =~ ^Oracle\ (recorded|recording|checkpoint) ]]; then
-      printf '%s\n' "$line" >> "$work/progress.txt"
-      old=$(gh api "$path?ref=$branch" --jq .sha 2>/dev/null || true)
-      base64 -w0 "$work/progress.txt" | jq -Rs --arg branch "$branch" --arg old "$old" \
-        '{message:"Update Oracle progress",branch:$branch,content:.} + (if $old=="" then {} else {sha:$old} end)' > "$work/progress.json"
-      gh api --method PUT "$path" --input "$work/progress.json" >/dev/null 2>&1 || true
-      if [[ "$line" =~ ^Oracle\ checkpoint\ at\ tick\ ([0-9]+)$ ]]; then
-        tick="${BASH_REMATCH[1]}"
-        gh release upload "$tag" -R "$repo" "$work/checkpoints/turn-$tick.bin" --clobber >> "$log" 2>&1 || true
-      fi
-    fi
-  done
-}
-echo "Starting original Oracle recording ($mode)"
-python tools/oracle_observe.py --scenario "$sc" --snapshot "$snapshot" --game "$S5_GAME" \
-  --runtime "$S5_ARTIFACTS/boot/runtime" --output "$record" "${ticks[@]}" "${checkpoints[@]}" "${hasher[@]}" \
-  2>> "$log" | tee -a "$log" | stream_progress
-if [ "$mode" = full ]; then
-  gzip -t "$record"
-  python tools/oracle_observe.py show "$record" "$terminal_turn" > "$work/terminal.json" 2>> "$log"
-  echo "Validated the complete archive and terminal tick $terminal_turn" >> "$log"
-  gh release upload "$tag" -R "$repo" "$record" --clobber >> "$log" 2>&1
-  uploaded=$(gh release view "$tag" -R "$repo" --json assets --jq '.assets[].name' 2>> "$log")
-  for image in "$work/checkpoints/"*.bin; do
-    if ! grep -Fxq "$(basename "$image")" <<< "$uploaded"; then
-      gh release upload "$tag" -R "$repo" "$image" --clobber >> "$log" 2>&1
-    fi
-  done
-else
-  checkpoint="$work/checkpoints/turn-$checkpoint_turn.bin"
-  test -s "$checkpoint"
-  python - "$sc" "$work/window.json" "$checkpoint_turn" <<'PY'
-import json
-import sys
-from pathlib import Path
 
-original, window = map(Path, sys.argv[1:3])
-turn = int(sys.argv[3])
-scenario = json.loads(original.read_text())
-commands_path = scenario.get("commands")
-commands = []
-if commands_path:
-    commands = [json.loads(line) for line in (original.parent / commands_path).read_text().splitlines()
-                if line.strip()]
-commands = [command for command in commands if turn <= command["turn"] < turn + 16]
-(window.parent / "commands.jsonl").write_text("".join(json.dumps(command) + "\n" for command in commands))
-scenario.update(start_turn=turn, turns=16, commands="commands.jsonl")
-window.write_text(json.dumps(scenario))
-PY
-  python tools/oracle_observe.py --scenario "$work/window.json" --snapshot "$checkpoint" --game "$S5_GAME" \
-    --runtime "$S5_ARTIFACTS/boot/runtime" --output "$work/resumed.jsonl.gz" 2>> "$log" | tee -a "$log"
-  python tools/oracle_observe.py slice "$record" "$work/window.json" "$work/expected.jsonl.gz" 2>> "$log"
-  python - "$work/expected.jsonl.gz" "$work/resumed.jsonl.gz" >> "$log" 2>&1 <<'PY'
+repo=Kofi55533/siedler-sim-rs
+fast=oracle-bc-full-rng-1f5fd5735587262c776fa6b48decd05d0c587630
+prior=oracle-bc-full-acc27e172e500233a61fcb6eb177142b5db664c8
+export CARGO_TARGET_DIR="$S5_REPO/recomp/target"
+if [ "$mode" != verify ]; then
+  (cd crates/s5clean && cargo build --locked --release -j 2 --example observe) >> "$log" 2>&1
+fi
+if [ "$mode" = owner-smoke ]; then
+  python tools/oracle_observe.py --scenario "$sc" --snapshot "$snapshot" --game "$S5_GAME" \
+    --runtime "$S5_ARTIFACTS/boot/runtime" --output "$record" --ticks 64 "${hasher[@]}" >> "$log" 2>&1
+  python tools/oracle_observe.py show "$record" "$(jq -er '.start_turn + 2' "$sc")" >/dev/null 2>> "$log"
+else
+  echo "Waiting for the verified Oracle archive"
+  until gh release download "$fast" -R "$repo" -p bc-full-oracle.jsonl.gz -D "$work" --clobber >> "$log" 2>&1; do
+    sleep 45
+  done
+  gzip -t "$record"
+  echo "Verified gzip integrity for $fast" >> "$log"
+fi
+
+if [ "$mode" = verify ]; then
+  mkdir -p "$work/prior"
+  gh release download "$prior" -R "$repo" -p bc-full-oracle.jsonl.gz -D "$work/prior" >> "$log" 2>&1
+  python - "$work/prior/bc-full-oracle.jsonl.gz" "$record" >> "$log" 2>&1 <<'PY'
+from collections import Counter
 import gzip
 import json
-import sys
 from itertools import zip_longest
+from pathlib import Path
+import sys
 
-with gzip.open(sys.argv[1], "rt") as expected, gzip.open(sys.argv[2], "rt") as resumed:
-    next(expected)
-    next(resumed)
-    for want, have in zip_longest(expected, resumed):
-        if want is None or have is None or json.loads(want) != json.loads(have):
-            raise ValueError("resumed Oracle trace differs from the uninterrupted run")
-print("Oracle checkpoint replay matched all recorded fields and events")
+prior, current = map(Path, sys.argv[1:])
+with gzip.open(prior, "rt") as baseline, gzip.open(current, "rt") as reference:
+    old = json.loads(next(baseline))
+    new = json.loads(next(reference))
+    assert old["oracle_format"] == new["oracle_format"] == 1
+    assert new["observation_profile"] == "rng-and-entity-state-v1"
+    for key in ("start", "turns", "scenario", "recorded_commands", "snapshot_sha256"):
+        assert old[key] == new[key], key
+    start = new["start"]
+    end = start + new["turns"]
+    fields = new["entity_fields"]
+    entities = {}
+    events = Counter()
+    sites = Counter()
+    ownership = Counter()
+    draws = 0
+    rows = 0
+    for turn, (want, have) in enumerate(zip_longest(baseline, reference), start):
+        assert want is not None and have is not None and turn <= end, turn
+        a, b = json.loads(want), json.loads(have)
+        assert a["state"] == b["state"] and b["state"]["turn"] == turn, turn
+        for key in ("tasks", "task_updates", "task_removed"):
+            assert a[key] == b[key], (turn, key)
+        def draws_at(row):
+            return [tuple(draw[k] for k in ("before", "after", "stage", "site")) for draw in row["seed"]]
+        assert draws_at(a) == draws_at(b), turn
+        for entity in b["entity_removed"]:
+            del entities[entity]
+        for entity, values in b["entity_updates"]:
+            assert len(values) == len(fields), (turn, entity)
+            entities[entity] = values
+        events.update(event["lane"] for event in b["rng_events"])
+        for draw in b["seed"]:
+            site = draw["site"]
+            sites[site] += 1
+            if site == 0x4A9E53:
+                building = draw.get("owner", {}).get("building", draw.get("entity_candidates", {}).get("edi"))
+                if building is not None:
+                    ownership[site] += 1
+                if turn == 18007:
+                    print("RNG during tick 18006 entering 18007", {
+                        "site": hex(site), "before": hex(draw["before"]), "after": hex(draw["after"]),
+                        "building_id": f"{building:#x}" if building is not None else None,
+                        "raw_edi": hex(draw["registers"]["edi"]),
+                    })
+        draws += len(b["seed"])
+        rows += 1
+    assert rows == end - start + 1 and draws > 0 and entities
+    print(f"Ticks {start} through {end}, {rows} rows, {draws} shared writes match prior original capture")
+    print("Compared every recorded task field delta and shared write to prior original run")
+    print(f"{len(fields)} recorded fields per live entity, {len(entities)} live at final tick")
+    print("Additional events by lane", {key: events[key] for key in ("lua_crt", "object_local", "crandom")})
+    print("Shared writer sites and counts", {hex(site): count for site, count in sorted(sites.items())})
+    print("Verified building recipients", ownership[0x4A9E53], "of", sites[0x4A9E53], "site draws")
+    print(f"Compressed bytes {current.stat().st_size}")
 PY
-  python tools/oracle_observe.py --scenario "$sc" --snapshot "$snapshot" --game "$S5_GAME" \
-    --runtime "$S5_ARTIFACTS/boot/runtime" --output "$work/native-rng-probe.jsonl.gz" \
-    --ticks 1 --probe-rng 2>> "$log" | tee -a "$log"
+  grep -E '^(Ticks |Compared |[0-9]+ recorded fields|Additional events|Compressed bytes)' "$log"
+  exit
 fi
-export CARGO_TARGET_DIR="$S5_REPO/recomp/target"
+
 cd crates/s5clean
-cargo build --locked --release -j 2 --example observe >> "$log" 2>&1
-rc=0
 limit=()
-if [ "$mode" = smoke ]; then limit=(32); fi
-/usr/bin/time -f 'wall %e s' "$CARGO_TARGET_DIR/release/examples/observe" "$sc" "$img" "$record" "${limit[@]}" >> "$log" 2>&1 || rc=$?
-if [ "$mode" = smoke ]; then
-  [ "$rc" = 0 ]
-  grep -oE '^bc-full: IDENTICAL 32 ticks' "$log"
-else
-  [ "$rc" -le 1 ]
-  grep -oE '^bc-full: (DIVERGENT turn [0-9]+|IDENTICAL [0-9]+ ticks)' "$log"
+scope="--$mode"
+if [ "$mode" = owner-smoke ]; then
+  cargo test --locked --release -j 2 --lib scopes_building_ownership_to_the_draw_inside_the_consumer >> "$log" 2>&1
+  cargo test --locked --release -j 2 --lib lua_seed_and_failed_draw_are_observed_in_command_order >> "$log" 2>&1
+  scope=--rng-owners
+  limit=(64)
 fi
+rc=0
+/usr/bin/time -f 'wall %e s' "$CARGO_TARGET_DIR/release/examples/observe" "$sc" "$img" "$record" "${limit[@]}" "$scope" \
+  > "$work/compare.txt" 2>&1 || rc=$?
+cat "$work/compare.txt" >> "$log"
+[ "$rc" -le 1 ]
+if [ "$mode" = owner-smoke ]; then
+  [ "$rc" = 0 ]
+  grep -E '^[1-9][0-9]* verified matching draw recipients "$work/compare.txt"
+fi
+grep -oE '^bc-full: (DIVERGENT turn [0-9]+|IDENTICAL [0-9]+ ticks)' "$work/compare.txt"
+ "$work/compare.txt"
+fi
+grep -oE '^bc-full: (DIVERGENT turn [0-9]+|IDENTICAL [0-9]+ ticks)' "$work/compare.txt"

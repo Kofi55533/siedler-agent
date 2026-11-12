@@ -1,3 +1,5 @@
-full
-smoke
-benchmark
+owner-smoke
+verify
+rng-owners
+rng-streams
+entities
