@@ -20,14 +20,17 @@ for tok in "$@"; do
     sp) args="0, nil"; rel=$sub ;;
     camp) args="-1, \"$cat\""; rel=$sub ;;
   esac
-  if [ "$pack" = extra1 ]; then   # relocate into the mounted extra2 pack, Key 2
+  if [ "$pack" = extra1 ] || { [ "$pack" = base ] && [ "$kind" = sp ]; }; then   # relocate into the mounted extra2 pack, Key 2
     case $kind in camp) dst=Campaign/Extra2_1/$name ;; *) dst=$rel ;; esac
     mkdir -p "$W/overlay/extra2/shr/maps/$(dirname "$dst")"
-    cp -r "$( [ -d "$GOLD/extra1/shr/maps/$sub" ] && echo $GOLD || echo $S5_GAME )/extra1/shr/maps/$sub" "$W/overlay/extra2/shr/maps/$dst"
+    cp -r "$( [ -d "$GOLD/$pack/shr/maps/$sub" ] && echo $GOLD || echo $S5_GAME )/$pack/shr/maps/$sub" "$W/overlay/extra2/shr/maps/$dst"
     python3 - "$W/overlay/extra2/shr/maps/$dst/Info.xml" <<'PY'
 import re, sys
 p = sys.argv[1]; t = open(p, encoding="utf-8-sig").read()
 t = re.sub(r"<Key>\d+</Key>", "<Key>2</Key>", t) if "<Key>" in t else t.replace("</root>", " <Key>2</Key>\n</root>")
+if "<GUID>" not in t:
+    import uuid
+    t = t.replace("</root>", " <GUID>\n  <Data>%s</Data>\n </GUID>\n</root>" % uuid.uuid4())
 open(p, "w", encoding="utf-8").write(t)
 PY
   fi

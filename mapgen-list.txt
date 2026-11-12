@@ -1,13 +1,3 @@
-# <out>:<pack>:<kind>:<subpath under shr/maps>:<catalogue>; one job per line
-map-europe:base:mp:Multiplayer/(2)Europe: map-battleisle:base:mp:Multiplayer/(4)BattleIsle: map-darkland:base:mp:Multiplayer/(4)Darkland: map-hillsoffriendship:base:mp:Multiplayer/(4)HillsOfFriendship:
-map-summerstorm:base:mp:Multiplayer/(4)SummerStorm: map-atthegates:extra1:mp:Multiplayer/(2)AtTheGates: map-banditforrest:extra1:mp:Multiplayer/(2)BanditForrest: map-crater:extra1:mp:Multiplayer/(2)Crater:
-map-koenigsforst:extra1:mp:Multiplayer/(2)Koenigsforst: map-burningsteppe:extra1:mp:Multiplayer/(4)BurningSteppe: map-clanwar:extra1:mp:Multiplayer/(4)Clanwar: map-hauntedruins:extra1:mp:Multiplayer/(4)HauntedRuins:
-map-sabotagemoor:extra1:mp:Multiplayer/(4)SabotageMoor: map-demomap:base:sp:Singleplayer/DemoMap: map-frozenfjord:base:sp:Singleplayer/Frozen_Fjord: map-peacefulland:base:sp:Singleplayer/Peaceful_Land:
-map-sandbox:base:sp:Singleplayer/Sandbox: map-smalldale:base:sp:Singleplayer/Small_Dale: map-spreadland:base:sp:Singleplayer/Spreadland: map-summerisland:base:sp:Singleplayer/SummerIsland:
-map-oldenemies:extra1:sp:Singleplayer/OldEnemies: map-siege:extra1:sp:Singleplayer/Siege: map-supplylines:extra1:sp:Singleplayer/SupplyLines: map-citygates:extra2:sp:Singleplayer/CityGates:
-map-goldenriddles:extra2:sp:Singleplayer/GoldenRiddles: map-winterassault:extra2:sp:Singleplayer/WinterAssault: campaign-02-villageattack:base:camp:Campaign/Main/02_VillageAttack:Main campaign-06-cleycourt:base:camp:Campaign/Main/06_Cleycourt:Main
-campaign-08-barmecia:base:camp:Campaign/Main/08_Barmecia:Main campaign-11-norfolk:base:camp:Campaign/Main/11_Norfolk:Main campaign-12-kaloix:base:camp:Campaign/Main/12_Kaloix:Main campaign-13-plague:base:camp:Campaign/Main/13_Plague:Main
-campaign-15-oldkingscastle:base:camp:Campaign/Main/15_OldKingsCastle:Main campaign-17-cloudymountains:base:camp:Campaign/Main/17_CloudyMountains:Main campaign-18-evelance:base:camp:Campaign/Main/18_Evelance:Main campaign-19-wasteland:base:camp:Campaign/Main/19_Wasteland:Main
-campaign-20-battleofevelance:base:camp:Campaign/Main/20_BattleOfEvelance:Main campaign-01-hugebridge:extra1:camp:Campaign/Extra1/01_HugeBridge:Extra2_1 campaign-02-bigriver:extra1:camp:Campaign/Extra1/02_BigRiver:Extra2_1 campaign-03-bigcity:extra1:camp:Campaign/Extra1/03_BigCity:Extra2_1
-campaign-04-tradingcaravans:extra1:camp:Campaign/Extra1/04_TradingCaravans:Extra2_1 campaign-05-headhunter:extra1:camp:Campaign/Extra1/05_Headhunter:Extra2_1 campaign-06-techorresources:extra1:camp:Campaign/Extra1/06_TechOrResources:Extra2_1 campaign-07-fleeorfight:extra1:camp:Campaign/Extra1/07_FleeOrFight:Extra2_1
-campaign-03-thebeautifulland:extra2:camp:Campaign/Extra2_2/03_TheBeautifulLand:Extra2_2 campaign-01-demondays:extra2:camp:Campaign/Extra2_3/01_DemonDays:Extra2_3  
+# retry
+map-demomap:base:sp:Singleplayer/DemoMap: map-frozenfjord:base:sp:Singleplayer/Frozen_Fjord: map-peacefulland:base:sp:Singleplayer/Peaceful_Land: map-sandbox:base:sp:Singleplayer/Sandbox:
+map-smalldale:base:sp:Singleplayer/Small_Dale: map-spreadland:base:sp:Singleplayer/Spreadland: map-summerisland:base:sp:Singleplayer/SummerIsland: 
