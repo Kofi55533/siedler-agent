@@ -1,44 +1,77 @@
 #!/usr/bin/env bash
-# s5-remeasure.sh [fixture ...]: re-measure generated fixtures on current clean/integration without an LLM
-# (Dominic 2026-10-20, fix 3: genb/genc "re-measure" tasks no longer go to DeepSeek; gate-baseline mode=remeasure runs this).
-# Default fixtures: every genb-*/genc-* scenario on the scoreboard (data.json). Each is installed with s5-fixture-install.sh,
-# run with s5-live.sh in parallel, and the results are appended as ONE board entry on clean/integration (direct path,
-# append-only, retried on concurrent pushes) in the scoreboard format: "<fixture>: DIVERGENT turn N" / "<fixture>: IDENTICAL N".
-# Prints only fixture names and turn numbers. Needs GH_TOKEN with push access to siedler-sim-rs.
-set -uo pipefail
-D=$(cd "$(dirname "$0")" && pwd); source "$D/s5-env.sh"
-W=$S5/remeasure; rm -rf "$W"; mkdir -p "$W/r"
-# S5_REMEASURE_REF: measure another siedler-sim-rs branch instead (a change before its merge; never posted to the board)
-REF=${S5_REMEASURE_REF:-clean/integration}; [ "$REF" = clean/integration ] || S5_REMEASURE_BOARD=0
-cd "$S5_REPO" && git fetch -q origin "+refs/heads/$REF:refs/remotes/origin/$REF" && git checkout -q --detach "origin/$REF" || { echo "checkout failed"; exit 1; }
-bs=$(git rev-parse "origin/$REF")
-FX="$*"
-[ -n "$FX" ] || FX=$( { curl -fsSL -m 60 https://raw.githubusercontent.com/Kofi55533/siedler-agent/gh-pages/data.json 2>/dev/null || gh api -H "Accept: application/vnd.github.raw" "repos/Kofi55533/siedler-agent/contents/data.json?ref=gh-pages" 2>/dev/null; } |
-                      python3 -c "import json,sys;print(' '.join(s['name'] for s in json.load(sys.stdin).get('scenarios',[]) if s['name'].startswith(('genb-','genc-'))))")
-"$D/s5-build.sh" >/dev/null || { echo "build failed on ${bs:0:8}"; exit 1; }
-# a fixture of the data release (codex-verify-infra or new-fixtures) needs no install: s5-live.sh reads it directly
-known(){ local b=${1%-mapstart}; [ -f "$S5_V/fixtures/$b/scenario.json" ] || [ -f "$S5_NF/fixtures/$b/scenario.json" ]; }
-ok=""; for x in $FX; do { "$D/s5-fixture-install.sh" "$x" >> "$W/install.txt" 2>/dev/null || known "$x"; } && ok="$ok $x"; done
-cat "$W/install.txt"
-PAR=${S5_GATE_PARALLEL:-}; if [ -z "$PAR" ]; then m=$(awk '/MemAvailable/{print int($2/1048576)}' /proc/meminfo); PAR=$(( m / 3 )); [ $PAR -gt $(nproc) ] && PAR=$(nproc); [ $PAR -lt 1 ] && PAR=1; fi
-export D W
-one(){ local out n k; out=$("$D/s5-live.sh" "$1" 2>/dev/null); n=$(grep -oE 'DIVERGENT turn [0-9]+' <<<"$out" | grep -oE '[0-9]+$')
-  k=$(grep -oE 'IDENTICAL [0-9]+ ticks' <<<"$out" | grep -oE '[0-9]+')
-  if [ -n "$n" ]; then echo "$1: DIVERGENT turn $n" > "$W/r/$1"; elif [ -n "$k" ]; then echo "$1: IDENTICAL $k" > "$W/r/$1"
-  else echo "no result: $(tail -n1 <<<"$out" | cut -c1-160)" >&2; fi; }   # s5-live verdict line only (exit code + message)
-export -f one
-t0=$(date +%s); printf '%s\n' $ok | xargs -P "$PAR" -I{} bash -c 'one "$1"' _ {}
-res=$(for x in $ok; do [ -s "$W/r/$x" ] && cat "$W/r/$x"; done); nores=$(for x in $FX; do [ -s "$W/r/$x" ] || printf '%s ' "$x"; done)
-echo "$res"; echo "no result: ${nores:-none}; parallel=$PAR wall $(( $(date +%s)-t0 ))s"
-[ -n "$res" ] || exit 1
-[ "${S5_REMEASURE_BOARD:-1}" = 1 ] || exit 0
-for i in 1 2 3 4; do
-  git fetch -q origin "+refs/heads/clean/integration:refs/remotes/origin/clean/integration" && git checkout -q --detach origin/clean/integration || break
-  { printf '\n## %s Muse CI re-measure (gate-baseline remeasure, no LLM)\n\n' "$(TZ=Europe/Berlin date '+%Y-%m-%d %H:%M') Berlin —"
-    printf 'live re-measure on clean/integration @%s (s5-live.sh, S5_LIVE_TIMEOUT=%s):\n' "${bs:0:8}" "${S5_LIVE_TIMEOUT:-1800}"
-    sed 's/^/- /' <<<"$res"; [ -n "$nores" ] && printf -- '- not measured (not installable / no result): %s\n' "$nores"; } >> docs/AGENT_BOARD.md
-  git -c user.name=siedler-agent -c user.email=Kofi55533@users.noreply.github.com commit -qm "board: CI re-measure genb/genc on ${bs:0:8}" docs/AGENT_BOARD.md &&
-    git push -q origin HEAD:refs/heads/clean/integration && { echo "board: posted"; exit 0; }
-  git reset -q --hard origin/clean/integration; sleep $((10*i))
-done
-echo "board: post failed"; exit 1
+# Isolated replay-observation validation using the existing remeasure runner.
+set -euo pipefail
+source "$(dirname "$0")/s5-env.sh"
+work="$RUNNER_TEMP/s5-observation"
+mkdir -p "$work" "$S5/live"
+log="$S5/live/bc-full.log"
+: > "$log"
+
+save_result() {
+  local rc=$? previous request
+  trap - EXIT
+  # Store compact diagnostics in the private simulation repository.
+  request="$work/request.json"
+  local endpoint="repos/Kofi55533/siedler-sim-rs/contents/results/bc-full-observation-$GITHUB_RUN_ID.txt"
+  local branch=codex/replay-observation-results
+  previous=$(gh api "$endpoint?ref=$branch" --jq .sha 2>/dev/null || true)
+  base64 -w0 "$log" | jq -Rs --arg branch "$branch" --arg sha "$previous" \
+    '{message:"Record BC Full observation",branch:$branch,content:.}+ (if $sha == "" then {} else {sha:$sha} end)' > "$request"
+  if ! gh api --method PUT "$endpoint" --input "$request" >/dev/null 2>&1; then
+    echo "private observation report upload failed"
+    exit 1
+  fi
+  echo "private observation report saved (exit=$rc)"
+  exit "$rc"
+}
+trap save_result EXIT
+cd "$S5_REPO"
+git fetch -q origin "$S5_REMEASURE_REF"
+git checkout -q --detach FETCH_HEAD
+rev=$(git rev-parse HEAD)
+echo "candidate $rev" | tee -a "$log"
+
+if [ "$1" != bc-full ]; then
+  echo "Gate $1" >> "$log"
+  cd recomp
+  python verify.py "$1" >> "$log" 2>&1
+  exit
+fi
+
+export CARGO_TARGET_DIR="$S5_REPO/recomp/target"
+echo "Building replay comparison"
+cargo test --manifest-path crates/s5diff/Cargo.toml --lib observation::tests >> "$log" 2>&1
+cd recomp
+cargo build --release -p s5verify >> "$log" 2>&1
+cd ../crates/s5clean
+cargo build --release --example observe >> "$log" 2>&1
+clean="$CARGO_TARGET_DIR/release/examples/observe"
+verify="$CARGO_TARGET_DIR/release/s5verify"
+cd "$S5_REPO/recomp"
+sc="$S5_V/fixtures/bc-full/scenario.json"
+img="$S5_ARTIFACTS/bc/gs_h.img"
+schema=../data/scope/schema.json
+export S5_REMAP=$(python -c "import verify; print(verify.remap_for('$img', 'target/verify/observation-bc-full'))")
+cache="$work/bc-full.jsonl.gz"
+ticks=300
+echo "Running BC Full live and cached prefix"
+run_comparison() {
+  local file=$1 rc=0
+  shift
+  /usr/bin/time -f 'wall %e s' "$@" > "$file" 2>&1 || rc=$?
+  cat "$file" >> "$log"
+  return "$rc"
+}
+live_rc=0
+run_comparison "$work/live" "$verify" observe-live "$schema" "$sc" "$img" "$ticks" || live_rc=$?
+[ "$live_rc" -le 1 ]
+run_comparison "$work/record" "$verify" observe-record "$schema" "$sc" "$img" "$cache" "$rev" "$ticks"
+wc -c < "$cache" | sed 's/^/Reference cache bytes: /' >> "$log"
+cd "$S5_REPO/crates/s5clean"
+cached_rc=0
+run_comparison "$work/cached" "$clean" "$sc" "$img" "$cache" "$ticks" || cached_rc=$?
+[ "$cached_rc" = "$live_rc" ]
+grep -E '^bc-full: (DIVERGENT|IDENTICAL)' "$work/live" > "$work/live.verdict"
+grep -E '^bc-full: (DIVERGENT|IDENTICAL)' "$work/cached" > "$work/cached.verdict"
+diff -u "$work/live.verdict" "$work/cached.verdict" >> "$log"
+grep -oE '^bc-full: (DIVERGENT turn [0-9]+|IDENTICAL [0-9]+ ticks)' "$work/live.verdict" || true
