@@ -19,3 +19,6 @@ late-ai-long late-ai late-economy map-arcanum map-fouronone
 map-frontiercompanions map-highland-siege map-trade4technology map-winterisland map-winterrealm production-long
 production saveload-settled-long saveload-settled saveload wintersturm-mapstart wintersturm
 wsecon     
+02-defendingthedrymoat 02-patrol 02-securingthepath 02-therichland 03-neighborhood 04-brutepower 04-taintedlight 05-emeraldfields 07-flood 09-greatmountain
+10-floodedland 10-folklung antrium campaign-04-intoshadowintolight caribeansurf lightridge map-battlefieldbarrens map-clashofheroes map-conquest map-evelanceassault
+map-intotheforest map-mediterranean map-mornheim map-resourceconflict map-scarredland map-solitudeisles rivercrossing standrockbattle
