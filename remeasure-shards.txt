@@ -1,2 +1,2 @@
 # one job per line
-bc-full
+bc-0804
