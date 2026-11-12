@@ -80,45 +80,17 @@ sc="$S5_V/fixtures/bc-full/scenario.json"
 img="$S5_ARTIFACTS/bc/gs_h.img"
 record="$work/bc-full-oracle.jsonl.gz"
 
-repo=Kofi55533/siedler-sim-rs
-archive=oracle-bc-full-rng-1f5fd5735587262c776fa6b48decd05d0c587630
-gh release download "$archive" -R "$repo" -p bc-full-oracle.jsonl.gz -D "$work" >> "$log" 2>&1
-python - "$record" >> "$log" 2>&1 <<'PY'
-from collections import Counter
-import gzip
-import json
-import sys
 
-sites = (0x4494CB, 0x4EB033, 0x4F72BD, 0x571047)
-counts = {site: Counter() for site in sites}
-first = {}
-with gzip.open(sys.argv[1], "rt") as stream:
-    next(stream)
-    for line in stream:
-        row = json.loads(line)
-        for event in row["seed"]:
-            site = event["site"]
-            if site in counts:
-                returns = tuple(hex(frame[0]) for frame in event["frames"][:4])
-                candidates = tuple(sorted(event["entity_candidates"]))
-                counts[site][returns, candidates] += 1
-                first.setdefault(site, row["state"]["turn"])
-for site, counts_at_site in counts.items():
-    print(f"{site:#x}: {sum(counts_at_site.values())} draws, first boundary {first.get(site)}")
-    for (returns, candidates), count in counts_at_site.most_common():
-        print(f"  {count}: frames={returns}, entity registers={candidates}")
-PY
-S5_INSTALL="$S5_GAME" ORACLE_SCRATCH="$work/assembly" ORACLE_RUNTIME="$S5_ARTIFACTS/boot/runtime" \
-  RESTORE="$snapshot" MODS=1 python - >> "$log" 2>&1 <<'PY'
-import sys
-sys.path.insert(0, "oracle")
-import run
-from capstone import Cs, CS_ARCH_X86, CS_MODE_32
-e = run.build()
-decoder = Cs(CS_ARCH_X86, CS_MODE_32)
-ranges = ((0x4494CB, 0x449510), (0x4EB033, 0x4EB095), (0x4F72BD, 0x4F7340), (0x571047, 0x571095), (0x5002F0, 0x500335), (0x500928, 0x500980), (0x4EB2C9, 0x4EB315), (0x4F8908, 0x4F8940), (0x44CBD3, 0x44CC15))
-for start, end in ranges:
-    print(f"Code near {start:#x}")
-    for insn in decoder.disasm(e.rb(start, end - start), start):
-        print(f"{insn.address:#x} {insn.mnemonic} {insn.op_str}")
-PY
+repo=Kofi55533/siedler-sim-rs
+tag=oracle-bc-full-windows-43301884274
+gh release download "$tag" -R "$repo" -p bc-full-oracle.jsonl.gz -D "$work" >> "$log" 2>&1
+python tools/oracle_observe.py coverage "$record" > "$work/coverage.json" 2>> "$log"
+cat "$work/coverage.json" >> "$log"
+jq -e '.mapped == 45656 and .unmapped == 90 and .shared_sites["0x571047"].first_unmapped_boundary == 1171 and .end == 24021' "$work/coverage.json" >> "$log"
+export CARGO_TARGET_DIR="$S5_REPO/recomp/target"
+cd crates/s5clean
+cargo build --locked --release -j 2 --example observe >> "$log" 2>&1
+"$CARGO_TARGET_DIR/release/examples/observe" "$sc" "$img" "$record" 1300 --rng-all >> "$log" 2>&1
+grep -Eq '^bc-full: IDENTICAL 1300 ticks' "$log"
+grep -Eq '^[1-9][0-9]* matching shared draws at 0x571047 with unchecked recipient \(first entering tick 1171\)$' "$log"
+echo "Oracle archive coverage and Clean prefix verification passed"
