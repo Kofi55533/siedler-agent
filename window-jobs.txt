@@ -1,1 +1,12 @@
+07-flood:340::end 10-floodedland:100::end 10-folklung:679::end
+campaign-01-demondays:29::end campaign-02-villageattack:358::end campaign-03-thebeautifulland:30::end
+campaign-04-intoshadowintolight:197::end campaign-06-cleycourt:301::end campaign-08-barmecia:106::end
+campaign-08-unexploredland:590::end campaign-12-kaloix:31::end campaign-18-evelance:450::end
+caribeansurf:201::end gen-enter-building-0x1500d:575::end map-citygates:497::end
+map-clanwar:50::end map-frozenfjord:690::end map-mornheim:56::end
+map-oldenemies:36::end map-peacefulland:31::end map-sandbox:590::end
+map-siege:62::end map-smalldale:391::end map-spreadland:349::end
+map-summerisland:36::end rivercrossing:299::end 
+bc-0804:12754:60:600
+bc-full:17941:60:600
 map-supplylines:29::6
