@@ -1,1 +1,1 @@
-baseline of clean/integration @0f341fe7 (after the 09.-11.11. commits)
+combo-1: idle-event-held-leader + ai-refill-barracks-target, full run 2026-11-12T00:48:25Z
