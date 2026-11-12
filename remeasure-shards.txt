@@ -1,2 +1,6 @@
 # one job per line
+bc-full
 bc-0804
+castrum gen-mine-depletion gen-construct-site
+gen-cancel-research gen-civilian-death economy build
+production combat campaign-01-newbeginning late-economy
