@@ -1,1 +1,1 @@
-claude/window-tool
+clean/integration
