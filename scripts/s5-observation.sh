@@ -14,7 +14,8 @@ trap 'rm -rf -- "$tmp"' EXIT
 log="$tmp/observe.log"
 ref="$inputs/bc-full-reference.jsonl.gz"
 archive="$inputs/bc-full-start.tar.zst"
-for file in "$ref" "$archive"; do
+expected="$inputs/bc-full-expected.txt"
+for file in "$ref" "$archive" "$expected"; do
   [ -s "$file" ] || { echo "Missing private observation input: $(basename "$file")" >&2; exit 2; }
 done
 tar --zstd -xf "$archive" -C "$tmp" scenario.json start.img commands.jsonl
@@ -60,7 +61,7 @@ if [ "$turn" -gt 6842 ]; then
   exit 0
 fi
 if [ "$turn" = 6842 ] &&
-  grep -Fxq 'bc-full: DIVERGENT turn 6842: tasks.hurt_guard digest: reference 0x71a98d73511eab45, clean 0x6fa0d1d0a5b5e1b0' "$log"; then
+  grep -Fxq -f "$expected" "$log"; then
   echo "Known BC Full observation at turn 6842 (hurt_guard)"
   exit 0
 fi

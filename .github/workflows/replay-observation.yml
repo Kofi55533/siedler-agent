@@ -1,6 +1,17 @@
 name: Replay observation
 run-name: Replay observation ${{ inputs.sim_commit || 'pilot' }}
 on:
+  workflow_call:
+    inputs:
+      sim_commit:
+        type: string
+        required: true
+      mode:
+        type: string
+        default: both
+    secrets:
+      PRIVATE_REPO_TOKEN:
+        required: true
   workflow_dispatch:
     inputs:
       sim_commit:
@@ -60,7 +71,8 @@ jobs:
           GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
         run: |
           gh release download "$REFERENCE_TAG" -R Kofi55533/siedler-sim-rs \
-            -p bc-full-start.tar.zst -p bc-full-reference.jsonl.gz -D "$RUNNER_TEMP/observation-inputs"
+            -p bc-full-start.tar.zst -p bc-full-reference.jsonl.gz -p bc-full-expected.txt \
+            -D "$RUNNER_TEMP/observation-inputs"
       - name: Run Clean comparison
         env:
           RUSTUP_TOOLCHAIN: '1.99.0'

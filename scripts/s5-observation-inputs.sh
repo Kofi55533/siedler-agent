@@ -3,12 +3,20 @@
 set -euo pipefail
 repo=Kofi55533/siedler-sim-rs
 tag=observation-bc-full-8d4a7e5aedb25f125346d22dc2315556847368f7
-if gh release view "$tag" -R "$repo" --json assets --jq '.assets[].name' | grep -Fx 'bc-full-start.tar.zst' >/dev/null; then
+names=$(gh release view "$tag" -R "$repo" --json assets --jq '.assets[].name')
+tmp=$(mktemp -d)
+trap 'rm -rf -- "$tmp"' EXIT
+if ! grep -Fxq 'bc-full-expected.txt' <<<"$names"; then
+  gh api -H 'Accept: application/vnd.github.raw+json' \
+    "repos/$repo/contents/results/bc-full-observation-43234018862-cache.txt?ref=codex/replay-observation-results" |
+    sed -n '/^bc-full: DIVERGENT turn 6842: tasks\.hurt_guard digest: /p' > "$tmp/bc-full-expected.txt"
+  [ "$(wc -l < "$tmp/bc-full-expected.txt")" -eq 1 ]
+  gh release upload "$tag" -R "$repo" "$tmp/bc-full-expected.txt" >/dev/null
+fi
+if grep -Fxq 'bc-full-start.tar.zst' <<<"$names"; then
   echo "Private BC Full start bundle is available"
   exit 0
 fi
-tmp=$(mktemp -d)
-trap 'rm -rf -- "$tmp"' EXIT
 mkdir -p "$tmp/art" "$tmp/fixtures" "$tmp/bundle"
 gh release download data-v2 -R Kofi55533/siedler-data -p art.tzst -p fixtures.tzst -D "$tmp"
 tar --zstd -xf "$tmp/art.tzst" -C "$tmp/art"

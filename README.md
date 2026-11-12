@@ -43,11 +43,12 @@ Run **Replay observation** with the SHA of a reviewed simulation commit that con
 The `quick` job compares the first 32 ticks. The `full` job starts at the original image and reports the
 first observed difference. Run both in parallel with `both`. The full check accepts the documented BC Full
 finding at turn 6842 or a later first difference. An earlier turn or a changed finding at turn 6842 needs review.
-This is an opt-in check alongside the existing map matrix and merge gates.
+The `gate-baseline` workflow also accepts an optional `observation_commit` in `remeasure` mode to
+run the full comparison alongside the map matrix. The observation is opt-in.
 
 The workflow reuses the private BC Full start image, recorded commands and reference trace from the
 [observation release](https://github.com/Kofi55533/siedler-sim-rs/releases/tag/observation-bc-full-8d4a7e5aedb25f125346d22dc2315556847368f7).
 The Clean-only jobs use the committed game configuration. They build the Rust `observe` example and keep detailed
-diagnostics on the runner. For local diagnostics, download both assets and run the example as described in the
+diagnostics on the runner. For local diagnostics, download the start bundle and reference trace and run the example as described in the
 [simulation observation guide](https://github.com/Kofi55533/siedler-sim-rs/blob/8d4a7e5aedb25f125346d22dc2315556847368f7/docs/clean/OBSERVATION.md).
 Regenerate the input bundle and reference together if the reference engine or BC Full fixture changes.
