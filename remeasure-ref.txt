@@ -1,1 +1,1 @@
-codex/replay-observation
+codex/oracle-observation
