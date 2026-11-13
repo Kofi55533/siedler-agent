@@ -80,45 +80,57 @@ sc="$S5_V/fixtures/bc-full/scenario.json"
 img="$S5_ARTIFACTS/bc/gs_h.img"
 record="$work/bc-full-oracle.jsonl.gz"
 
-repo=Kofi55533/siedler-sim-rs
-archive=oracle-bc-full-rng-1f5fd5735587262c776fa6b48decd05d0c587630
-gh release download "$archive" -R "$repo" -p bc-full-oracle.jsonl.gz -D "$work" >> "$log" 2>&1
-python - "$record" >> "$log" 2>&1 <<'PY'
-from collections import Counter
+
+export CARGO_TARGET_DIR="$S5_REPO/recomp/target"
+(cd crates/s5clean && cargo build --locked --release -j 2 --example observe) >> "$log" 2>&1 &
+compile=$!
+case "$mode" in
+  early-movement) turn=121 ;;
+  late-movement)
+    turn=10000
+    gh release download oracle-bc-full-rng-1f5fd5735587262c776fa6b48decd05d0c587630 -R Kofi55533/siedler-sim-rs \
+      -p "turn-$turn.bin" -D "$work" >> "$log" 2>&1
+    snapshot="$work/turn-$turn.bin"
+    img="$work/start.img"
+    python recomp/export_image.py "$snapshot" "$img" --mem-only >> "$log" 2>&1 ;;
+  *) exit 2 ;;
+esac
+ticks=128
+python tools/oracle_observe.py --scenario "$sc" --snapshot "$snapshot" --game "$S5_GAME" \
+  --runtime "$S5_ARTIFACTS/boot/runtime" --output "$record" --from-turn "$turn" --ticks "$ticks" \
+  --movement --player-resources "${hasher[@]}" >> "$log" 2>&1
+python - "$sc" "$work/window.json" "$turn" "$ticks" "$record" >> "$log" 2>&1 <<'PY'
 import gzip
 import json
+from pathlib import Path
 import sys
+source, target = map(Path, sys.argv[1:3])
+start, ticks = map(int, sys.argv[3:5])
+commands = target.with_suffix(".jsonl")
+scenario = json.loads(source.read_text())
+with commands.open("w") as out:
+    if scenario.get("commands"):
+        for line in (source.parent / scenario["commands"]).read_text().splitlines():
+            if line.strip() and start <= json.loads(line)["turn"] < start + ticks:
+                print(line, file=out)
+scenario.update(start_turn=start, turns=ticks, commands=commands.name)
+target.write_text(json.dumps(scenario))
 
-sites = (0x4494CB, 0x4EB033, 0x4F72BD, 0x571047)
-counts = {site: Counter() for site in sites}
-first = {}
-with gzip.open(sys.argv[1], "rt") as stream:
+with gzip.open(sys.argv[5], "rt") as stream:
     next(stream)
-    for line in stream:
-        row = json.loads(line)
-        for event in row["seed"]:
-            site = event["site"]
-            if site in counts:
-                returns = tuple(hex(frame[0]) for frame in event["frames"][:4])
-                candidates = tuple(sorted(event["entity_candidates"]))
-                counts[site][returns, candidates] += 1
-                first.setdefault(site, row["state"]["turn"])
-for site, counts_at_site in counts.items():
-    print(f"{site:#x}: {sum(counts_at_site.values())} draws, first boundary {first.get(site)}")
-    for (returns, candidates), count in counts_at_site.most_common():
-        print(f"  {count}: frames={returns}, entity registers={candidates}")
+    rows = [json.loads(line) for line in stream]
+assert len(rows) == ticks + 1 and rows[0]["movement_updates"]
+assert any(part[4] for row in rows for _, parts in row["movement_updates"] for part in parts)
+for keys in (("movement_updates", "movement_removed"), ("player_resources",)):
+    data = b"".join(json.dumps([row[key] for key in keys], separators=(",", ":")).encode() + b"\n" for row in rows)
+    print(f"{keys}: {len(gzip.compress(data, compresslevel=1))} compressed bytes in {len(rows)} rows")
 PY
-S5_INSTALL="$S5_GAME" ORACLE_SCRATCH="$work/assembly" ORACLE_RUNTIME="$S5_ARTIFACTS/boot/runtime" \
-  RESTORE="$snapshot" MODS=1 python - >> "$log" 2>&1 <<'PY'
-import sys
-sys.path.insert(0, "oracle")
-import run
-from capstone import Cs, CS_ARCH_X86, CS_MODE_32
-e = run.build()
-decoder = Cs(CS_ARCH_X86, CS_MODE_32)
-ranges = ((0x4494CB, 0x449510), (0x4EB033, 0x4EB095), (0x4F72BD, 0x4F7340), (0x571047, 0x571095), (0x5002F0, 0x500335), (0x500928, 0x500980), (0x4EB2C9, 0x4EB315), (0x4F8908, 0x4F8940), (0x44CBD3, 0x44CC15))
-for start, end in ranges:
-    print(f"Code near {start:#x}")
-    for insn in decoder.disasm(e.rb(start, end - start), start):
-        print(f"{insn.address:#x} {insn.mnemonic} {insn.op_str}")
-PY
+wait "$compile"
+cd crates/s5clean
+for lane in movement resources; do
+  rc=0
+  /usr/bin/time -f 'wall %e s' "$CARGO_TARGET_DIR/release/examples/observe" "$work/window.json" "$img" \
+    "$record" "--$lane" >> "$log" 2>&1 || rc=$?
+  [ "$rc" -le 1 ]
+done
+grep -E '^bc-full: (IDENTICAL|DIVERGENT)' "$log" | cut -d: -f1-2
