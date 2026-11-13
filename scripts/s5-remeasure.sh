@@ -119,6 +119,13 @@ for scope in movement resources rng-all; do
   grep -qE '^wintersturm: (IDENTICAL|DIVERGENT)' "$work/compare.txt"
 done
 tag="oracle-wintersturm-checkpoint-$GITHUB_RUN_ID"
+assets=("$record" "$work/window.json")
+if [ -s "$work/window.commands.jsonl" ]; then
+  assets+=("$work/window.commands.jsonl")
+else
+  jq '.commands = ""' "$work/window.json" > "$work/no-commands.json"
+  mv "$work/no-commands.json" "$work/window.json"
+fi
 gh release create "$tag" -R Kofi55533/siedler-sim-rs --target "$rev" --prerelease \
   --title "Wintersturm checkpoint observation" --notes "Original replay and window scenario." \
-  "$record" "$work/window.json" "$work/window.commands.jsonl" >> "$log" 2>&1
+  "${assets[@]}" >> "$log" 2>&1
