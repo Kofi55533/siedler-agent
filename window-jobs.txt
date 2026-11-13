@@ -1,2 +1,1 @@
-campaign-03-thebeautifulland:120:30:30:t120
-bc-0804:18145:30:30:t18145
+campaign-03-thebeautifulland:120:95:30:t120
