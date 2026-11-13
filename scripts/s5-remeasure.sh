@@ -21,7 +21,7 @@ save() {
 trap save EXIT
 cd "$S5_REPO"
 for attempt in $(seq 1 150); do
-  git fetch -q origin "fcd79ed10e34fec8cf7775f7c89243da3e5f9316" >> "$log" 2>&1
+  git fetch -q origin "056c8e7dcbd99f0c7f73457b3e757ffc285d3fc0" >> "$log" 2>&1
   git checkout -q --detach FETCH_HEAD >> "$log" 2>&1
   grep -q '^def join_reference' tools/oracle_observe.py 2>/dev/null && break
   sleep 10
@@ -95,9 +95,9 @@ fetch_asset() {
 }
 
 case "$mode" in
-  early) turn=121; ticks=512 ;;
+  early) turn=121; ticks=64 ;;
   middle) turn=10000; ticks=128 ;;
-  economy) turn=17000; ticks=1100 ;;
+  economy) turn=17000; ticks=96 ;;
   *) exit 2 ;;
 esac
 if [ "$turn" != "$start" ]; then
@@ -118,15 +118,17 @@ obs=tools/oracle_observe.py
 /usr/bin/time -f 'record wall %e s' python "$obs" --scenario "$sc" --snapshot "$snapshot" \
   --game "$S5_GAME" --runtime "$S5_ARTIFACTS/boot/runtime" --output "$record" --from-turn "$turn" \
   --ticks "$ticks" --movement --movement-reader "$work/task-hasher.so" --player-resources --attachments \
-  --lua-globals --resource-notifications --deferred-events --script-triggers "${hasher[@]}" >> "$log" 2>&1
+  --lua-globals --resource-notifications --deferred-events --script-triggers --ai-state --terrain-state "${hasher[@]}" >> "$log" 2>&1
 python "$obs" window-scenario "$sc" "$work/window.json" "$turn" "$ticks" >> "$log" 2>&1
 python "$obs" coverage "$record" > "$work/coverage.json" 2>> "$log"
 cat "$work/coverage.json" >> "$log"
 jq -e --argjson n "$((ticks + 1))" '
   .resource_notifications.recorded and .state.deferred_events.ticks == $n and
-  .state.script_triggers.ticks == $n and .state.script_triggers.updates > 0
+  .state.script_triggers.ticks == $n and .state.script_triggers.updates > 0 and
+  .state.ai_state.ticks == $n and .state.ai_state.updates > 0 and
+  .state.terrain_state.ticks == $n and .state.terrain_state.updates > 0
 ' "$work/coverage.json" >> "$log"
-if [ "$mode" = economy ]; then
+if [ "$mode" = middle ]; then
   jq -e '.resource_notifications.events > 0' "$work/coverage.json" >> "$log"
 fi
 split="$((turn + ticks / 2))"
@@ -141,7 +143,7 @@ jq -e --slurpfile prior "$work/coverage.json" '
   .state == $prior[0].state and .mapped == $prior[0].mapped
 ' "$work/joined-coverage.json" >> "$log"
 cd crates/s5clean
-for lane in resource-notifications deferred-events script-triggers resources movement attachments lua-globals all; do
+for lane in resource-notifications deferred-events script-triggers ai-state terrain-state resources movement attachments lua-globals all; do
   opts=()
   if [ "$lane" != all ]; then opts=("--$lane"); fi
   rc=0
@@ -150,4 +152,4 @@ for lane in resource-notifications deferred-events script-triggers resources mov
     "$work/window.json" "$img" "$work/joined.jsonl.gz" "${opts[@]}" >> "$log" 2>&1 || rc=$?
   [ "$rc" -le 1 ]
 done
-echo "Three new observation lanes available and compared"
+echo "Five additional observation lanes recorded and compared"
