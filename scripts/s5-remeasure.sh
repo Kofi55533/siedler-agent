@@ -88,6 +88,8 @@ python tools/oracle_observe.py --scenario "$sc" --snapshot "$snapshot" --game "$
   --runtime "$S5_ARTIFACTS/boot/runtime" --output "$record" --ticks 512 --player-resources "${hasher[@]}" >> "$log" 2>&1
 python tools/oracle_observe.py show "$record" 121 | jq -e '.player_resources | length == 8 and all(.[]; .[1] | length == 17)' >> "$log"
 wait "$compile"
+gzip -dc "$record" | python -c 'import gzip,json,sys; print(len(gzip.compress(b"".join(json.dumps(json.loads(l).get("player_resources"), separators=(",",":")).encode()+b"\n" for l in sys.stdin if l.strip()),compresslevel=1)))' > "$work/resources-bytes.txt"
+echo "Resource-only compressed bytes (513 rows): $(cat "$work/resources-bytes.txt")" >> "$log"
 cd crates/s5clean
 rc=0
 "$CARGO_TARGET_DIR/release/examples/observe" "$sc" "$img" "$record" 512 --resources >> "$log" 2>&1 || rc=$?
