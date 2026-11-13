@@ -81,56 +81,26 @@ img="$S5_ARTIFACTS/bc/gs_h.img"
 record="$work/bc-full-oracle.jsonl.gz"
 
 
-export CARGO_TARGET_DIR="$S5_REPO/recomp/target"
-(cd crates/s5clean && cargo build --locked --release -j 2 --example observe) >> "$log" 2>&1 &
-compile=$!
 case "$mode" in
-  early-movement) turn=121 ;;
-  late-movement)
+  early-reader) turn=121 ;;
+  late-reader)
     turn=10000
     gh release download oracle-bc-full-rng-1f5fd5735587262c776fa6b48decd05d0c587630 -R Kofi55533/siedler-sim-rs \
       -p "turn-$turn.bin" -D "$work" >> "$log" 2>&1
-    snapshot="$work/turn-$turn.bin"
-    img="$work/start.img"
-    python recomp/export_image.py "$snapshot" "$img" --mem-only >> "$log" 2>&1 ;;
+    snapshot="$work/turn-$turn.bin" ;;
   *) exit 2 ;;
 esac
 ticks=128
-python tools/oracle_observe.py --scenario "$sc" --snapshot "$snapshot" --game "$S5_GAME" \
-  --runtime "$S5_ARTIFACTS/boot/runtime" --output "$record" --from-turn "$turn" --ticks "$ticks" \
-  --movement --player-resources "${hasher[@]}" >> "$log" 2>&1
-python - "$sc" "$work/window.json" "$turn" "$ticks" "$record" >> "$log" 2>&1 <<'PY'
-import gzip
-import json
-from pathlib import Path
-import sys
-source, target = map(Path, sys.argv[1:3])
-start, ticks = map(int, sys.argv[3:5])
-commands = target.with_suffix(".jsonl")
-scenario = json.loads(source.read_text())
-with commands.open("w") as out:
-    if scenario.get("commands"):
-        for line in (source.parent / scenario["commands"]).read_text().splitlines():
-            if line.strip() and start <= json.loads(line)["turn"] < start + ticks:
-                print(line, file=out)
-scenario.update(start_turn=start, turns=ticks, commands=commands.name)
-target.write_text(json.dumps(scenario))
-
-with gzip.open(sys.argv[5], "rt") as stream:
-    next(stream)
-    rows = [json.loads(line) for line in stream]
-assert len(rows) == ticks + 1 and rows[0]["movement_updates"]
-assert any(part[4] for row in rows for _, parts in row["movement_updates"] for part in parts)
-for keys in (("movement_updates", "movement_removed"), ("player_resources",)):
-    data = b"".join(json.dumps([row[key] for key in keys], separators=(",", ":")).encode() + b"\n" for row in rows)
-    print(f"{keys}: {len(gzip.compress(data, compresslevel=1))} compressed bytes in {len(rows)} rows")
-PY
-wait "$compile"
-cd crates/s5clean
-for lane in movement resources; do
-  rc=0
-  /usr/bin/time -f 'wall %e s' "$CARGO_TARGET_DIR/release/examples/observe" "$work/window.json" "$img" \
-    "$record" "--$lane" >> "$log" 2>&1 || rc=$?
-  [ "$rc" -le 1 ]
+args=(--scenario "$sc" --snapshot "$snapshot" --game "$S5_GAME" --runtime "$S5_ARTIFACTS/boot/runtime"
+  --from-turn "$turn" --ticks "$ticks" --movement --player-resources "${hasher[@]}")
+for implementation in python c; do
+  reader=()
+  if [ "$implementation" = c ]; then
+    reader=(--movement-reader "$work/task-hasher.so")
+  fi
+  echo "Movement reader: $implementation" >> "$log"
+  /usr/bin/time -f 'wall %e s' python tools/oracle_observe.py "${args[@]}" "${reader[@]}" \
+    --output "$work/$implementation.jsonl.gz" >> "$log" 2>&1
 done
-grep -E '^bc-full: (IDENTICAL|DIVERGENT)' "$log" | cut -d: -f1-2
+cmp <(gzip -dc "$work/python.jsonl.gz") <(gzip -dc "$work/c.jsonl.gz") >> "$log" 2>&1
+echo "Both movement readers produced identical observations at every tick" >> "$log"
