@@ -19,28 +19,13 @@ save() {
   exit "$rc"
 }
 trap save EXIT
-if [ -s "$GITHUB_WORKSPACE/remeasure-gate.txt" ]; then
-  gate=$(cat "$GITHUB_WORKSPACE/remeasure-gate.txt")
-  [[ "$gate" =~ ^[0-9]+$ ]]
-  for attempt in $(seq 1 100); do
-    status=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$gate" --jq '.status + " " + (.conclusion // "")' 2>> "$log") || status=unavailable
-    [[ "$status" == completed* ]] && break
-    sleep 15
-  done
-  if [[ "$status" != "completed success" ]]; then
-    printf 'Combined replay smoke %s ended with %s\n' "$gate" "$status" >> "$log"
-    exit 2
-  fi
-fi
 cd "$S5_REPO"
-for attempt in $(seq 1 150); do
-  git fetch -q origin "84d23bd7b6b1f5165d348aae28c6f446e89403c3" >> "$log" 2>&1
-  git checkout -q --detach FETCH_HEAD >> "$log" 2>&1
-  grep -q '^def join_reference' tools/oracle_observe.py 2>/dev/null && break
-  sleep 10
-done
-grep -q '^def join_reference' tools/oracle_observe.py
+candidate=$(cat "$GITHUB_WORKSPACE/remeasure-ref.txt")
+[[ "$candidate" =~ ^[0-9a-f]{40}$ ]]
+git fetch -q origin "$candidate" >> "$log" 2>&1
+git checkout -q --detach FETCH_HEAD >> "$log" 2>&1
 rev=$(git rev-parse HEAD)
+[[ "$rev" = "$candidate" ]]
 echo "candidate $rev" >> "$log"
 cc -O3 -shared -fPIC tools/oracle_task_hashes.c -o "$work/task-hasher.so" >> "$log" 2>&1
 hasher=(--task-hasher "$work/task-hasher.so" --entity-reader "$work/task-hasher.so")
@@ -114,20 +99,6 @@ fetch_asset() {
   return 1
 }
 
-if [[ "$mode" == compare-* ]]; then
-  export CARGO_TARGET_DIR="$S5_REPO/recomp/target"
-  cd crates/s5clean
-  cargo build --locked --release -j 2 --example observe >> "$log" 2>&1
-  fetch_asset "$tag" bc-full-oracle.jsonl.gz "$work"
-  rc=0
-  /usr/bin/time -f 'wall %e s' "$CARGO_TARGET_DIR/release/examples/observe" "$sc" "$img" "$record" \
-    "--${mode#compare-}" > "$work/compare.txt" 2>&1 || rc=$?
-  cat "$work/compare.txt" >> "$log"
-  [ "$rc" -le 1 ]
-  grep -qE '^bc-full: (DIVERGENT (entering )?turn [0-9]+|IDENTICAL [0-9]+ ticks)' "$work/compare.txt"
-  exit
-fi
-
 if [ "$mode" = join ]; then
   if ! gh release view "$tag" -R "$repo" >/dev/null 2>&1; then
     gh release create "$tag" -R "$repo" --target "$rev" --prerelease \
@@ -155,7 +126,14 @@ import sys
 import zlib
 
 original, joined, work = map(Path, sys.argv[1:])
-fields = ("script_callbacks", "ai_calls", "path_heap")
+row_fields = {
+    "script_callbacks": ("script_callbacks",),
+    "ai_calls": ("ai_calls",),
+    "lua_graph": ("lua_graph_updates", "lua_graph_removed"),
+    "deferred_activity": ("deferred_activity",),
+}
+path_fields = {"path_heap": "heap", "path_predicates": "predicates", "path_owners": "owner"}
+fields = (*row_fields, *path_fields, "ai_village")
 compressors = {name: zlib.compressobj(1, wbits=31) for name in fields}
 totals = dict.fromkeys(fields, 0)
 changed = dict.fromkeys(fields, 0)
@@ -170,14 +148,16 @@ with gzip.open(original, "rt") as a, gzip.open(joined, "rt") as b:
             raise ValueError("joined recording has a different number of rows")
         n += 1
         prev, have = json.loads(raw_a), json.loads(raw_b)
-        for name in fields:
-            if name == "path_heap":
-                values = [search.pop("heap") for search in have["path_searches"] if search["heap"]]
-                for search in have["path_searches"]:
-                    search.pop("heap", None)
-            else:
-                values = have.pop(name)
-            changed[name] += any(bool(value) for value in values)
+        recorded = {name: [have.pop(key) for key in keys] for name, keys in row_fields.items()}
+        for name, key in path_fields.items():
+            recorded[name] = [search.pop(key) for search in have["path_searches"]]
+        recorded["ai_village"] = [item for item in have["ai_state_updates"] if item[0].startswith("village:")]
+        have["ai_state_updates"] = [item for item in have["ai_state_updates"] if not item[0].startswith("village:")]
+        village_removed = [key for key in have["ai_state_removed"] if key.startswith("village:")]
+        recorded["ai_village"].extend(village_removed)
+        have["ai_state_removed"] = [key for key in have["ai_state_removed"] if not key.startswith("village:")]
+        for name, values in recorded.items():
+            changed[name] += any(value is not None for value in values) if name == "path_owners" else any(values)
             data = json.dumps(values, separators=(",", ":")).encode() + b"\n"
             totals[name] += len(compressors[name].compress(data))
         if prev != have:
@@ -198,7 +178,27 @@ PY
   python tools/oracle_observe.py coverage "$record" > "$work/recipient-coverage.json" 2>> "$log"
   cat "$work/recipient-coverage.json" >> "$log"
   jq -e '.mapped == 45746 and .unmapped == 0 and .state.attachments.ticks == 23901 and .state.lua_globals.ticks == 23901 and .state.movement.ticks == 23901 and .player_resource_ticks == 23901 and .state.deferred_events.ticks == 23901 and .state.script_triggers.ticks == 23901 and .state.ai_state.ticks == 23901 and .state.terrain_state.ticks == 23901 and .resource_notifications.recorded and .resource_notifications.events > 0 and .path_searches.recorded and .path_searches.coarse > 0 and .path_searches.fine > 0 and .script_dispatches.recorded and .script_dispatches.events > 0 and .script_callbacks.recorded and .script_callbacks.action > 0 and .ai_calls.recorded and .ai_calls.calls.player > 0 and .path_heap.recorded and .path_heap.push > 0 and .path_heap.pop > 0' "$work/recipient-coverage.json" >> "$log"
-  gh release upload "$tag" -R "$repo" "$record" "$work/recipient-coverage.json" --clobber >> "$log" 2>&1
+  jq -e '.state.lua_graph.ticks == 23901 and .ai_village.recorded and .ai_village.updates > 0 and .deferred_activity.recorded and .deferred_activity.enqueue > 0 and
+    .deferred_activity.deliver > 0 and .path_predicates.recorded and .path_predicates.walkable > 0 and
+    .path_owners.recorded and ([.path_owners.sites[].mapped] | add > 0)' "$work/recipient-coverage.json" >> "$log"
+  assets=( "$work/recipient-coverage.json" )
+  if [ "$(stat -c %s "$record")" -lt 2147483648 ]; then assets+=( "$record" ); fi
+  gh release upload "$tag" -R "$repo" "${assets[@]}" --clobber >> "$log" 2>&1
+  cd crates/s5clean
+  export CARGO_TARGET_DIR="$S5_REPO/recomp/target"
+  cargo build --locked --release -j 2 --example observe >> "$log" 2>&1
+  for mode_name in combined lua-graph deferred-activity ai-calls ai-village path-searches script-callbacks; do
+    flags=()
+    if [[ "$mode_name" != combined ]]; then flags+=( "--$mode_name" ); fi
+    verdict="$work/compare-$mode_name.txt"
+    rc=0
+    /usr/bin/time -f 'wall %e s' "$CARGO_TARGET_DIR/release/examples/observe" "$sc" "$img" "$record" \
+      "${flags[@]}" > "$verdict" 2>&1 || rc=$?
+    cat "$verdict" >> "$log"
+    [ "$rc" -le 1 ]
+    grep -qE '^bc-full: (DIVERGENT (entering )?turn [0-9]+|IDENTICAL [0-9]+ ticks)' "$verdict"
+  done
+  gh release upload "$tag" -R "$repo" "$work"/compare-*.txt --clobber >> "$log" 2>&1
   grep -E '(^[0-9]+ state rows|^Slowest |^Sequential process time|^Joined archive)' "$log"
   exit
 fi
@@ -219,7 +219,8 @@ time_file="$work/time-$mode.txt"
 /usr/bin/time -f '%e' -o "$time_file" python tools/oracle_observe.py --scenario "$sc" --snapshot "$snapshot" \
   --game "$S5_GAME" --runtime "$S5_ARTIFACTS/boot/runtime" --output "$window" --from-turn "$from" \
   --ticks "$((to - from))" --movement --movement-reader "$work/task-hasher.so" \
-  --player-resources --attachments --lua-globals --resource-notifications --deferred-events \
-  --script-triggers --ai-state --terrain-state --path-searches --path-heap --script-dispatches --script-callbacks --ai-calls "${hasher[@]}" >> "$log" 2>&1
+  --player-resources --attachments --lua-globals --lua-graph --resource-notifications --deferred-events \
+  --deferred-activity --script-triggers --ai-village --terrain-state --path-heap --path-predicates --path-owners \
+  --script-dispatches --script-callbacks --ai-calls "${hasher[@]}" >> "$log" 2>&1
 gzip -t "$window"
 gh release upload "$tag" -R "$repo" "$window" "$time_file" --clobber >> "$log" 2>&1

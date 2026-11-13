@@ -10,6 +10,3 @@ join
 20500-22000
 22000-23000
 23000-24021
-compare-path-searches
-compare-script-callbacks
-compare-ai-calls
