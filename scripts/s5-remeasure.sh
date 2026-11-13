@@ -14,14 +14,14 @@ save() {
   old=$(gh api "$path?ref=$branch" --jq .sha 2>/dev/null || true)
   base64 -w0 "$log" | jq -Rs --arg branch "$branch" --arg old "$old" \
     '{message:"Record Oracle replay observation",branch:$branch,content:.}+ (if $old=="" then {} else {sha:$old} end)' > "$work/report.json"
-  gh api --method PUT "$path" --input "$work/report.json" >/dev/null 2>&1 || echo "Private report upload failed"
+  gh api --method PUT "$path" --input "$work/report.json" >/dev/null 2>&1 || { echo "Private report upload failed"; exit 2; }
   echo "Oracle observation $mode exit=$rc"
   exit "$rc"
 }
 trap save EXIT
 cd "$S5_REPO"
 for attempt in $(seq 1 150); do
-  git fetch -q origin "$S5_REMEASURE_REF" >> "$log" 2>&1
+  git fetch -q origin "ea319dba150082fdee08ac71dd3674b7a8164c21" >> "$log" 2>&1
   git checkout -q --detach FETCH_HEAD >> "$log" 2>&1
   grep -q '^def join_reference' tools/oracle_observe.py 2>/dev/null && break
   sleep 10
@@ -82,7 +82,7 @@ record="$work/bc-full-oracle.jsonl.gz"
 
 repo=Kofi55533/siedler-sim-rs
 original=oracle-bc-full-rng-1f5fd5735587262c776fa6b48decd05d0c587630
-baseline=oracle-bc-full-windows-43333869478
+baseline=oracle-bc-full-windows-43341675806
 tag="oracle-bc-full-windows-$GITHUB_RUN_ID"
 start=$(jq -er '.start_turn' "$sc")
 end=$(jq -er '.start_turn + .turns' "$sc")
@@ -94,7 +94,7 @@ fetch_asset() {
   done
 }
 
-if [ "$mode" = compare-lua-globals ] || [ "$mode" = compare-attachments ]; then
+if [[ "$mode" == compare-* ]]; then
   export CARGO_TARGET_DIR="$S5_REPO/recomp/target"
   cd crates/s5clean
   cargo build --locked --release -j 2 --example observe >> "$log" 2>&1
@@ -104,7 +104,7 @@ if [ "$mode" = compare-lua-globals ] || [ "$mode" = compare-attachments ]; then
     "--${mode#compare-}" > "$work/compare.txt" 2>&1 || rc=$?
   cat "$work/compare.txt" >> "$log"
   [ "$rc" -le 1 ]
-  grep -qE '^bc-full: (DIVERGENT turn [0-9]+|IDENTICAL [0-9]+ ticks)' "$work/compare.txt"
+  grep -qE '^bc-full: (DIVERGENT (entering )?turn [0-9]+|IDENTICAL [0-9]+ ticks)' "$work/compare.txt"
   exit
 fi
 
@@ -132,10 +132,12 @@ import zlib
 
 original, joined, work = map(Path, sys.argv[1:])
 fields = {
-    "movement": ("movement_updates", "movement_removed"),
-    "player_resources": ("player_resources",),
-    "attachments": ("attachments_updates", "attachments_removed"),
-    "lua_globals": ("lua_globals_updates", "lua_globals_removed"),
+    "resource_notifications": ("resource_notifications",),
+    "deferred_events": ("deferred_events_updates", "deferred_events_removed"),
+    "script_triggers": ("script_triggers_updates", "script_triggers_removed"),
+    "ai_state": ("ai_state_updates", "ai_state_removed"),
+    "terrain_state": ("terrain_state_updates", "terrain_state_removed"),
+    "path_searches": ("path_searches",),
 }
 compressors = {name: zlib.compressobj(1, wbits=31) for name in fields}
 totals = dict.fromkeys(fields, 0)
@@ -152,7 +154,7 @@ with gzip.open(original, "rt") as a, gzip.open(joined, "rt") as b:
         n += 1
         prev, have = json.loads(raw_a), json.loads(raw_b)
         for name, keys in fields.items():
-            values = [have.pop(key, None) for key in keys]
+            values = [have.pop(key) for key in keys]
             changed[name] += any(bool(value) for value in values)
             data = json.dumps(values, separators=(",", ":")).encode() + b"\n"
             totals[name] += len(compressors[name].compress(data))
@@ -173,7 +175,7 @@ print(f"Joined archive {joined.stat().st_size} bytes")
 PY
   python tools/oracle_observe.py coverage "$record" > "$work/recipient-coverage.json" 2>> "$log"
   cat "$work/recipient-coverage.json" >> "$log"
-  jq -e '.mapped == 45746 and .unmapped == 0 and .state.attachments.ticks == 23901 and .state.lua_globals.ticks == 23901 and .state.movement.ticks == 23901 and .player_resource_ticks == 23901' "$work/recipient-coverage.json" >> "$log"
+  jq -e '.mapped == 45746 and .unmapped == 0 and .state.attachments.ticks == 23901 and .state.lua_globals.ticks == 23901 and .state.movement.ticks == 23901 and .player_resource_ticks == 23901 and .state.deferred_events.ticks == 23901 and .state.script_triggers.ticks == 23901 and .state.ai_state.ticks == 23901 and .state.terrain_state.ticks == 23901 and .resource_notifications.recorded and .resource_notifications.events > 0 and .path_searches.recorded and .path_searches.coarse > 0 and .path_searches.fine > 0' "$work/recipient-coverage.json" >> "$log"
   gh release upload "$tag" -R "$repo" "$record" "$work/recipient-coverage.json" >> "$log" 2>&1
   grep -E '(^[0-9]+ state rows|^Slowest |^Sequential process time|^Joined archive)' "$log"
   exit
@@ -194,6 +196,6 @@ echo "Recording $from through $to"
 time_file="$work/time-$mode.txt"
 /usr/bin/time -f '%e' -o "$time_file" python tools/oracle_observe.py --scenario "$sc" --snapshot "$snapshot" \
   --game "$S5_GAME" --runtime "$S5_ARTIFACTS/boot/runtime" --output "$window" --from-turn "$from" \
-  --ticks "$((to - from))" --movement --movement-reader "$work/task-hasher.so" --player-resources --attachments --lua-globals "${hasher[@]}" 2>> "$log" | tee -a "$log"
+  --ticks "$((to - from))" --movement --movement-reader "$work/task-hasher.so" --player-resources --attachments --lua-globals --resource-notifications --deferred-events --script-triggers --ai-state --terrain-state --path-searches "${hasher[@]}" 2>> "$log" | tee -a "$log"
 gzip -t "$window"
 gh release upload "$tag" -R "$repo" "$window" "$time_file" --clobber >> "$log" 2>&1

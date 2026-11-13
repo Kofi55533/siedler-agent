@@ -1,6 +1,10 @@
-compare-lua-globals
-compare-attachments
 join
+compare-resource-notifications
+compare-deferred-events
+compare-script-triggers
+compare-ai-state
+compare-terrain-state
+compare-path-searches
 121-4000
 4000-7000
 7000-10000
