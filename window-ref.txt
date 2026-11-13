@@ -1,1 +1,1 @@
-claude/window-hidden
+claude/window-regs
