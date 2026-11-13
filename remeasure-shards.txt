@@ -1,11 +1,4 @@
 join
-compare-resource-notifications
-compare-deferred-events
-compare-script-triggers
-compare-ai-state
-compare-terrain-state
-compare-path-searches
-compare-script-dispatches
 121-4000
 4000-7000
 7000-10000
@@ -17,3 +10,6 @@ compare-script-dispatches
 20500-22000
 22000-23000
 23000-24021
+compare-path-searches
+compare-script-callbacks
+compare-ai-calls

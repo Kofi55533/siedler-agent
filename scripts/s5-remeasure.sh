@@ -34,7 +34,7 @@ if [ -s "$GITHUB_WORKSPACE/remeasure-gate.txt" ]; then
 fi
 cd "$S5_REPO"
 for attempt in $(seq 1 150); do
-  git fetch -q origin "8103f6fb9d9a3bc1e4a4453b0c0c8927b36ec35b" >> "$log" 2>&1
+  git fetch -q origin "84d23bd7b6b1f5165d348aae28c6f446e89403c3" >> "$log" 2>&1
   git checkout -q --detach FETCH_HEAD >> "$log" 2>&1
   grep -q '^def join_reference' tools/oracle_observe.py 2>/dev/null && break
   sleep 10
@@ -95,7 +95,7 @@ record="$work/bc-full-oracle.jsonl.gz"
 
 repo=Kofi55533/siedler-sim-rs
 original=oracle-bc-full-rng-1f5fd5735587262c776fa6b48decd05d0c587630
-baseline=oracle-bc-full-windows-43341675806
+baseline=oracle-bc-full-windows-43396536719
 tag="oracle-bc-full-windows-$GITHUB_RUN_ID"
 start=$(jq -er '.start_turn' "$sc")
 end=$(jq -er '.start_turn + .turns' "$sc")
@@ -129,9 +129,13 @@ if [[ "$mode" == compare-* ]]; then
 fi
 
 if [ "$mode" = join ]; then
-  gh release create "$tag" -R "$repo" --target "$rev" --prerelease \
+  if ! gh release view "$tag" -R "$repo" >/dev/null 2>&1; then
+    gh release create "$tag" -R "$repo" --target "$rev" --prerelease \
     --title "BC Full parallel Oracle recording" \
     --notes "These are repeatable windows from validated native checkpoints. bc-full-oracle.jsonl.gz appears after the join and validation against the previous Oracle reference." >> "$log" 2>&1
+  fi
+  printf "%s\n" "$rev" > "$work/ready.txt"
+  gh release upload "$tag" -R "$repo" "$work/ready.txt" --clobber >> "$log" 2>&1
   segments=()
   for window in "${windows[@]}"; do
     fetch_asset "$tag" "window-$window.jsonl.gz" "$work"
@@ -151,15 +155,7 @@ import sys
 import zlib
 
 original, joined, work = map(Path, sys.argv[1:])
-fields = {
-    "resource_notifications": ("resource_notifications",),
-    "deferred_events": ("deferred_events_updates", "deferred_events_removed"),
-    "script_triggers": ("script_triggers_updates", "script_triggers_removed"),
-    "ai_state": ("ai_state_updates", "ai_state_removed"),
-    "terrain_state": ("terrain_state_updates", "terrain_state_removed"),
-    "path_searches": ("path_searches",),
-    "script_dispatches": ("script_dispatches",),
-}
+fields = ("script_callbacks", "ai_calls", "path_heap")
 compressors = {name: zlib.compressobj(1, wbits=31) for name in fields}
 totals = dict.fromkeys(fields, 0)
 changed = dict.fromkeys(fields, 0)
@@ -174,8 +170,13 @@ with gzip.open(original, "rt") as a, gzip.open(joined, "rt") as b:
             raise ValueError("joined recording has a different number of rows")
         n += 1
         prev, have = json.loads(raw_a), json.loads(raw_b)
-        for name, keys in fields.items():
-            values = [have.pop(key) for key in keys]
+        for name in fields:
+            if name == "path_heap":
+                values = [search.pop("heap") for search in have["path_searches"] if search["heap"]]
+                for search in have["path_searches"]:
+                    search.pop("heap", None)
+            else:
+                values = have.pop(name)
             changed[name] += any(bool(value) for value in values)
             data = json.dumps(values, separators=(",", ":")).encode() + b"\n"
             totals[name] += len(compressors[name].compress(data))
@@ -196,8 +197,8 @@ print(f"Joined archive {joined.stat().st_size} bytes")
 PY
   python tools/oracle_observe.py coverage "$record" > "$work/recipient-coverage.json" 2>> "$log"
   cat "$work/recipient-coverage.json" >> "$log"
-  jq -e '.mapped == 45746 and .unmapped == 0 and .state.attachments.ticks == 23901 and .state.lua_globals.ticks == 23901 and .state.movement.ticks == 23901 and .player_resource_ticks == 23901 and .state.deferred_events.ticks == 23901 and .state.script_triggers.ticks == 23901 and .state.ai_state.ticks == 23901 and .state.terrain_state.ticks == 23901 and .resource_notifications.recorded and .resource_notifications.events > 0 and .path_searches.recorded and .path_searches.coarse > 0 and .path_searches.fine > 0 and .script_dispatches.recorded and .script_dispatches.events > 0' "$work/recipient-coverage.json" >> "$log"
-  gh release upload "$tag" -R "$repo" "$record" "$work/recipient-coverage.json" >> "$log" 2>&1
+  jq -e '.mapped == 45746 and .unmapped == 0 and .state.attachments.ticks == 23901 and .state.lua_globals.ticks == 23901 and .state.movement.ticks == 23901 and .player_resource_ticks == 23901 and .state.deferred_events.ticks == 23901 and .state.script_triggers.ticks == 23901 and .state.ai_state.ticks == 23901 and .state.terrain_state.ticks == 23901 and .resource_notifications.recorded and .resource_notifications.events > 0 and .path_searches.recorded and .path_searches.coarse > 0 and .path_searches.fine > 0 and .script_dispatches.recorded and .script_dispatches.events > 0 and .script_callbacks.recorded and .script_callbacks.action > 0 and .ai_calls.recorded and .ai_calls.calls.player > 0 and .path_heap.recorded and .path_heap.push > 0 and .path_heap.pop > 0' "$work/recipient-coverage.json" >> "$log"
+  gh release upload "$tag" -R "$repo" "$record" "$work/recipient-coverage.json" --clobber >> "$log" 2>&1
   grep -E '(^[0-9]+ state rows|^Slowest |^Sequential process time|^Joined archive)' "$log"
   exit
 fi
@@ -211,7 +212,7 @@ if [ "$from" != "$start" ]; then
   fetch_asset "$original" "turn-$from.bin" "$work"
   snapshot="$work/turn-$from.bin"
 fi
-until gh release view "$tag" -R "$repo" >/dev/null 2>&1; do sleep 15; done
+fetch_asset "$tag" ready.txt "$work"
 window="$work/window-$mode.jsonl.gz"
 echo "Recording $from through $to"
 time_file="$work/time-$mode.txt"
@@ -219,6 +220,6 @@ time_file="$work/time-$mode.txt"
   --game "$S5_GAME" --runtime "$S5_ARTIFACTS/boot/runtime" --output "$window" --from-turn "$from" \
   --ticks "$((to - from))" --movement --movement-reader "$work/task-hasher.so" \
   --player-resources --attachments --lua-globals --resource-notifications --deferred-events \
-  --script-triggers --ai-state --terrain-state --path-searches --script-dispatches "${hasher[@]}" >> "$log" 2>&1
+  --script-triggers --ai-state --terrain-state --path-searches --path-heap --script-dispatches --script-callbacks --ai-calls "${hasher[@]}" >> "$log" 2>&1
 gzip -t "$window"
 gh release upload "$tag" -R "$repo" "$window" "$time_file" --clobber >> "$log" 2>&1
