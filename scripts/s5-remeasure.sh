@@ -14,14 +14,14 @@ save() {
   old=$(gh api "$path?ref=$branch" --jq .sha 2>/dev/null || true)
   base64 -w0 "$log" | jq -Rs --arg branch "$branch" --arg old "$old" \
     '{message:"Record Oracle replay observation",branch:$branch,content:.}+ (if $old=="" then {} else {sha:$old} end)' > "$work/report.json"
-  gh api --method PUT "$path" --input "$work/report.json" >/dev/null 2>&1 || echo "Private report upload failed"
+  gh api --method PUT "$path" --input "$work/report.json" >/dev/null 2>&1 || { echo "Private report upload failed"; exit 2; }
   echo "Oracle observation $mode exit=$rc"
   exit "$rc"
 }
 trap save EXIT
 cd "$S5_REPO"
 for attempt in $(seq 1 150); do
-  git fetch -q origin "$S5_REMEASURE_REF" >> "$log" 2>&1
+  git fetch -q origin "fcd79ed10e34fec8cf7775f7c89243da3e5f9316" >> "$log" 2>&1
   git checkout -q --detach FETCH_HEAD >> "$log" 2>&1
   grep -q '^def join_reference' tools/oracle_observe.py 2>/dev/null && break
   sleep 10
@@ -94,106 +94,58 @@ fetch_asset() {
   done
 }
 
-if [ "$mode" = compare-lua-globals ] || [ "$mode" = compare-attachments ]; then
-  export CARGO_TARGET_DIR="$S5_REPO/recomp/target"
-  cd crates/s5clean
-  cargo build --locked --release -j 2 --example observe >> "$log" 2>&1
-  fetch_asset "$tag" bc-full-oracle.jsonl.gz "$work"
+case "$mode" in
+  early) turn=121; ticks=512 ;;
+  middle) turn=10000; ticks=128 ;;
+  economy) turn=17000; ticks=1100 ;;
+  *) exit 2 ;;
+esac
+if [ "$turn" != "$start" ]; then
+  gh release download "$original" -R "$repo" -p "turn-$turn.bin" -D "$work" --clobber >> "$log" 2>&1
+  snapshot="$work/turn-$turn.bin"
+  img="$work/start.img"
+  python recomp/export_image.py "$snapshot" "$img" --mem-only >> "$log" 2>&1
+fi
+export CARGO_TARGET_DIR="$S5_REPO/recomp/target"
+(cd crates/s5clean && cargo build --locked --release -j 2 --example observe) >> "$work/build.txt" 2>&1 &
+compile=$!
+if ! wait "$compile"; then
+  cat "$work/build.txt" >> "$log"
+  exit 2
+fi
+cat "$work/build.txt" >> "$log"
+obs=tools/oracle_observe.py
+/usr/bin/time -f 'record wall %e s' python "$obs" --scenario "$sc" --snapshot "$snapshot" \
+  --game "$S5_GAME" --runtime "$S5_ARTIFACTS/boot/runtime" --output "$record" --from-turn "$turn" \
+  --ticks "$ticks" --movement --movement-reader "$work/task-hasher.so" --player-resources --attachments \
+  --lua-globals --resource-notifications --deferred-events --script-triggers "${hasher[@]}" >> "$log" 2>&1
+python "$obs" window-scenario "$sc" "$work/window.json" "$turn" "$ticks" >> "$log" 2>&1
+python "$obs" coverage "$record" > "$work/coverage.json" 2>> "$log"
+cat "$work/coverage.json" >> "$log"
+jq -e --argjson n "$((ticks + 1))" '
+  .resource_notifications.recorded and .state.deferred_events.ticks == $n and
+  .state.script_triggers.ticks == $n and .state.script_triggers.updates > 0
+' "$work/coverage.json" >> "$log"
+if [ "$mode" = economy ]; then
+  jq -e '.resource_notifications.events > 0' "$work/coverage.json" >> "$log"
+fi
+split="$((turn + ticks / 2))"
+python "$obs" slice "$record" "$work/first.jsonl.gz" "$turn" "$split" >> "$log" 2>&1
+python "$obs" slice "$record" "$work/second.jsonl.gz" "$split" "$((turn + ticks))" >> "$log" 2>&1
+python "$obs" join "$work/window.json" "$work/joined.jsonl.gz" "$work/first.jsonl.gz" "$work/second.jsonl.gz" >> "$log" 2>&1
+python "$obs" coverage "$work/joined.jsonl.gz" > "$work/joined-coverage.json" 2>> "$log"
+jq -e --slurpfile prior "$work/coverage.json" '
+  .resource_notifications == $prior[0].resource_notifications and
+  .state == $prior[0].state and .mapped == $prior[0].mapped
+' "$work/joined-coverage.json" >> "$log"
+cd crates/s5clean
+for lane in resource-notifications deferred-events script-triggers resources movement attachments lua-globals all; do
+  opts=()
+  if [ "$lane" != all ]; then opts=("--$lane"); fi
   rc=0
-  /usr/bin/time -f 'wall %e s' "$CARGO_TARGET_DIR/release/examples/observe" "$sc" "$img" "$record" \
-    "--${mode#compare-}" > "$work/compare.txt" 2>&1 || rc=$?
-  cat "$work/compare.txt" >> "$log"
+  echo "Check $lane" >> "$log"
+  /usr/bin/time -f 'compare wall %e s' "$CARGO_TARGET_DIR/release/examples/observe" \
+    "$work/window.json" "$img" "$work/joined.jsonl.gz" "${opts[@]}" >> "$log" 2>&1 || rc=$?
   [ "$rc" -le 1 ]
-  grep -qE '^bc-full: (DIVERGENT turn [0-9]+|IDENTICAL [0-9]+ ticks)' "$work/compare.txt"
-  exit
-fi
-
-if [ "$mode" = join ]; then
-  gh release create "$tag" -R "$repo" --target "$rev" --prerelease \
-    --title "BC Full parallel Oracle recording" \
-    --notes "These are repeatable windows from validated native checkpoints. bc-full-oracle.jsonl.gz appears after the join and validation against the previous Oracle reference." >> "$log" 2>&1
-  segments=()
-  for window in "${windows[@]}"; do
-    fetch_asset "$tag" "window-$window.jsonl.gz" "$work"
-    fetch_asset "$tag" "time-$window.txt" "$work"
-    segments+=("$work/window-$window.jsonl.gz")
-  done
-  /usr/bin/time -f 'join wall %e s' python tools/oracle_observe.py join "$sc" "$record" "${segments[@]}" >> "$log" 2>&1
-  gzip -t "$record"
-  mkdir -p "$work/original"
-  fetch_asset "$baseline" bc-full-oracle.jsonl.gz "$work/original"
-  python - "$work/original/bc-full-oracle.jsonl.gz" "$record" "$work" >> "$log" 2>&1 <<'PY'
-import gzip
-from itertools import zip_longest
-import json
-from pathlib import Path
-import sys
-import zlib
-
-original, joined, work = map(Path, sys.argv[1:])
-fields = {
-    "movement": ("movement_updates", "movement_removed"),
-    "player_resources": ("player_resources",),
-    "attachments": ("attachments_updates", "attachments_removed"),
-    "lua_globals": ("lua_globals_updates", "lua_globals_removed"),
-}
-compressors = {name: zlib.compressobj(1, wbits=31) for name in fields}
-totals = dict.fromkeys(fields, 0)
-changed = dict.fromkeys(fields, 0)
-with gzip.open(original, "rt") as a, gzip.open(joined, "rt") as b:
-    old, new = json.loads(next(a)), json.loads(next(b))
-    for key in ("start", "turns", "scenario", "recorded_commands", "snapshot_sha256", "observation_profile"):
-        if old[key] != new[key]:
-            raise ValueError(f"joined recording differs in {key}")
-    n = 0
-    for raw_a, raw_b in zip_longest(a, b):
-        if raw_a is None or raw_b is None:
-            raise ValueError("joined recording has a different number of rows")
-        n += 1
-        prev, have = json.loads(raw_a), json.loads(raw_b)
-        for name, keys in fields.items():
-            values = [have.pop(key, None) for key in keys]
-            changed[name] += any(bool(value) for value in values)
-            data = json.dumps(values, separators=(",", ":")).encode() + b"\n"
-            totals[name] += len(compressors[name].compress(data))
-        if prev != have:
-            raise ValueError(f"joined observations differ entering tick {prev['state']['turn']}")
-    assert n == new["turns"] + 1
-    print(f"{n} state rows and all previous events equal to the verified Oracle archive")
-for name, compressor in compressors.items():
-    totals[name] += len(compressor.flush())
-    assert changed[name]
-    print(f"{name}: {changed[name]} populated rows, {totals[name]} compressed bytes alone")
-timings = {path.stem[5:]: float(path.read_text()) for path in work.glob("time-*.txt")}
-slowest = max(timings, key=timings.get)
-print(f"Each window, Oracle process seconds: {timings}")
-print(f"Slowest {slowest}: {timings[slowest]:.2f} seconds")
-print(f"Sequential process time of the same windows: {sum(timings.values()):.2f} seconds")
-print(f"Joined archive {joined.stat().st_size} bytes")
-PY
-  python tools/oracle_observe.py coverage "$record" > "$work/recipient-coverage.json" 2>> "$log"
-  cat "$work/recipient-coverage.json" >> "$log"
-  jq -e '.mapped == 45746 and .unmapped == 0 and .state.attachments.ticks == 23901 and .state.lua_globals.ticks == 23901 and .state.movement.ticks == 23901 and .player_resource_ticks == 23901' "$work/recipient-coverage.json" >> "$log"
-  gh release upload "$tag" -R "$repo" "$record" "$work/recipient-coverage.json" >> "$log" 2>&1
-  grep -E '(^[0-9]+ state rows|^Slowest |^Sequential process time|^Joined archive)' "$log"
-  exit
-fi
-
-[[ "$mode" =~ ^([0-9]+)-([0-9]+)$ ]]
-from="${BASH_REMATCH[1]}"
-to="${BASH_REMATCH[2]}"
-[[ "$start" -le "$from" && "$from" -lt "$to" && "$to" -le "$end" ]]
-if [ "$from" != "$start" ]; then
-  echo "Waiting for native checkpoint $from"
-  fetch_asset "$original" "turn-$from.bin" "$work"
-  snapshot="$work/turn-$from.bin"
-fi
-until gh release view "$tag" -R "$repo" >/dev/null 2>&1; do sleep 15; done
-window="$work/window-$mode.jsonl.gz"
-echo "Recording $from through $to"
-time_file="$work/time-$mode.txt"
-/usr/bin/time -f '%e' -o "$time_file" python tools/oracle_observe.py --scenario "$sc" --snapshot "$snapshot" \
-  --game "$S5_GAME" --runtime "$S5_ARTIFACTS/boot/runtime" --output "$window" --from-turn "$from" \
-  --ticks "$((to - from))" --movement --movement-reader "$work/task-hasher.so" --player-resources --attachments --lua-globals "${hasher[@]}" 2>> "$log" | tee -a "$log"
-gzip -t "$window"
-gh release upload "$tag" -R "$repo" "$window" "$time_file" --clobber >> "$log" 2>&1
+done
+echo "Three new observation lanes available and compared"
