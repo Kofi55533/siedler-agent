@@ -1,1 +1,1 @@
-claude/window-regs
+clean/integration
