@@ -130,8 +130,10 @@ if [ "$mode" = economy ]; then
   jq -e '.resource_notifications.events > 0' "$work/coverage.json" >> "$log"
 fi
 split="$((turn + ticks / 2))"
-python "$obs" slice "$record" "$work/first.jsonl.gz" "$turn" "$split" >> "$log" 2>&1
-python "$obs" slice "$record" "$work/second.jsonl.gz" "$split" "$((turn + ticks))" >> "$log" 2>&1
+python "$obs" window-scenario "$sc" "$work/first.json" "$turn" "$((split - turn))" >> "$log" 2>&1
+python "$obs" window-scenario "$sc" "$work/second.json" "$split" "$((turn + ticks - split))" >> "$log" 2>&1
+python "$obs" slice "$record" "$work/first.json" "$work/first.jsonl.gz" >> "$log" 2>&1
+python "$obs" slice "$record" "$work/second.json" "$work/second.jsonl.gz" >> "$log" 2>&1
 python "$obs" join "$work/window.json" "$work/joined.jsonl.gz" "$work/first.jsonl.gz" "$work/second.jsonl.gz" >> "$log" 2>&1
 python "$obs" coverage "$work/joined.jsonl.gz" > "$work/joined-coverage.json" 2>> "$log"
 jq -e --slurpfile prior "$work/coverage.json" '
