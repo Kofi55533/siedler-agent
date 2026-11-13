@@ -80,45 +80,38 @@ sc="$S5_V/fixtures/bc-full/scenario.json"
 img="$S5_ARTIFACTS/bc/gs_h.img"
 record="$work/bc-full-oracle.jsonl.gz"
 
-repo=Kofi55533/siedler-sim-rs
-archive=oracle-bc-full-rng-1f5fd5735587262c776fa6b48decd05d0c587630
-gh release download "$archive" -R "$repo" -p bc-full-oracle.jsonl.gz -D "$work" >> "$log" 2>&1
-python - "$record" >> "$log" 2>&1 <<'PY'
-from collections import Counter
-import gzip
-import json
-import sys
 
-sites = (0x4494CB, 0x4EB033, 0x4F72BD, 0x571047)
-counts = {site: Counter() for site in sites}
-first = {}
-with gzip.open(sys.argv[1], "rt") as stream:
-    next(stream)
-    for line in stream:
-        row = json.loads(line)
-        for event in row["seed"]:
-            site = event["site"]
-            if site in counts:
-                returns = tuple(hex(frame[0]) for frame in event["frames"][:4])
-                candidates = tuple(sorted(event["entity_candidates"]))
-                counts[site][returns, candidates] += 1
-                first.setdefault(site, row["state"]["turn"])
-for site, counts_at_site in counts.items():
-    print(f"{site:#x}: {sum(counts_at_site.values())} draws, first boundary {first.get(site)}")
-    for (returns, candidates), count in counts_at_site.most_common():
-        print(f"  {count}: frames={returns}, entity registers={candidates}")
-PY
-S5_INSTALL="$S5_GAME" ORACLE_SCRATCH="$work/assembly" ORACLE_RUNTIME="$S5_ARTIFACTS/boot/runtime" \
-  RESTORE="$snapshot" MODS=1 python - >> "$log" 2>&1 <<'PY'
+repo=Kofi55533/siedler-sim-rs
+checkpoint_tag=oracle-bc-full-rng-1f5fd5735587262c776fa6b48decd05d0c587630
+gh release download "$checkpoint_tag" -R "$repo" -p turn-17000.bin -D "$work" >> "$log" 2>&1
+export CARGO_TARGET_DIR="$S5_REPO/recomp/target"
+(cd crates/s5clean && cargo build --locked --release -j 2 --example observe) >> "$log" 2>&1 &
+compile=$!
+python tools/oracle_observe.py --scenario "$sc" --snapshot "$work/turn-17000.bin" --game "$S5_GAME" \
+  --runtime "$S5_ARTIFACTS/boot/runtime" --output "$record" --from-turn 17000 --ticks 950 \
+  --checkpoint-dir "$work" --checkpoint-at 17949 "${hasher[@]}" >> "$log" 2>&1
+python tools/oracle_observe.py show "$record" 17950 | jq -e '[.seed[] | select(.owner.kind == "building_rebuild" and .owner.building != 0) | .owner] | select(length == 1)' >> "$log"
+python - "$sc" "$work/late.json" <<'PY'
+import json
+from pathlib import Path
 import sys
-sys.path.insert(0, "oracle")
-import run
-from capstone import Cs, CS_ARCH_X86, CS_MODE_32
-e = run.build()
-decoder = Cs(CS_ARCH_X86, CS_MODE_32)
-ranges = ((0x4494CB, 0x449510), (0x4EB033, 0x4EB095), (0x4F72BD, 0x4F7340), (0x571047, 0x571095), (0x5002F0, 0x500335), (0x500928, 0x500980), (0x4EB2C9, 0x4EB315), (0x4F8908, 0x4F8940), (0x44CBD3, 0x44CC15))
-for start, end in ranges:
-    print(f"Code near {start:#x}")
-    for insn in decoder.disasm(e.rb(start, end - start), start):
-        print(f"{insn.address:#x} {insn.mnemonic} {insn.op_str}")
+source, target = map(Path, sys.argv[1:])
+commands = target.with_suffix(".jsonl")
+scenario = json.loads(source.read_text())
+with commands.open("w") as out:
+    if scenario.get("commands"):
+        for line in (source.parent / scenario["commands"]).read_text().splitlines():
+            if line.strip() and json.loads(line)["turn"] == 17949:
+                print(line, file=out)
+scenario.update(start_turn=17949, turns=1, commands=commands.name)
+target.write_text(json.dumps(scenario))
 PY
+python tools/oracle_observe.py slice "$record" "$work/late.json" "$work/late.jsonl.gz" >> "$log" 2>&1
+python recomp/export_image.py "$work/turn-17949.bin" "$work/late.img" --mem-only >> "$log" 2>&1
+wait "$compile"
+cd crates/s5clean
+rc=0
+"$CARGO_TARGET_DIR/release/examples/observe" "$work/late.json" "$work/late.img" "$work/late.jsonl.gz" --rng-all >> "$log" 2>&1 || rc=$?
+[ "$rc" -le 1 ]
+grep -Eq '^bc-full: (IDENTICAL 1 ticks|DIVERGENT turn 17950)' "$log"
+echo "Compared the first AI rebuild draw from its exact start checkpoint"
