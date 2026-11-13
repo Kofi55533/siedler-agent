@@ -5,6 +5,7 @@ compare-script-triggers
 compare-ai-state
 compare-terrain-state
 compare-path-searches
+compare-script-dispatches
 121-4000
 4000-7000
 7000-10000
