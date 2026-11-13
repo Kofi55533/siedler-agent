@@ -21,7 +21,7 @@ save() {
 trap save EXIT
 cd "$S5_REPO"
 for attempt in $(seq 1 150); do
-  git fetch -q origin "46fe711c157f6f0e6bd7887e0dea2d80e371e7d5" >> "$log" 2>&1
+  git fetch -q origin "8103f6fb9d9a3bc1e4a4453b0c0c8927b36ec35b" >> "$log" 2>&1
   git checkout -q --detach FETCH_HEAD >> "$log" 2>&1
   grep -q '^def join_reference' tools/oracle_observe.py 2>/dev/null && break
   sleep 10
