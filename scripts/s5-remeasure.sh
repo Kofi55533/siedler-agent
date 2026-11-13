@@ -85,8 +85,8 @@ export CARGO_TARGET_DIR="$S5_REPO/recomp/target"
 (cd crates/s5clean && cargo build --locked --release -j 2 --example observe) >> "$log" 2>&1 &
 compile=$!
 case "$mode" in
-  early-movement) turn=121 ;;
-  late-movement)
+  early-attachments) turn=121 ;;
+  late-attachments)
     turn=10000
     gh release download oracle-bc-full-rng-1f5fd5735587262c776fa6b48decd05d0c587630 -R Kofi55533/siedler-sim-rs \
       -p "turn-$turn.bin" -D "$work" >> "$log" 2>&1
@@ -98,36 +98,26 @@ esac
 ticks=128
 python tools/oracle_observe.py --scenario "$sc" --snapshot "$snapshot" --game "$S5_GAME" \
   --runtime "$S5_ARTIFACTS/boot/runtime" --output "$record" --from-turn "$turn" --ticks "$ticks" \
-  --movement --player-resources "${hasher[@]}" >> "$log" 2>&1
-python - "$sc" "$work/window.json" "$turn" "$ticks" "$record" >> "$log" 2>&1 <<'PY'
+  --attachments "${hasher[@]}" >> "$log" 2>&1
+python tools/oracle_observe.py window-scenario "$sc" "$work/window.json" "$turn" "$ticks" >> "$log" 2>&1
+python - "$record" "$ticks" >> "$log" 2>&1 <<'PY'
 import gzip
 import json
-from pathlib import Path
 import sys
-source, target = map(Path, sys.argv[1:3])
-start, ticks = map(int, sys.argv[3:5])
-commands = target.with_suffix(".jsonl")
-scenario = json.loads(source.read_text())
-with commands.open("w") as out:
-    if scenario.get("commands"):
-        for line in (source.parent / scenario["commands"]).read_text().splitlines():
-            if line.strip() and start <= json.loads(line)["turn"] < start + ticks:
-                print(line, file=out)
-scenario.update(start_turn=start, turns=ticks, commands=commands.name)
-target.write_text(json.dumps(scenario))
 
-with gzip.open(sys.argv[5], "rt") as stream:
-    next(stream)
+with gzip.open(sys.argv[1], "rt") as stream:
+    header = json.loads(next(stream))
     rows = [json.loads(line) for line in stream]
-assert len(rows) == ticks + 1 and rows[0]["movement_updates"]
-assert any(part[4] for row in rows for _, parts in row["movement_updates"] for part in parts)
-for keys in (("movement_updates", "movement_removed"), ("player_resources",)):
-    data = b"".join(json.dumps([row[key] for key in keys], separators=(",", ":")).encode() + b"\n" for row in rows)
-    print(f"{keys}: {len(gzip.compress(data, compresslevel=1))} compressed bytes in {len(rows)} rows")
+assert header["attachments"]
+assert len(rows) == int(sys.argv[2]) + 1
+assert rows[0]["attachments_updates"]
+assert any(row["attachments_updates"] or row["attachments_removed"] for row in rows[1:])
+print(f"{len(rows[0]['attachments_updates'])} entities with links at the window start")
+print(f"{sum(bool(row['attachments_updates'] or row['attachments_removed']) for row in rows[1:])} ticks with attachment changes")
 PY
 wait "$compile"
 cd crates/s5clean
-for lane in movement resources; do
+for lane in attachments; do
   rc=0
   /usr/bin/time -f 'wall %e s' "$CARGO_TARGET_DIR/release/examples/observe" "$work/window.json" "$img" \
     "$record" "--$lane" >> "$log" 2>&1 || rc=$?
