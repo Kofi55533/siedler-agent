@@ -94,7 +94,7 @@ fetch_asset() {
   done
 }
 
-if [ "$mode" = compare-resources ] || [ "$mode" = compare-movement ]; then
+if [ "$mode" = compare-lua-globals ] || [ "$mode" = compare-attachments ]; then
   export CARGO_TARGET_DIR="$S5_REPO/recomp/target"
   cd crates/s5clean
   cargo build --locked --release -j 2 --example observe >> "$log" 2>&1
@@ -131,7 +131,12 @@ import sys
 import zlib
 
 original, joined, work = map(Path, sys.argv[1:])
-fields = {"movement": ("movement_updates", "movement_removed"), "player_resources": ("player_resources",)}
+fields = {
+    "movement": ("movement_updates", "movement_removed"),
+    "player_resources": ("player_resources",),
+    "attachments": ("attachments_updates", "attachments_removed"),
+    "lua_globals": ("lua_globals_updates", "lua_globals_removed"),
+}
 compressors = {name: zlib.compressobj(1, wbits=31) for name in fields}
 totals = dict.fromkeys(fields, 0)
 changed = dict.fromkeys(fields, 0)
@@ -168,7 +173,7 @@ print(f"Joined archive {joined.stat().st_size} bytes")
 PY
   python tools/oracle_observe.py coverage "$record" > "$work/recipient-coverage.json" 2>> "$log"
   cat "$work/recipient-coverage.json" >> "$log"
-  jq -e '.mapped == 45746 and .unmapped == 0' "$work/recipient-coverage.json" >> "$log"
+  jq -e '.mapped == 45746 and .unmapped == 0 and .state.attachments.ticks == 23901 and .state.lua_globals.ticks == 23901 and .state.movement.ticks == 23901 and .player_resource_ticks == 23901' "$work/recipient-coverage.json" >> "$log"
   gh release upload "$tag" -R "$repo" "$record" "$work/recipient-coverage.json" >> "$log" 2>&1
   grep -E '(^[0-9]+ state rows|^Slowest |^Sequential process time|^Joined archive)' "$log"
   exit
@@ -189,6 +194,6 @@ echo "Recording $from through $to"
 time_file="$work/time-$mode.txt"
 /usr/bin/time -f '%e' -o "$time_file" python tools/oracle_observe.py --scenario "$sc" --snapshot "$snapshot" \
   --game "$S5_GAME" --runtime "$S5_ARTIFACTS/boot/runtime" --output "$window" --from-turn "$from" \
-  --ticks "$((to - from))" --movement --player-resources "${hasher[@]}" 2>> "$log" | tee -a "$log"
+  --ticks "$((to - from))" --movement --movement-reader "$work/task-hasher.so" --player-resources --attachments --lua-globals "${hasher[@]}" 2>> "$log" | tee -a "$log"
 gzip -t "$window"
 gh release upload "$tag" -R "$repo" "$window" "$time_file" --clobber >> "$log" 2>&1

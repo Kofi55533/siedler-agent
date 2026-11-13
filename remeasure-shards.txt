@@ -1,5 +1,5 @@
-compare-resources
-compare-movement
+compare-lua-globals
+compare-attachments
 join
 121-4000
 4000-7000
