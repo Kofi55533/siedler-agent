@@ -19,6 +19,19 @@ save() {
   exit "$rc"
 }
 trap save EXIT
+if [ -s "$GITHUB_WORKSPACE/remeasure-gate.txt" ]; then
+  gate=$(cat "$GITHUB_WORKSPACE/remeasure-gate.txt")
+  [[ "$gate" =~ ^[0-9]+$ ]]
+  for attempt in $(seq 1 100); do
+    status=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$gate" --jq '.status + " " + (.conclusion // "")' 2>> "$log") || status=unavailable
+    [[ "$status" == completed* ]] && break
+    sleep 15
+  done
+  if [[ "$status" != "completed success" ]]; then
+    printf 'Combined replay smoke %s ended with %s\n' "$gate" "$status" >> "$log"
+    exit 2
+  fi
+fi
 cd "$S5_REPO"
 for attempt in $(seq 1 150); do
   git fetch -q origin "8103f6fb9d9a3bc1e4a4453b0c0c8927b36ec35b" >> "$log" 2>&1
