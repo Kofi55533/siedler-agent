@@ -1,6 +1,1 @@
-map-siege:361:::deep
-campaign-04-intoshadowintolight:197:::deep
-map-citygates:497:::deep
-map-spreadland:427:::deep
-10-folklung:679:::deep
-map-mornheim:1111:1200::deep
+bc-0804:23566:30:120:t23566
