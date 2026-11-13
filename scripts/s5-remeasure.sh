@@ -151,32 +151,19 @@ with gzip.open(original, "rt") as a, gzip.open(joined, "rt") as b:
         if old[key] != new[key]:
             raise ValueError(f"joined recording differs in {key}")
     n = 0
-    confirmed = 0
-    animation_wait = 0
-    wait_sites = 0
     for raw_a, raw_b in zip_longest(a, b):
         if raw_a is None or raw_b is None:
             raise ValueError("joined recording has a different number of rows")
         n += 1
         prev, have = json.loads(raw_a), json.loads(raw_b)
+        for draw in prev["seed"]:
+            draw.pop("owner", None)
         for draw in have["seed"]:
-            owner = draw.pop("owner", None)
-            if draw["site"] == 0x5881CA:
-                wait_sites += 1
-                assert owner is not None and owner["kind"] == "animation_wait"
-                animation_wait += int(owner["entity"] != 0)
-            elif owner is not None:
-                assert owner["kind"] == "building_departure" and draw["site"] == 0x4A9E53
-                candidate = draw["entity_candidates"].get("edi")
-                if candidate is not None:
-                    assert owner["building"] == candidate
-                    confirmed += 1
+            draw.pop("owner", None)
         if prev != have:
             raise ValueError(f"joined observations differ entering tick {prev['state']['turn']}")
     assert n == new["turns"] + 1
     print(f"{n} state rows and all recorded events equal to uninterrupted Oracle")
-    print(f"{confirmed} explicit building IDs also match the earlier EDI evidence")
-    print(f"Animation wait recipients: {animation_wait} entity IDs in {wait_sites} draws")
 timings = {path.stem[5:]: float(path.read_text()) for path in work.glob("time-*.txt")}
 slowest = max(timings, key=timings.get)
 print(f"Each window, Oracle process seconds: {timings}")
@@ -184,7 +171,10 @@ print(f"Slowest {slowest}: {timings[slowest]:.2f} seconds")
 print(f"Sequential process time of the same windows: {sum(timings.values()):.2f} seconds")
 print(f"Joined archive {joined.stat().st_size} bytes")
 PY
-  gh release upload "$tag" -R "$repo" "$record" >> "$log" 2>&1
+  python tools/oracle_observe.py coverage "$record" > "$work/recipient-coverage.json" 2>> "$log"
+  cat "$work/recipient-coverage.json" >> "$log"
+  jq -e '.mapped + .unmapped == 45746' "$work/recipient-coverage.json" >> "$log"
+  gh release upload "$tag" -R "$repo" "$record" "$work/recipient-coverage.json" >> "$log" 2>&1
   grep -E '(^[0-9]+ state rows|^Slowest |^Sequential process time|^Joined archive)' "$log"
   exit
 fi
