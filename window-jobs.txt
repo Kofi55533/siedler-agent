@@ -1,2 +1,1 @@
-bc-full:23288:1500:20:deep
-bc-0804:23566:1500:20:deep
+campaign-03-thebeautifulland:120:10:30:crash
