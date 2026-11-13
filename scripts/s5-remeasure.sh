@@ -21,7 +21,7 @@ save() {
 trap save EXIT
 cd "$S5_REPO"
 for attempt in $(seq 1 150); do
-  git fetch -q origin "46fe711c157f6f0e6bd7887e0dea2d80e371e7d5" >> "$log" 2>&1
+  git fetch -q origin "8103f6fb9d9a3bc1e4a4453b0c0c8927b36ec35b" >> "$log" 2>&1
   git checkout -q --detach FETCH_HEAD >> "$log" 2>&1
   grep -q '^def join_reference' tools/oracle_observe.py 2>/dev/null && break
   sleep 10
@@ -109,11 +109,6 @@ fi
 export CARGO_TARGET_DIR="$S5_REPO/recomp/target"
 (cd crates/s5clean && cargo build --locked --release -j 2 --example observe) >> "$work/build.txt" 2>&1 &
 compile=$!
-if ! wait "$compile"; then
-  cat "$work/build.txt" >> "$log"
-  exit 2
-fi
-cat "$work/build.txt" >> "$log"
 obs=tools/oracle_observe.py
 /usr/bin/time -f 'record wall %e s' python "$obs" --scenario "$sc" --snapshot "$snapshot" \
   --game "$S5_GAME" --runtime "$S5_ARTIFACTS/boot/runtime" --output "$record" --from-turn "$turn" \
@@ -142,6 +137,11 @@ jq -e --slurpfile prior "$work/coverage.json" '
   .resource_notifications == $prior[0].resource_notifications and
   .state == $prior[0].state and .path_searches == $prior[0].path_searches and .script_dispatches == $prior[0].script_dispatches and .mapped == $prior[0].mapped
 ' "$work/joined-coverage.json" >> "$log"
+if ! wait "$compile"; then
+  cat "$work/build.txt" >> "$log"
+  exit 2
+fi
+cat "$work/build.txt" >> "$log"
 cd crates/s5clean
 for lane in resource-notifications deferred-events script-triggers ai-state terrain-state path-searches script-dispatches resources movement attachments lua-globals all; do
   opts=()
