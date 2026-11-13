@@ -1,2 +1,1 @@
-early-movement
-late-movement
+wintersturm-checkpoint

@@ -32,16 +32,16 @@ echo "candidate $rev" >> "$log"
 cc -O3 -shared -fPIC tools/oracle_task_hashes.c -o "$work/task-hasher.so" >> "$log" 2>&1
 hasher=(--task-hasher "$work/task-hasher.so" --entity-reader "$work/task-hasher.so")
 python -m pip install --quiet pefile capstone >> "$log" 2>&1
-snapshot="$S5_ARTIFACTS/lift/snap_gs_h.bin"
+snapshot="$S5_ARTIFACTS/lift/snap20h.bin"
 if [ ! -s "$snapshot" ]; then
   echo "Fetching original Oracle start snapshot"
   mkdir -p "$(dirname "$snapshot")"
   curl --fail --silent --show-error --location --retry 3 \
     -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github.raw+json' \
-    "https://api.github.com/repos/Kofi55533/siedler-forschung/contents/cloud-re/artifacts/recomp/lift/snap_gs_h.bin" \
+    "https://api.github.com/repos/Kofi55533/siedler-forschung/contents/cloud-re/artifacts/recomp/lift/snap20h.bin" \
     -o "$snapshot" >> "$log" 2>&1
 fi
-test "$(git hash-object "$snapshot")" = f6561c747709e308c2e0581fa366b243da2f7bfb
+test "$(git hash-object "$snapshot")" = 6937fb76baaf2772eb1a5cd2783e5d0d3c9778c2
 # data-v2 intentionally omits some media. Restore every original game file that
 # the canonical snapshot still holds open, using the same installation it came from.
 python - "$snapshot" "$S5_GAME" > "$work/missing-install.txt" 2>> "$log" <<'PY'
@@ -76,61 +76,49 @@ while IFS= read -r path; do
     -o "$work/install-file" >> "$log" 2>&1
   mv "$work/install-file" "$S5_GAME/$path"
 done < "$work/missing-install.txt"
-sc="$S5_V/fixtures/bc-full/scenario.json"
-img="$S5_ARTIFACTS/bc/gs_h.img"
-record="$work/bc-full-oracle.jsonl.gz"
-
-
-export CARGO_TARGET_DIR="$S5_REPO/recomp/target"
-(cd crates/s5clean && cargo build --locked --release -j 2 --example observe) >> "$log" 2>&1 &
-compile=$!
-case "$mode" in
-  early-movement) turn=121 ;;
-  late-movement)
-    turn=10000
-    gh release download oracle-bc-full-rng-1f5fd5735587262c776fa6b48decd05d0c587630 -R Kofi55533/siedler-sim-rs \
-      -p "turn-$turn.bin" -D "$work" >> "$log" 2>&1
-    snapshot="$work/turn-$turn.bin"
-    img="$work/start.img"
-    python recomp/export_image.py "$snapshot" "$img" --mem-only >> "$log" 2>&1 ;;
-  *) exit 2 ;;
-esac
-ticks=128
-python tools/oracle_observe.py --scenario "$sc" --snapshot "$snapshot" --game "$S5_GAME" \
-  --runtime "$S5_ARTIFACTS/boot/runtime" --output "$record" --from-turn "$turn" --ticks "$ticks" \
-  --movement --player-resources "${hasher[@]}" >> "$log" 2>&1
-python - "$sc" "$work/window.json" "$turn" "$ticks" "$record" >> "$log" 2>&1 <<'PY'
-import gzip
-import json
-from pathlib import Path
+test "$mode" = wintersturm-checkpoint
+sc="$S5_REPO/fixtures/wintersturm/scenario.json"
+img="$work/start.img"
+record="$work/wintersturm-oracle.jsonl.gz"
+turn=$(python - "$snapshot" <<'PY'
+import pickle
+import struct
 import sys
-source, target = map(Path, sys.argv[1:3])
-start, ticks = map(int, sys.argv[3:5])
-commands = target.with_suffix(".jsonl")
-scenario = json.loads(source.read_text())
-with commands.open("w") as out:
-    if scenario.get("commands"):
-        for line in (source.parent / scenario["commands"]).read_text().splitlines():
-            if line.strip() and start <= json.loads(line)["turn"] < start + ticks:
-                print(line, file=out)
-scenario.update(start_turn=start, turns=ticks, commands=commands.name)
-target.write_text(json.dumps(scenario))
+import zlib
 
-with gzip.open(sys.argv[5], "rt") as stream:
-    next(stream)
-    rows = [json.loads(line) for line in stream]
-assert len(rows) == ticks + 1 and rows[0]["movement_updates"]
-assert any(part[4] for row in rows for _, parts in row["movement_updates"] for part in parts)
-for keys in (("movement_updates", "movement_removed"), ("player_resources",)):
-    data = b"".join(json.dumps([row[key] for key in keys], separators=(",", ":")).encode() + b"\n" for row in rows)
-    print(f"{keys}: {len(gzip.compress(data, compresslevel=1))} compressed bytes in {len(rows)} rows")
+with open(sys.argv[1], "rb") as stream:
+    snapshot = pickle.load(stream)
+regions = {base: compressed for base, compressed in snapshot["mem"]}
+decoded = {}
+def read(address):
+    for base in sorted((base for base in regions if base <= address), reverse=True):
+        if base not in decoded:
+            decoded[base] = zlib.decompress(regions[base])
+        offset = address - base
+        if offset + 4 <= len(decoded[base]):
+            return struct.unpack_from("<I", decoded[base], offset)[0]
+    raise ValueError(f"missing snapshot address {address:#x}")
+print(read(read(read(0x895DAC) + 0x1C)))
 PY
-wait "$compile"
+)
+ticks=128
+python tools/oracle_observe.py window-scenario "$sc" "$work/window.json" "$turn" "$ticks" >> "$log" 2>&1
+python recomp/export_image.py "$snapshot" "$img" --mem-only >> "$log" 2>&1
+python tools/oracle_observe.py --scenario "$work/window.json" --snapshot "$snapshot" --game "$S5_GAME" \
+  --runtime "$S5_ARTIFACTS/boot/runtime" --output "$record" --ticks "$ticks" --movement --player-resources \
+  "${hasher[@]}" >> "$log" 2>&1
+export CARGO_TARGET_DIR="$S5_REPO/recomp/target"
 cd crates/s5clean
-for lane in movement resources; do
+cargo build --locked --release -j 2 --example observe >> "$log" 2>&1
+for scope in movement resources rng-all; do
   rc=0
   /usr/bin/time -f 'wall %e s' "$CARGO_TARGET_DIR/release/examples/observe" "$work/window.json" "$img" \
-    "$record" "--$lane" >> "$log" 2>&1 || rc=$?
+    "$record" "--$scope" > "$work/compare.txt" 2>&1 || rc=$?
+  cat "$work/compare.txt" >> "$log"
   [ "$rc" -le 1 ]
+  grep -qE '^wintersturm: (IDENTICAL|DIVERGENT)' "$work/compare.txt"
 done
-grep -E '^bc-full: (IDENTICAL|DIVERGENT)' "$log" | cut -d: -f1-2
+tag="oracle-wintersturm-checkpoint-$GITHUB_RUN_ID"
+gh release create "$tag" -R Kofi55533/siedler-sim-rs --target "$rev" --prerelease \
+  --title "Wintersturm checkpoint observation" --notes "Original replay and window scenario." \
+  "$record" "$work/window.json" "$work/window.commands.jsonl" >> "$log" 2>&1
