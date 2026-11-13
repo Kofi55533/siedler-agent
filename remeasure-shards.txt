@@ -1,5 +1,5 @@
-wait-smoke
-wait-compare
+compare-resources
+compare-movement
 join
 121-4000
 4000-7000

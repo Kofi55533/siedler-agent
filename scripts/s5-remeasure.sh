@@ -82,6 +82,7 @@ record="$work/bc-full-oracle.jsonl.gz"
 
 repo=Kofi55533/siedler-sim-rs
 original=oracle-bc-full-rng-1f5fd5735587262c776fa6b48decd05d0c587630
+baseline=oracle-bc-full-windows-43333869478
 tag="oracle-bc-full-windows-$GITHUB_RUN_ID"
 start=$(jq -er '.start_turn' "$sc")
 end=$(jq -er '.start_turn + .turns' "$sc")
@@ -93,40 +94,24 @@ fetch_asset() {
   done
 }
 
-if [ "$mode" = wait-smoke ] || [ "$mode" = wait-compare ]; then
-  if [ "$mode" = wait-smoke ]; then
-    python tools/oracle_observe.py --scenario "$sc" --snapshot "$snapshot" --game "$S5_GAME" \
-      --runtime "$S5_ARTIFACTS/boot/runtime" --output "$record" --ticks 64 "${hasher[@]}" >> "$log" 2>&1
-    python tools/oracle_observe.py show "$record" 159 \
-      | jq -e '.seed[] | select(.site == 5800394 and .owner.kind == "animation_wait" and .owner.entity == 83053) | .owner' \
-      >> "$log"
-  fi
+if [ "$mode" = compare-resources ] || [ "$mode" = compare-movement ]; then
   export CARGO_TARGET_DIR="$S5_REPO/recomp/target"
   cd crates/s5clean
   cargo build --locked --release -j 2 --example observe >> "$log" 2>&1
-  limit=(64)
-  if [ "$mode" = wait-compare ]; then
-    fetch_asset "$tag" bc-full-oracle.jsonl.gz "$work"
-    limit=()
-  fi
+  fetch_asset "$tag" bc-full-oracle.jsonl.gz "$work"
   rc=0
   /usr/bin/time -f 'wall %e s' "$CARGO_TARGET_DIR/release/examples/observe" "$sc" "$img" "$record" \
-    "${limit[@]}" --rng-all > "$work/compare.txt" 2>&1 || rc=$?
+    "--${mode#compare-}" > "$work/compare.txt" 2>&1 || rc=$?
   cat "$work/compare.txt" >> "$log"
-  if [ "$mode" = wait-smoke ]; then
-    [ "$rc" -eq 0 ]
-    grep -E '^[1-9][0-9]+ verified matching draw recipients$' "$work/compare.txt"
-  else
-    [ "$rc" -le 1 ]
-  fi
-  grep -oE '^bc-full: (DIVERGENT turn [0-9]+|IDENTICAL [0-9]+ ticks)' "$work/compare.txt"
+  [ "$rc" -le 1 ]
+  grep -qE '^bc-full: (DIVERGENT turn [0-9]+|IDENTICAL [0-9]+ ticks)' "$work/compare.txt"
   exit
 fi
 
 if [ "$mode" = join ]; then
   gh release create "$tag" -R "$repo" --target "$rev" --prerelease \
     --title "BC Full parallel Oracle recording" \
-    --notes "These are repeatable windows from validated native checkpoints. bc-full-oracle.jsonl.gz appears after the join and comparison to the uninterrupted run." >> "$log" 2>&1
+    --notes "These are repeatable windows from validated native checkpoints. bc-full-oracle.jsonl.gz appears after the join and validation against the previous Oracle reference." >> "$log" 2>&1
   segments=()
   for window in "${windows[@]}"; do
     fetch_asset "$tag" "window-$window.jsonl.gz" "$work"
@@ -136,15 +121,20 @@ if [ "$mode" = join ]; then
   /usr/bin/time -f 'join wall %e s' python tools/oracle_observe.py join "$sc" "$record" "${segments[@]}" >> "$log" 2>&1
   gzip -t "$record"
   mkdir -p "$work/original"
-  fetch_asset "$original" bc-full-oracle.jsonl.gz "$work/original"
+  fetch_asset "$baseline" bc-full-oracle.jsonl.gz "$work/original"
   python - "$work/original/bc-full-oracle.jsonl.gz" "$record" "$work" >> "$log" 2>&1 <<'PY'
 import gzip
 from itertools import zip_longest
 import json
 from pathlib import Path
 import sys
+import zlib
 
 original, joined, work = map(Path, sys.argv[1:])
+fields = {"movement": ("movement_updates", "movement_removed"), "player_resources": ("player_resources",)}
+compressors = {name: zlib.compressobj(1, wbits=31) for name in fields}
+totals = dict.fromkeys(fields, 0)
+changed = dict.fromkeys(fields, 0)
 with gzip.open(original, "rt") as a, gzip.open(joined, "rt") as b:
     old, new = json.loads(next(a)), json.loads(next(b))
     for key in ("start", "turns", "scenario", "recorded_commands", "snapshot_sha256", "observation_profile"):
@@ -156,14 +146,19 @@ with gzip.open(original, "rt") as a, gzip.open(joined, "rt") as b:
             raise ValueError("joined recording has a different number of rows")
         n += 1
         prev, have = json.loads(raw_a), json.loads(raw_b)
-        for draw in prev["seed"]:
-            draw.pop("owner", None)
-        for draw in have["seed"]:
-            draw.pop("owner", None)
+        for name, keys in fields.items():
+            values = [have.pop(key, None) for key in keys]
+            changed[name] += any(bool(value) for value in values)
+            data = json.dumps(values, separators=(",", ":")).encode() + b"\n"
+            totals[name] += len(compressors[name].compress(data))
         if prev != have:
             raise ValueError(f"joined observations differ entering tick {prev['state']['turn']}")
     assert n == new["turns"] + 1
-    print(f"{n} state rows and all recorded events equal to uninterrupted Oracle")
+    print(f"{n} state rows and all previous events equal to the verified Oracle archive")
+for name, compressor in compressors.items():
+    totals[name] += len(compressor.flush())
+    assert changed[name]
+    print(f"{name}: {changed[name]} populated rows, {totals[name]} compressed bytes alone")
 timings = {path.stem[5:]: float(path.read_text()) for path in work.glob("time-*.txt")}
 slowest = max(timings, key=timings.get)
 print(f"Each window, Oracle process seconds: {timings}")
@@ -173,7 +168,7 @@ print(f"Joined archive {joined.stat().st_size} bytes")
 PY
   python tools/oracle_observe.py coverage "$record" > "$work/recipient-coverage.json" 2>> "$log"
   cat "$work/recipient-coverage.json" >> "$log"
-  jq -e '.mapped + .unmapped == 45746' "$work/recipient-coverage.json" >> "$log"
+  jq -e '.mapped == 45746 and .unmapped == 0' "$work/recipient-coverage.json" >> "$log"
   gh release upload "$tag" -R "$repo" "$record" "$work/recipient-coverage.json" >> "$log" 2>&1
   grep -E '(^[0-9]+ state rows|^Slowest |^Sequential process time|^Joined archive)' "$log"
   exit
@@ -194,6 +189,6 @@ echo "Recording $from through $to"
 time_file="$work/time-$mode.txt"
 /usr/bin/time -f '%e' -o "$time_file" python tools/oracle_observe.py --scenario "$sc" --snapshot "$snapshot" \
   --game "$S5_GAME" --runtime "$S5_ARTIFACTS/boot/runtime" --output "$window" --from-turn "$from" \
-  --ticks "$((to - from))" "${hasher[@]}" 2>> "$log" | tee -a "$log"
+  --ticks "$((to - from))" --movement --player-resources "${hasher[@]}" 2>> "$log" | tee -a "$log"
 gzip -t "$window"
 gh release upload "$tag" -R "$repo" "$window" "$time_file" --clobber >> "$log" 2>&1
