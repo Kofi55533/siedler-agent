@@ -89,9 +89,16 @@ end=$(jq -er '.start_turn + .turns' "$sc")
 config="$GITHUB_WORKSPACE/remeasure-shards.txt"
 mapfile -t windows < <(grep -E '^[0-9]+-[0-9]+$' "$config")
 fetch_asset() {
-  until gh release download "$1" -R "$repo" -p "$2" -D "$3" --clobber > "$work/download.txt" 2>&1; do
+  local tag_name=$1 name=$2 dest=$3 attempt
+  for attempt in $(seq 1 180); do
+    if gh release download "$tag_name" -R "$repo" -p "$name" -D "$dest" --clobber > "$work/download.txt" 2>&1; then
+      return
+    fi
     sleep 30
   done
+  printf 'Missing release asset %s/%s\n' "$tag_name" "$name" >> "$log"
+  cat "$work/download.txt" >> "$log"
+  return 1
 }
 
 if [[ "$mode" == compare-* ]]; then
@@ -197,6 +204,8 @@ echo "Recording $from through $to"
 time_file="$work/time-$mode.txt"
 /usr/bin/time -f '%e' -o "$time_file" python tools/oracle_observe.py --scenario "$sc" --snapshot "$snapshot" \
   --game "$S5_GAME" --runtime "$S5_ARTIFACTS/boot/runtime" --output "$window" --from-turn "$from" \
-  --ticks "$((to - from))" --movement --movement-reader "$work/task-hasher.so" --player-resources --attachments --lua-globals --resource-notifications --deferred-events --script-triggers --ai-state --terrain-state --path-searches --script-dispatches "${hasher[@]}" 2>> "$log" | tee -a "$log"
+  --ticks "$((to - from))" --movement --movement-reader "$work/task-hasher.so" \
+  --player-resources --attachments --lua-globals --resource-notifications --deferred-events \
+  --script-triggers --ai-state --terrain-state --path-searches --script-dispatches "${hasher[@]}" >> "$log" 2>&1
 gzip -t "$window"
 gh release upload "$tag" -R "$repo" "$window" "$time_file" --clobber >> "$log" 2>&1
