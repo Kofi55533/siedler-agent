@@ -1,1 +1,2 @@
 campaign-03-thebeautifulland:120:10:30:crash
+# rerun 04:35 entry-state diagnostic
