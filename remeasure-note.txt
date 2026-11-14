@@ -4,3 +4,4 @@ baseline of clean/integration after #2249 #2250 (175 scenarios), 2026-11-13 19:4
 2026-11-14 05:50 Berlin: full regression after #2255-#2256 (10-folklung, campaign-04)
 2026-11-14T09:40:11Z after #2259-#2261
 after #2262, #2263: with coverage bitmaps, three more map starts
+2026-11-14T15:25:50Z codex observation merge trial
