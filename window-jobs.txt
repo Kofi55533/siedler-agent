@@ -1,2 +1,2 @@
-# rerun 04:35 entry-state diagnostic
-bc-full:23308:0:end:t23308
+# legacy-image minimap skip (2b97ab493)
+campaign-03-thebeautifulland:120:10:30:skip
