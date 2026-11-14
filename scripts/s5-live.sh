@@ -20,6 +20,9 @@ esac
 mkdir -p $S5/live; cd $S5_REPO/recomp
 export S5_REMAP=$(python -c "import verify; print(verify.remap_for('$img', 'target/verify/live-$f'))")
 [ "$a" = economy ] && export S5_CLEAN_MAP_DIR=$S5_V/maps/economy/maps/externalmap
+# S5_COVER_DIR (optional): the reference writes its executed-block bitmap to <dir>/<f>.cover.gz when the run ends
+# (recomp/src/rt/cover.rs; a build without it writes nothing). A stale file would be merged into, so it goes first.
+if [ -n "${S5_COVER_DIR:-}" ]; then mkdir -p "$S5_COVER_DIR"; rm -f "$S5_COVER_DIR/$f.cover.gz"; export S5_COVER=$S5_COVER_DIR/$f.cover.gz; fi
 timeout ${S5_LIVE_TIMEOUT:-1800} ./target/release/s5verify live ../data/scope/schema.json "$sc" "$img" "$a" > $S5/live/$f.log 2>&1
 rc=$?
 m=$(grep -m1 -oE "^[a-z0-9][a-z0-9-]*: (DIVERGENT turn [0-9]+|IDENTICAL [0-9]+ ticks)|loader unavailable" $S5/live/$f.log | sed 's/^[a-z0-9][a-z0-9-]*: //')
