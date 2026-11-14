@@ -1,2 +1,1 @@
-# legacy-image minimap skip (2b97ab493)
-campaign-03-thebeautifulland:120:10:30:skip
+# no open job
