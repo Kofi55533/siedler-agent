@@ -1,1 +1,2 @@
-# no open job
+# bc-full tail after 23308 on clean (opus bc-oracle2 verification)
+bc-full:23308:0:end:t23308
