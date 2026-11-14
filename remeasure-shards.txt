@@ -27,3 +27,4 @@ campaign-11-norfolk campaign-12-kaloix campaign-13-plague campaign-15-oldkingsca
 map-banditforrest map-battleisle map-burningsteppe map-citygates map-clanwar map-crater map-darkland map-demomap map-europe
 map-frozenfjord map-hauntedruins map-hillsoffriendship map-koenigsforst map-oldenemies map-peacefulland map-sabotagemoor map-sandbox map-siege
 map-smalldale map-spreadland map-summerisland map-summerstorm map-supplylines map-winterassault
+campaign-02-bigriver campaign-03-bigcity map-goldenriddles
