@@ -1,2 +1,2 @@
 # rerun 04:35 entry-state diagnostic
-bc-0804:23986:0:end:t23986
+bc-full:23308:0:end:t23308
