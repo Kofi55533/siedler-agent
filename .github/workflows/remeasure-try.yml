@@ -30,7 +30,7 @@ jobs:
         env: { T: '${{ secrets.PRIVATE_REPO_TOKEN }}' }
         run: scripts/s5-setup.sh clean/integration 1
       - name: Re-measure (no LLM)
-        env: { GH_TOKEN: '${{ secrets.PRIVATE_REPO_TOKEN }}', FX: '${{ matrix.fx }}', S5_REMEASURE_BOARD: '0' }
+        env: { GH_TOKEN: '${{ secrets.PRIVATE_REPO_TOKEN }}', FX: '${{ matrix.fx }}', S5_REMEASURE_BOARD: '0', S5_COVER_DIR: /tmp/cover }
         run: |
           ref=$(grep -v '^#' remeasure-ref.txt 2>/dev/null | grep -m1 . || echo clean/integration)
           # remeasure-trace.txt (optional): S5_TRACE for s5verify, <from turn>:<entity ids>
@@ -59,3 +59,7 @@ jobs:
           gh release view $rel -R $D > /dev/null 2>&1 || gh release create $rel -R $D --title $rel --notes "remeasure details for $ref" > /dev/null 2>&1 || true
           ok=0; for i in 1 2 3; do gh release upload $rel -R $D --clobber /tmp/up/live-*.txt > /dev/null 2>&1 && { ok=1; break; }; sleep 10; done
           [ $ok = 1 ] && echo "uploaded $n to $rel" || echo "upload failed ($n files)"
+      - name: Upload coverage bitmaps (private release, counts only)
+        if: always()
+        env: { GH_TOKEN: '${{ secrets.PRIVATE_REPO_TOKEN }}', FX: '${{ matrix.fx }}' }
+        run: scripts/s5-cover-upload.sh /tmp/cover $FX
