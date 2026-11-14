@@ -1,3 +1,4 @@
 Remeasure: full baseline after #2243-#2245 (2026-11-13T13:16:00Z)
 baseline of clean/integration after #2249 #2250 (175 scenarios), 2026-11-13 19:40 Berlin
 2026-11-14 00:40 Berlin: full regression after #2251-#2253 (barmecia order condition, mornheim foundation top, deep lane)
+2026-11-14 05:50 Berlin: full regression after #2255-#2256 (10-folklung, campaign-04)
