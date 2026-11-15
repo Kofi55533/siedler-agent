@@ -1,1 +1,1 @@
-claude/hidden-diffs
+claude/scripted-start
