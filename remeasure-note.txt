@@ -7,3 +7,4 @@ after #2262, #2263: with coverage bitmaps, three more map starts
 2026-11-14T20:39:55Z after #2266 (observation toolchain) and #2267 (native list)
 2026-11-14T20:42:42Z claude/hidden-diffs full regression (same scripts as remeasure-opus)
 2026-11-15T19:56:17Z scripted-start b776414a9 full regression
+2026-11-16T16:22:34Z scripted-start bec1da9c5 full regression
