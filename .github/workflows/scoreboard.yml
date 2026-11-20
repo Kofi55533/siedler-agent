@@ -1,24 +1,19 @@
 name: scoreboard
-# Builds the public status page (GitHub Pages, branch gh-pages) every 15 min.
-# Reads the private repo via PRIVATE_REPO_TOKEN; publishes only numbers/titles (data.json) + static index.html.
-# Independent of opencode.yml / refill.yml (own concurrency group, no issues/comments).
-# Cadence: the cron below (fires rarely on this busy repo) plus fleet-control.yml, which dispatches
-# only when no run was created in the last 14 min. The former `rearm` job (sleep 780 on a runner) is gone: it held one of the
-# 20 concurrent job slots for ~13 min of every cycle.
-# API budget (2026-10-20: one build cost ~990 REST calls of the shared PAT, 4-6 builds/h, the PAT hit 5000/h 12:48-13:26 and
-# the 13:04/13:18 pages were published empty): ETag cache across runs (a 304 does not count; blobs/commits by sha are
-# immutable), AES-encrypted with a key derived from the PAT (it holds private-repo data; fork PRs get no secrets); public-repo
-# calls use the built-in GITHUB_TOKEN; a rate-limited/partial build writes SKIP_PUBLISH and the last good page stays.
+# Builds the public status page (GitHub Pages, branch gh-pages) every 15 min: how many scenarios and maps the clean
+# engine plays turn-identical with the original, from the measurement releases (rm-*/measure-*.txt) in the private
+# repo Kofi55533/siedler-data. Publishes only status words, turn numbers, level names and commit titles (data.json),
+# never game state. Parsed measurement files are cached in gh-pages messungen.json, so a build downloads only new files
+# (~5 REST calls when nothing changed). A failed build writes SKIP_PUBLISH and the last good page stays.
+# Cadence: the cron below plus fleet-control.yml, which dispatches this file when no run was created in the last 14 min.
 on:
   schedule:
     - cron: '*/15 * * * *'
   workflow_dispatch:
 permissions:
   contents: write
-  actions: write
+  actions: read
 jobs:
   build:
-    # concurrency only on the build job, so a sleeping rearm job never blocks a manual/new build
     concurrency:
       group: scoreboard
       cancel-in-progress: false
@@ -27,51 +22,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # autonomy_state.py + scope_classes.json: the controller's own counts (scope classes, ticket states) for the overview
-          sparse-checkout: |
-            /scripts/scoreboard/
-            /scripts/autonomy_state.py
-            /scripts/scope_classes.json
+          sparse-checkout: /scripts/scoreboard/
           sparse-checkout-cone-mode: false
-      - name: Fetch previous history (gh-pages)
+      - name: Fetch previous page (gh-pages)
         run: |
-          mkdir -p "$RUNNER_TEMP/out"
+          mkdir -p "$RUNNER_TEMP/out" "$RUNNER_TEMP/prev"
           if git fetch -q --depth 1 origin gh-pages 2>/dev/null; then
-            git show FETCH_HEAD:history.json > "$RUNNER_TEMP/prev.json" 2>/dev/null || echo '[]' > "$RUNNER_TEMP/prev.json"
-          else
-            echo '[]' > "$RUNNER_TEMP/prev.json"
+            for f in messungen.json verlauf.json; do git show "FETCH_HEAD:$f" > "$RUNNER_TEMP/prev/$f" 2>/dev/null || rm -f "$RUNNER_TEMP/prev/$f"; done
           fi
-      - name: Restore API cache (encrypted)
-        uses: actions/cache/restore@v4
-        with:
-          path: ${{ runner.temp }}/apicache.enc
-          key: sbapi-${{ github.run_id }}
-          restore-keys: sbapi-
       - name: Build data.json
         env:
           GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
-          GH_TOKEN_PUB: ${{ github.token }}
           OUT: ${{ runner.temp }}/out
-          PREV: ${{ runner.temp }}/prev.json
-          API_CACHE: ${{ runner.temp }}/apicache
-          ENC: ${{ runner.temp }}/apicache.enc
-          FLEET_V2_ENABLED: ${{ vars.FLEET_V2_ENABLED }}  # repo variables (not secrets): slot limits for the Fleet v2 view
-          FLEET_V2_WORKER_LIMIT: ${{ vars.FLEET_V2_WORKER_LIMIT }}
-          XC_WORKERS: ${{ vars.XC_WORKERS }}  # xc fix jobs of the main account (default 10)
-        run: |
-          K=$(printf 'siedler-scoreboard-cache:%s' "$GH_TOKEN" | sha256sum | cut -c1-64); export K
-          mkdir -p "$API_CACHE"
-          if [ -s "$ENC" ]; then openssl enc -d -aes-256-cbc -pbkdf2 -pass env:K -in "$ENC" | gzip -dc > "$API_CACHE/etags.json" 2>/dev/null || rm -f "$API_CACHE/etags.json"; fi
-          echo "api cache in: $(du -h "$API_CACHE/etags.json" 2>/dev/null | cut -f1)"
-          python3 scripts/scoreboard/build.py
-          rm -f "$ENC"; [ -s "$API_CACHE/etags.json" ] && gzip -c "$API_CACHE/etags.json" | openssl enc -aes-256-cbc -pbkdf2 -salt -pass env:K -out "$ENC"
-          rm -rf "$API_CACHE"; echo "api cache out: $(du -h "$ENC" 2>/dev/null | cut -f1)"
-      - name: Save API cache (encrypted)
-        if: always()
-        uses: actions/cache/save@v4
-        with:
-          path: ${{ runner.temp }}/apicache.enc
-          key: sbapi-${{ github.run_id }}
+          PREV_DIR: ${{ runner.temp }}/prev
+        run: python3 scripts/scoreboard/build.py
       - name: Publish to gh-pages
         env:
           OUT: ${{ runner.temp }}/out
