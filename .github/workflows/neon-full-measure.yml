@@ -17,6 +17,7 @@ jobs:
     timeout-minutes: 45
     outputs:
       sha: ${{ steps.b.outputs.sha }}
+      full_sha: ${{ steps.b.outputs.full_sha }}
       shards: ${{ steps.b.outputs.shards }}
     steps:
       - uses: actions/checkout@v4
@@ -35,7 +36,8 @@ jobs:
           git fetch -q origin "+refs/heads/clean/integration:refs/remotes/origin/clean/integration"
           git checkout -q --detach origin/clean/integration
           SHA=$(git rev-parse --short=10 HEAD)
-          echo "Measuring clean/integration @ $SHA"
+          FULL_SHA=$(git rev-parse HEAD)
+          echo "Measuring clean/integration @ $SHA ($FULL_SHA)"
           cd "$GITHUB_WORKSPACE"
           if ! scripts/s5-build.sh; then
             echo "=== tail build.log (compiler errors) ==="
@@ -52,6 +54,7 @@ jobs:
           done
           SHARDS=$(grep -v '^#' neon-measure-shards.txt | grep . | jq -R . | jq -sc .)
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "full_sha=$FULL_SHA" >> "$GITHUB_OUTPUT"
           echo "shards=$SHARDS" >> "$GITHUB_OUTPUT"
 
   measure:
@@ -71,6 +74,7 @@ jobs:
           T: '${{ secrets.PRIVATE_REPO_TOKEN }}'
           GH_TOKEN: '${{ secrets.PRIVATE_REPO_TOKEN }}'
           SHA: '${{ needs.build.outputs.sha }}'
+          FULL_SHA: '${{ needs.build.outputs.full_sha }}'
         run: |
           set -euo pipefail
           source scripts/s5-env.sh
@@ -78,8 +82,10 @@ jobs:
           sudo mkdir -p "$S5" && sudo chown "$(id -u):$(id -g)" "$S5"
           sudo apt-get -qq update && sudo DEBIAN_FRONTEND=noninteractive apt-get -qq install -y zstd >/dev/null 2>&1
           mkdir -p "$S5/dl" "$S5/data/game" "$S5/data/art" "$S5/data/fixtures" "$S5_NF" "$S5/live"
-          git clone -q --depth 1 --no-single-branch "https://x-access-token:${T}@github.com/Kofi55533/siedler-sim-rs.git" "$S5_REPO"
-          git -C "$S5_REPO" fetch -q --depth 1 origin "$SHA" && git -C "$S5_REPO" checkout -q --detach "$SHA"
+          git clone -q --depth 1 --branch clean/integration "https://x-access-token:${T}@github.com/Kofi55533/siedler-sim-rs.git" "$S5_REPO"
+          git -C "$S5_REPO" fetch -q --depth 1 origin "$FULL_SHA"
+          git -C "$S5_REPO" checkout -q --detach "$FULL_SHA"
+          test -f "$S5_REPO/crates/s5clean/../../ref/game_config/extra2/tllist.xml"
           # Download data-v2 (skip gen.tzst since s5verify is prebuilt!)
           for try in 1 2 3 4; do
             gh release download data-v2 -R Kofi55533/siedler-data -D "$S5/dl" \
