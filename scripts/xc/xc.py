@@ -7,6 +7,10 @@
                                       addresses the clean code cites), the order of the function units; the
                                       callers of each function (capture-functions) mark the ones covered by their
                                       verified callers and order the rest top-down
+  xc.py want <worklist> <dir>         <dir>/<scenario>.txt: the calls the next census compares beyond its sampling
+                                      (S5_CAPTURE_WANT), those that ran blocks no equal compared call ran
+  xc.py want-file <capture.json> <out>
+                                      the same from one s5xcheck report (its blocks.fresh) into <out>
   xc.py regressions <old> <new>       (kind, scenario) pairs that compared clean in <old> and fail in <new> (JSON list)
   xc.py pick <worklist> <n> [--claim] [--limit=L]
                                       up to n failing kinds no open PR, claim, exhausted attempt or merge since the
@@ -38,6 +42,7 @@
 
 The JSON files hold game state (diff lines); they stay on the runner or in the private release, never in a log.
 """
+import collections
 import json
 import os
 import re
@@ -101,15 +106,31 @@ def fn_state(k):
     return "partial" if k.get("blocks_open") else "done"
 
 
+WANT_MAX = 400  # wanted calls per scenario: each runs whole and is compared (about one sampled call's cost)
+
+
+def want_calls(fresh, verified, cap=WANT_MAX):
+    """the calls (FN:KEY, s5xcheck capture::Want) that first ran blocks no equal compared call ran: s5xcheck
+    Report::blocks.fresh tokens BLOCK:FN:KEY, the calls running the most such blocks first, at most `cap`"""
+    calls = collections.Counter()
+    for token in fresh:
+        block, function, key = token.split(":")
+        if block not in verified:
+            calls[f"{function}:{key}"] += 1
+    return [c for c, _ in sorted(calls.items(), key=lambda x: (-x[1], x[0]))[:cap]]
+
+
 def merge(directory, sha, out, meta=None):
     kinds, scenarios, functions = {}, {}, set()
     blocks = {"equal": set(), "differing": set(), "executed": set()}
+    fresh = {}
     for f in sorted(Path(directory).glob("*.json")):
         doc = load(f)
         name = f.stem
         functions.update(doc["function"].split(","))
         for side, seen in blocks.items():  # s5xcheck Report::blocks: tools/function_inventory.py --capture
             seen.update(a for a in (doc.get("blocks") or {}).get(side, "").split(",") if a)
+        fresh[name] = [t for t in (doc.get("blocks") or {}).get("fresh", "").split(",") if t]
         scenarios[name] = {"turns": doc["turns"], "entries": doc["entries"], "import_errors": len(doc["import_errors"]),
                            "missing_points": doc.get("missing_points", []), "commands": doc.get("commands", 0),
                            "secs": doc.get("secs")}
@@ -128,6 +149,9 @@ def merge(directory, sha, out, meta=None):
                 c = k.setdefault("callers", {})
                 for caller, n in g["callers"].items():
                     c[caller] = c.get(caller, 0) + n
+    for name, tokens in fresh.items():  # the calls the next census compares beyond its sampling (xc.py want)
+        if tokens:
+            scenarios[name]["want"] = ",".join(want_calls(tokens, blocks["equal"]))
     fns = {kind: k for kind, k in kinds.items() if kind.startswith("FN_")}
     covered(fns)
     if meta and Path(meta, "fn_calls.json").is_file():
@@ -162,7 +186,8 @@ def merge(directory, sha, out, meta=None):
                        "samples": sum(k["samples"] for k in kinds.values()),
                        "failing": sum(k["failing"] for k in kinds.values()),
                        "functions": {s: states.count(s) for s in ("port", "covered", "fix", "observe", "partial", "done")},
-                       "blocks": {side: len(seen) for side, seen in blocks.items()}},
+                       "blocks": {side: len(seen) for side, seen in blocks.items()},
+                       "wanted": sum(len(v["want"].split(",")) for v in scenarios.values() if v.get("want"))},
            "blocks": {side: ",".join(sorted(seen, key=lambda a: int(a, 16))) for side, seen in blocks.items()}}
     Path(out).write_text(json.dumps(doc, indent=1))
     s = doc["summary"]
@@ -668,6 +693,19 @@ def main(argv):
     cmd = argv[1]
     if cmd == "merge":
         merge(argv[2], argv[3], argv[4], argv[5] if len(argv) > 5 else None)
+    elif cmd == "want":
+        Path(argv[3]).mkdir(parents=True, exist_ok=True)
+        n = 0
+        for name, v in load(argv[2]).get("scenarios", {}).items():
+            if v.get("want"):
+                Path(argv[3], f"{name}.txt").write_text(v["want"].replace(",", "\n") + "\n")
+                n += len(v["want"].split(","))
+        print(f"wanted calls: {n}")
+    elif cmd == "want-file":
+        b = load(argv[2]).get("blocks") or {}
+        calls = want_calls([t for t in b.get("fresh", "").split(",") if t], set(b.get("equal", "").split(",")))
+        Path(argv[3]).write_text("".join(c + "\n" for c in calls))
+        print(f"wanted calls: {len(calls)}")
     elif cmd == "regressions":
         regressions(argv[2], argv[3])
     elif cmd == "pick":

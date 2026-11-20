@@ -10,6 +10,8 @@ xc_build || exit 2
 xc_scenarios | python3 "$D/xc.py" shard "$I" "$N" > "$XC/shard.txt"
 echo "shard $I/$N: $(wc -l < "$XC/shard.txt") scenarios on $(git -C "$S5_REPO" rev-parse --short HEAD)"
 rm -f "$XC"/secs-*
+# the calls the previous census found running blocks no equal compared call ran (XC_PREV: its private work list)
+rm -rf "$XC/want"; [ -s "${XC_PREV:-}" ] && python3 "$D/xc.py" want "$XC_PREV" "$XC/want"
 t0=$(date +%s); xc_runs "$OUT" < "$XC/shard.txt"
 # each scenario's run seconds (its points summed) go into its document, so the next census can balance its shards
 while read -r name _; do

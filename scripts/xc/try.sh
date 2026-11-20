@@ -19,8 +19,15 @@ one(){ # one <tag> <bin> [env...]
   echo "$tag: exit $? secs=$(( $(date +%s) - t)) json=$([ -s "$XC/$tag.json" ] && echo yes || echo no)"
 }
 one ticks capture-ticks
-one functions capture-functions
+# the bound functions' blocks (capture::Want): the functions run names the calls that first ran blocks no compared
+# call ran, the wanted run compares those calls too (what the next census does with the previous one's work list)
+blocks=; [ -f "$S5_REPO/data/scope/fn_blocks.json" ] && blocks=$S5_REPO/data/scope/fn_blocks.json
+one functions capture-functions S5_CAPTURE_BLOCKS="$blocks"
 one inventory capture-functions S5_CAPTURE_FUNCTIONS="$XC/inventory.txt"
+if [ -n "$blocks" ] && [ -s "$XC/functions.json" ]; then
+  python3 "$D/xc.py" want-file "$XC/functions.json" "$XC/want.txt"
+  one wanted capture-functions S5_CAPTURE_BLOCKS="$blocks" S5_CAPTURE_WANT="$XC/want.txt"
+fi
 python3 - "$XC" <<'P'
 import json, sys
 from pathlib import Path
@@ -46,7 +53,7 @@ if inv:
     print(f"callers: {sum(1 for x in c if x)} of {len(un)} unbound with callers, "
           f"{sum(1 for x in c if x and all(k in bound for k in x))} only inside bound functions, "
           f"{sum(1 for x in c if 'ROOT' in x)} called from the turn itself")
-for t in ("functions", "inventory"):
+for t in ("functions", "inventory", "wanted"):
     d = load(t)
     if d: print(f"{t}: {d['entries']} entries, {len(d['import_errors'])} import errors")
     b = (d or {}).get("blocks")
@@ -55,5 +62,6 @@ for t in ("functions", "inventory"):
         eq, df = set(b["equal"].split(",")) - {""}, set(b["differing"].split(",")) - {""}
         ex = set(b.get("executed", "").split(",")) - {""}
         print(f"{t}: blocks equal={n(b['equal'])} differing={n(b['differing'])} only-differing={len(df - eq)} "
-              f"executed={len(ex)} executed-unverified={len(ex - eq)}")
+              f"executed={len(ex)} executed-unverified={len(ex - eq)} fresh={n(b.get('fresh', ''))}")
+        print(f"{t}: compared calls={sum(g.get('samples', 0) for g in d['groups'].values())}")
 P
