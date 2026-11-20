@@ -10,8 +10,6 @@ on:
   workflow_dispatch:
     inputs:
       workers: { description: 'dispatch a worker wave afterwards', default: 'true' }
-  schedule:
-    - cron: '23 */6 * * *'
 permissions:
   contents: read
   issues: write
@@ -205,8 +203,7 @@ jobs:
           WORKERS: ${{ inputs.workers || 'true' }}
         run: |
           if [ "${{ needs.attribute.outputs.reverted || '0' }}" != 0 ]; then
-            gh api -X POST "repos/$R/actions/workflows/xc-census.yml/dispatches" -f ref=main -f "inputs[workers]=$WORKERS"
-            echo "reverted: re-census"
+            echo "reverted: start a re-census by hand (measurements start by hand only)"
           elif [ "$WORKERS" = true ]; then
             gh api -X POST "repos/$R/actions/workflows/xc-worker.yml/dispatches" -f ref=main
             echo "worker wave dispatched"

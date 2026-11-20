@@ -89,7 +89,9 @@ def main():
         if active(cr):
             print("census running")
         elif not wl or now - last_ok > CENSUS_MAX_AGE or ((old or tip and tip != sha) and now - last_any > CENSUS_MIN_GAP):
-            dispatch("xc-census.yml")
+            # measurements start by hand only (user, 20.11.: the runners may be needed elsewhere); the watchdog only
+            # says that a census is due
+            print("census due: start xc-census by hand")
         if len(done) >= 3 and all(r["conclusion"] == "failure" for r in done[:3]):
             reasons.append("the last 3 xc-census runs failed")
 
