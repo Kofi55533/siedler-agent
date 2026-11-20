@@ -128,7 +128,23 @@ jobs:
             if "$D/s5-fixture-install.sh" "$x" >> "$S5/measure/install.txt" 2>/dev/null || known "$x"; then
               ok="$ok $x"
             else
-              echo "$x: NOT_INSTALLABLE"
+              # Try downloading the start image from the private mapimg release in siedler-data
+              base="${x%-mapstart}"
+              if gh release download mapimg -R Kofi55533/siedler-data -p "$base.tzst" -D "$S5/dl" --clobber >/dev/null 2>&1; then
+                mkdir -p "$S5/dl/mi-$base" "$S5_NF/images/$base"
+                zstd -dcq "$S5/dl/$base.tzst" | tar -xf - -C "$S5/dl/mi-$base" 2>/dev/null || true
+                imgf=$(find "$S5/dl/mi-$base" -name 'start.img' | head -n1)
+                if [ -n "$imgf" ] && [ -f "${imgf}.state.json" ]; then
+                  mv "$imgf" "$S5_NF/images/$base/start.img"
+                  mv "${imgf}.state.json" "$S5_NF/images/$base/start.img.state.json"
+                fi
+                rm -rf "$S5/dl/mi-$base" "$S5/dl/$base.tzst"
+              fi
+              if "$D/s5-fixture-install.sh" "$x" >> "$S5/measure/install.txt" 2>/dev/null || known "$x"; then
+                ok="$ok $x"
+              else
+                echo "$x: NOT_INSTALLABLE"
+              fi
             fi
           done
           run_one() {
