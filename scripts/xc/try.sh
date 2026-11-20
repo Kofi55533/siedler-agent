@@ -14,7 +14,7 @@ echo "inventory: $(wc -l < "$XC/inventory.txt") functions"
 one(){ # one <tag> <bin> [env...]
   local tag=$1 bin=$2; shift 2; local t=$(date +%s)
   ( cd "$S5_REPO" && env S5_XCHECK_IMAGE="$img" S5_CAPTURE_SKIP="$skip" S5_CAPTURE_TURNS="$turns" S5_CAPTURE_MAX="$XC_MAX" \
-      S5_CAPTURE_STRIDE="$XC_STRIDE" S5_CAPTURE_JSON="$XC/$tag.json" "$@" \
+      S5_CAPTURE_STRIDE="$XC_STRIDE" S5_CAPTURE_SKIP_COVERED="${XC_SKIP_COVERED:-1}" S5_CAPTURE_JSON="$XC/$tag.json" "$@" \
       timeout -k 30 "$XC_TIMEOUT" "$(xc_bin "$bin")" --nocapture --test-threads=1 ) < /dev/null > "$XC/try-$tag.log" 2>&1
   echo "$tag: exit $? secs=$(( $(date +%s) - t)) json=$([ -s "$XC/$tag.json" ] && echo yes || echo no)"
 }
