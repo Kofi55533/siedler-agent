@@ -21,12 +21,15 @@ one(){ # one <tag> <bin> [env...]
 # the bound functions' blocks (capture::Want): the functions run names the calls that first ran blocks no compared
 # call ran, the wanted run compares those calls too (what the next census does with the previous one's work list)
 blocks=; [ -f "$S5_REPO/data/scope/fn_blocks.json" ] && blocks=$S5_REPO/data/scope/fn_blocks.json
+# XC_TRY_RUNS (e.g. `functions`): only these runs, for a small trial
+runs(){ [ -z "${XC_TRY_RUNS:-}" ] || [[ ",$XC_TRY_RUNS," == *",$1,"* ]]; }
+rm -f "$XC"/one-*.txt "$XC"/ticks.json "$XC"/functions.json "$XC"/inventory.json "$XC"/wanted.json
 # the runs are single-threaded and independent: side by side on the runner's cores (each ~0.7 GB RSS)
-one ticks capture-ticks > "$XC/one-ticks.txt" &
-one functions capture-functions S5_CAPTURE_BLOCKS="$blocks" > "$XC/one-functions.txt" &
-one inventory capture-functions S5_CAPTURE_FUNCTIONS="$XC/inventory.txt" > "$XC/one-inventory.txt" &
-wait; cat "$XC"/one-ticks.txt "$XC"/one-functions.txt "$XC"/one-inventory.txt
-if [ -n "$blocks" ] && [ -s "$XC/functions.json" ]; then
+runs ticks && one ticks capture-ticks > "$XC/one-ticks.txt" &
+runs functions && one functions capture-functions S5_CAPTURE_BLOCKS="$blocks" > "$XC/one-functions.txt" &
+runs inventory && one inventory capture-functions S5_CAPTURE_FUNCTIONS="$XC/inventory.txt" > "$XC/one-inventory.txt" &
+wait; cat "$XC"/one-*.txt 2>/dev/null
+if runs wanted && [ -n "$blocks" ] && [ -s "$XC/functions.json" ]; then
   python3 "$D/xc.py" want-file "$XC/functions.json" "$XC/want.txt"
   one wanted capture-functions S5_CAPTURE_BLOCKS="$blocks" S5_CAPTURE_WANT="$XC/want.txt"
 fi

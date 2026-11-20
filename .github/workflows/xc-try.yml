@@ -31,23 +31,31 @@ jobs:
         with: { python-version: '3.11' }
       - name: Ref
         id: r
-        env: { MSG: '${{ github.event.head_commit.message || github.event.issue.title }}' }
+        env: { MSG: '${{ github.event.head_commit.message || github.event.issue.title }}', SC: '${{ matrix.scenario }}' }
         # an issue title is anyone's text: only a plain ref name passes; a commit message that only names the tag (as
         # in `[xc-try <ref>]`) runs nothing
         run: |
           ref=$(grep -o '\[xc-try [^]]*\]' <<< "$MSG" | head -1 | sed 's/^\[xc-try //; s/\]$//')
-          if [[ "$ref" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]]; then echo "ref=$ref" >> "$GITHUB_OUTPUT"
-          elif [ "$GITHUB_EVENT_NAME" = push ]; then echo "no ref name in the tag: no trial"
+          if [[ "$ref" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]]; then :
+          elif [ "$GITHUB_EVENT_NAME" = push ]; then echo "no ref name in the tag: no trial"; exit 0
           else echo "not a ref name"; exit 1; fi
+          # small trials: `[xc-scenarios combat,bc]` runs only those matrix entries, `[xc-turns 60]` compares that
+          # many turns, `[xc-runs functions,ticks]` only those runs of try.sh (digits, names and commas only)
+          opt(){ grep -o "\[$1 [a-z0-9,]*\]" <<< "$MSG" | head -1 | sed "s/^\[$1 //; s/\]\$//"; }
+          only=$(opt xc-scenarios); turns=$(opt xc-turns); runs=$(opt xc-runs)
+          if [ -n "$only" ] && [[ ",$only," != *",$SC,"* ]]; then echo "scenario $SC not in [xc-scenarios $only]"; exit 0; fi
+          [[ "$turns" =~ ^[0-9]*$ ]] || turns=
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"; echo "turns=$turns" >> "$GITHUB_OUTPUT"; echo "runs=$runs" >> "$GITHUB_OUTPUT"
       - name: Setup (quiet)
         if: steps.r.outputs.ref != ''
         env: { T: '${{ secrets.PRIVATE_REPO_TOKEN }}', GIT_LFS_SKIP_SMUDGE: '1' }
         run: scripts/s5-setup.sh "${{ steps.r.outputs.ref }}" 1
       - name: Try
         if: steps.r.outputs.ref != ''
+        env: { XC_TRY_TURNS: '${{ steps.r.outputs.turns }}', XC_TRY_RUNS: '${{ steps.r.outputs.runs }}' }
         run: scripts/xc/try.sh ${{ matrix.scenario }} | tee $RUNNER_TEMP/try.txt
       - name: Counts to the issue
-        if: always() && github.event_name == 'issues'
+        if: always() && github.event_name == 'issues' && steps.r.outputs.ref != ''
         env: { GH_TOKEN: '${{ github.token }}', N: '${{ github.event.issue.number }}', SC: '${{ matrix.scenario }}' }
         run: |
           { echo "**$SC** (${{ job.status }}):"; echo '```'
