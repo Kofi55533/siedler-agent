@@ -7,6 +7,8 @@ D=$(cd "$(dirname "$0")" && pwd); source "$D/lib.sh"
 t0=$(date +%s); xc_build || exit 2; echo "build secs=$(( $(date +%s) - t0 ))"
 read -r name img skip turns < <(xc_scenarios | awk -v n="$1" '$1==n')
 [ -n "${img:-}" ] || { echo "no scenario $1"; exit 2; }
+# a trial compares at most XC_TRY_TURNS turns: the census plays 1200 in about 2400 s, past XC_TIMEOUT
+turns=$(( turns < ${XC_TRY_TURNS:-300} ? turns : ${XC_TRY_TURNS:-300} )); echo "turns: $turns"
 # the inventory (xc_build): every class-A function of scripts/scope_classes.json, as the census counts them
 echo "inventory: $(wc -l < "$XC/inventory.txt") functions"
 one(){ # one <tag> <bin> [env...]
