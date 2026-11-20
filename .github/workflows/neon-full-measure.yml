@@ -1,0 +1,197 @@
+name: neon-full-measure
+# One-time full 175-scenario measurement (snapshot + 8 hidden task fields + every mid-turn shared RNG draw
+# + periodic/terminal deep world state [entities, behaviors, CLimitedAttachmentBehavior building slots,
+# task/event handlers, attachments, players/stats/techs/attraction/trade, AI, effects, weather]
+# + full Lua object graph & triggers + terrain/blocking/water/exploration + widgets/feedback).
+# Runs ONLY on push to the one-time branch `neon/full-measure-once`.
+# Privacy (Rule 4): logs print only fixture names, turn counts, and lane tags; detailed diffs and the
+# compiled s5verify binary are uploaded ONLY to private releases in Kofi55533/siedler-data.
+on:
+  push:
+    branches: ['neon/full-measure-once']
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    outputs:
+      sha: ${{ steps.b.outputs.sha }}
+      shards: ${{ steps.b.outputs.shards }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - name: Setup toolchain and build cache (quiet)
+        env: { T: '${{ secrets.PRIVATE_REPO_TOKEN }}' }
+        run: scripts/s5-setup.sh clean/integration 1
+      - id: b
+        name: Build s5verify once and upload binary to private siedler-data release
+        env: { GH_TOKEN: '${{ secrets.PRIVATE_REPO_TOKEN }}' }
+        run: |
+          set -euo pipefail
+          source scripts/s5-env.sh
+          cd "$S5_REPO"
+          git fetch -q origin "+refs/heads/clean/integration:refs/remotes/origin/clean/integration"
+          git checkout -q --detach origin/clean/integration
+          SHA=$(git rev-parse --short=10 HEAD)
+          echo "Measuring clean/integration @ $SHA"
+          cd "$GITHUB_WORKSPACE"
+          scripts/s5-build.sh
+          zstd -q -3 "$S5_REPO/recomp/target/release/s5verify" -o /tmp/s5verify.zst
+          REL="neon-measure-bin-$SHA"
+          D="Kofi55533/siedler-data"
+          gh release view "$REL" -R "$D" >/dev/null 2>&1 || gh release create "$REL" -R "$D" --prerelease --title "$REL" --notes "One-time s5verify binary for $SHA" >/dev/null 2>&1 || true
+          for i in 1 2 3; do
+            gh release upload "$REL" -R "$D" --clobber /tmp/s5verify.zst >/dev/null 2>&1 && break
+            sleep 10
+          done
+          SHARDS=$(grep -v '^#' neon-measure-shards.txt | grep . | jq -R . | jq -sc .)
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "shards=$SHARDS" >> "$GITHUB_OUTPUT"
+
+  measure:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        fx: ${{ fromJSON(needs.build.outputs.shards) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - name: Fast setup (data-v2 + prebuilt s5verify, no Rust compile)
+        env:
+          T: '${{ secrets.PRIVATE_REPO_TOKEN }}'
+          GH_TOKEN: '${{ secrets.PRIVATE_REPO_TOKEN }}'
+          SHA: '${{ needs.build.outputs.sha }}'
+        run: |
+          set -euo pipefail
+          source scripts/s5-env.sh
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/share/boost >/dev/null 2>&1 || true
+          sudo mkdir -p "$S5" && sudo chown "$(id -u):$(id -g)" "$S5"
+          sudo apt-get -qq update && sudo DEBIAN_FRONTEND=noninteractive apt-get -qq install -y zstd >/dev/null 2>&1
+          mkdir -p "$S5/dl" "$S5/data/game" "$S5/data/art" "$S5/data/fixtures" "$S5_NF" "$S5/live"
+          git clone -q --depth 1 --no-single-branch "https://x-access-token:${T}@github.com/Kofi55533/siedler-sim-rs.git" "$S5_REPO"
+          git -C "$S5_REPO" fetch -q --depth 1 origin "$SHA" && git -C "$S5_REPO" checkout -q --detach "$SHA"
+          # Download data-v2 (skip gen.tzst since s5verify is prebuilt!)
+          for try in 1 2 3 4; do
+            gh release download data-v2 -R Kofi55533/siedler-data -D "$S5/dl" \
+              -p 'game.tzst.*' -p 'art.tzst' -p 'fixtures.tzst' -p 'newfix*.tzst' -p 'opus-extra.tzst.*' --clobber >/dev/null && break
+            [ "$try" = 4 ] && exit 1; sleep $(( try * 15 ))
+          done
+          cat "$S5/dl"/game.tzst.* | zstd -dcq | tar -xf - -C "$S5/data/game" & P1=$!
+          zstd -dcq "$S5/dl/art.tzst" | tar -xf - -C "$S5/data/art" & P2=$!
+          zstd -dcq "$S5/dl/fixtures.tzst" | tar -xf - -C "$S5/data/fixtures" & P3=$!
+          zstd -dcq "$S5/dl/newfix.tzst" | tar -xf - -C "$S5_NF" & P4=$!
+          P5=""
+          for f in "$S5/dl"/newfix[0-9]*.tzst; do
+            [ -f "$f" ] && { zstd -dcq "$f" | tar -xf - -C "$S5_NF" & P5="$P5 $!"; }
+          done
+          # Download prebuilt s5verify + unicorn lib
+          gh release download "neon-measure-bin-$SHA" -R Kofi55533/siedler-data -D "$S5/dl" -p 's5verify.zst' --clobber >/dev/null
+          mkdir -p "$S5_REPO/recomp/target/release"
+          zstd -dcq "$S5/dl/s5verify.zst" > "$S5_REPO/recomp/target/release/s5verify"
+          chmod +x "$S5_REPO/recomp/target/release/s5verify"
+          (python3.11 -m venv "$S5/py311" 2>/dev/null || python3 -m venv "$S5/py311") && "$S5/py311/bin/pip" -q install unicorn==2.1.4 >/dev/null 2>&1 & P6=$!
+          wait $P1 $P2 $P3 $P4 $P5 $P6
+          ls "$S5/dl"/opus-extra.tzst.* >/dev/null 2>&1 && { cat "$S5/dl"/opus-extra.tzst.* | zstd -dcq | tar -x --skip-old-files --strip-components=2 -C "$S5_NF" artifacts/new-fixtures 2>/dev/null || true; }
+          sed -i -e "s#/workspace/siedler/artifacts/new-fixtures#$S5_NF#g" -e "s#/workspace/siedler/artifacts/codex-verify-infra#$S5_V#g" "$S5_NF"/fixtures/*/scenario.json
+          rm -f "$S5/dl"/*.tzst* "$S5/dl"/s5verify.zst
+          echo "setup complete for $SHA"
+      - name: Measure shard (snapshot + tasks + mid-turn RNG + deep + Lua + spatial)
+        env:
+          GH_TOKEN: '${{ secrets.PRIVATE_REPO_TOKEN }}'
+          FX: '${{ matrix.fx }}'
+          SHA: '${{ needs.build.outputs.sha }}'
+        run: |
+          set -uo pipefail
+          D="$GITHUB_WORKSPACE/scripts"
+          source "$D/s5-env.sh"
+          export LD_LIBRARY_PATH="$UNICORN_LIB_DIR:${LD_LIBRARY_PATH:-}"
+          mkdir -p "$S5/measure/r"
+          known(){ local b=${1%-mapstart}; [ -f "$S5_V/fixtures/$b/scenario.json" ] || [ -f "$S5_NF/fixtures/$b/scenario.json" ]; }
+          ok=""
+          for x in $FX; do
+            if "$D/s5-fixture-install.sh" "$x" >> "$S5/measure/install.txt" 2>/dev/null || known "$x"; then
+              ok="$ok $x"
+            else
+              echo "$x: NOT_INSTALLABLE"
+            fi
+          done
+          run_one() {
+            local f="$1" base="${1%-mapstart}" a sc img rc line
+            case "$f" in wintersturm|economy|*-mapstart) a="$base" ;; *) a=image ;; esac
+            sc="$S5_V/fixtures/$base/scenario.json"
+            case "$base" in
+              bc-full) img="$S5_ARTIFACTS/bc/gs_h.img" ;;
+              build|production) img="$S5_V/images/wsecon/start.img" ;;
+              wsecon) img="$S5_V/images/wsecon-direct/start.img" ;;
+              wintersturm|economy|combat) img="$S5_V/images/$base/start.img" ;;
+              *) sc="$S5_NF/fixtures/$base/scenario.json"
+                 img=$(python3 -c "import json;print(json.load(open('$sc'))['image'])") ;;
+            esac
+            cd "$S5_REPO/recomp"
+            export S5_REMAP=$(python3 -c "import verify; print(verify.remap_for('$img', 'target/verify/measure-$f'))")
+            [ "$a" = economy ] && export S5_CLEAN_MAP_DIR="$S5_V/maps/economy/maps/externalmap"
+            timeout 7000 ./target/release/s5verify measure-live ../data/scope/schema.json "$sc" "$img" "$a" > "$S5/live/$f.log" 2>&1
+            rc=$?
+            line=$(grep -m1 -E "^[a-zA-Z0-9_-]+: (IDENTICAL|DEEP-DIVERGENT|DIVERGENT)" "$S5/live/$f.log" | sed -E 's/^[^:]+: //')
+            if [ -z "$line" ]; then
+              line="ERROR exit=$rc"
+            fi
+            # Strip any field strings from public stdout; keep only safe status + turn/draw/checkpoint counts
+            safe=$(python3 -c '
+import re, sys
+s = sys.argv[1]
+m = re.match(r"^(IDENTICAL \d+ ticks \([^)]+\))", s)
+if m: print(m.group(1)); raise SystemExit
+m = re.match(r"^(DEEP-DIVERGENT \d+ ticks \(snapshot\+tasks\+rng IDENTICAL \d+, \d+ draws); (.+)\)$", s)
+if m:
+    tags = re.findall(r"(world|lua|spatial|ui_meta)@\d+", m.group(2))
+    print(f"{m.group(1)}; cats={','.join(tags)})"); raise SystemExit
+m = re.match(r"^(DIVERGENT (?:entering )?turn \d+|DIVERGENT [^:]+)", s)
+if m: print(m.group(1)[:80]); raise SystemExit
+print(s[:60])
+' "$line")
+            echo "$f: $safe" | tee "$S5/measure/r/$f"
+          }
+          export -f run_one
+          # Parallelism: 1 if single-fixture shard, else up to 2 (memory safe with two engines)
+          count=$(wc -w <<<"$ok")
+          PAR=2
+          [ "$count" -le 1 ] && PAR=1
+          t0=$(date +%s)
+          printf '%s\n' $ok | xargs -P "$PAR" -I{} bash -c 'run_one "$1"' _ {}
+          echo "shard done ($count fixtures) in $(( $(date +%s) - t0 ))s"
+      - name: Upload full diagnostics to private siedler-data release
+        if: always()
+        env:
+          GH_TOKEN: '${{ secrets.PRIVATE_REPO_TOKEN }}'
+          FX: '${{ matrix.fx }}'
+          SHA: '${{ needs.build.outputs.sha }}'
+        run: |
+          source scripts/s5-env.sh
+          mkdir -p /tmp/up
+          for x in $FX; do
+            l="$S5/live/$x.log"
+            o="/tmp/up/measure-$x.txt"
+            {
+              echo "fixture $x on clean/integration @$SHA"
+              if [ -f "$l" ]; then
+                head -n 80 "$l"
+              else
+                echo "no log"
+              fi
+            } > "$o" 2>/dev/null || true
+          done
+          REL="rm-neon-measure-$SHA"
+          D="Kofi55533/siedler-data"
+          gh release view "$REL" -R "$D" >/dev/null 2>&1 || gh release create "$REL" -R "$D" --prerelease --title "$REL" --notes "One-time deep measurement diagnostics for $SHA" >/dev/null 2>&1 || true
+          for i in 1 2 3 4; do
+            gh release upload "$REL" -R "$D" --clobber /tmp/up/measure-*.txt >/dev/null 2>&1 && break
+            sleep $((i * 10))
+          done
+          echo "uploaded diagnostics to private release $REL"

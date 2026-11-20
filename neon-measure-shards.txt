@@ -1,0 +1,46 @@
+# One-time full 175-scenario deep measurement shards (one GitHub Actions job per line).
+bc-full
+bc-0804
+late-ai-long
+late-ai
+late-economy
+gen-campaign
+saveload-settled-long
+gen-keep-buy
+gen-camp-placement
+genc-wsecon-long
+ai-builds-oldkings
+gen-weather-time-long
+camp-crawford-long
+ai-long
+gen-overtime-occupied
+genb-wi-mixed-long
+gen-mine-depletion
+gen-weather-time
+combat-waves combat-big
+combat-long camp-crawford
+ai-builds-active gen-camp-placement-base
+genb-abilities gen-recruit-attack gen-sabotage-bomb
+gen-market-trade gen-invalid-placement saveload-settled
+saveload gen-a-wintersturm-long genb-ailong-mixed
+genc-campcrawford-5000 genc-combatwaves-5000 genc-winterisland-5000 genc-wsecon-5000
+gen-a-dunkelforst-long gen-sabotage-serfcommands gen-serf-repair genb-waves-assault genb-wi-mixed genb-wi-move
+build-long production-long map-winterisland gen-a-wintersturm gen-diplomacy-tribute genb-combat-ops
+gen-a-dunkelforst gen-siege-cannon gen-upgrade-research gen-weather-time-short gen-barracks-autofill gen-barracks-recruit
+gen-cancel-research gen-49b46d-event14004 gen-player-commands gen-cannon-place gen-conversion-commands gen-foundry-summon
+gen-hero-activation gen-hero-npc gen-placer-tools gen-tribute-diplomacy gen-upgrade-building-category gen-enter-building-0x1500d
+gen-attack-building gen-civilian-death gen-leader-buy-soldier gen-construct-site gen-leader-aggressive gen-leader-attach gen-maptools-resource
+gen-leader-defend gen-leader-guard gen-leader-hold gen-leader-patrol gen-leader-stance gen-mp-resources gen-attack-pos gen-formation-command
+wintersturm wintersturm-mapstart economy economy-mapstart wsecon build production combat
+01-revenge 01-thalgrund 02-defendingthedrymoat 02-patrol 02-securingthepath 02-therichland 03-neighborhood
+04-brutepower 04-taintedlight 05-emeraldfields 07-flood 09-greatmountain 10-floodedland 10-folklung
+antrium caribeansurf castrum colorsofbelief lightridge rivercrossing standrockbattle
+campaign-01-demondays campaign-01-hugebridge campaign-01-newbeginning campaign-01-restoringthefaith campaign-02-villageattack campaign-03-darknessuprise campaign-03-divineanger
+campaign-03-thebeautifulland campaign-04-intoshadowintolight campaign-04-tradingcaravans campaign-04-wolfslair campaign-05-headhunter campaign-06-cleycourt campaign-06-techorresources
+campaign-08-barmecia campaign-08-unexploredland campaign-11-norfolk campaign-12-kaloix campaign-13-plague campaign-15-oldkingscastle campaign-17-cloudymountains
+campaign-18-evelance campaign-19-wasteland campaign-20-battleofevelance map-arcanum map-atthegates map-banditforrest map-battlefieldbarrens
+map-battleisle map-burningsteppe map-citygates map-clanwar map-clashofheroes map-conquest map-crater
+map-darkland map-demomap map-europe map-evelanceassault map-fouronone map-frontiercompanions map-frozenfjord
+map-hauntedruins map-highland-siege map-hillsoffriendship map-intotheforest map-koenigsforst map-mediterranean map-mornheim
+map-oldenemies map-peacefulland map-resourceconflict map-sabotagemoor map-sandbox map-scarredland map-siege
+map-smalldale map-solitudeisles map-spreadland map-summerisland map-summerstorm map-supplylines map-trade4technology map-winterassault map-winterrealm
