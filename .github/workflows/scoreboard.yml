@@ -14,7 +14,7 @@ on:
     branches: [main]
     paths: ['scripts/scoreboard/**', '.github/workflows/scoreboard.yml']
   workflow_run:
-    # fresh numbers right after each automatic full measurement (full-measure.yml)
+    # fresh numbers right after each full measurement (full-measure.yml, started by hand)
     workflows: [full-measure]
     types: [completed]
 permissions:

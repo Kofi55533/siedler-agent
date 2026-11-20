@@ -1,19 +1,13 @@
 name: full-measure
-# Automatic full deep measurement of clean/integration (all scenarios in scripts/measure/shards.txt: snapshot, hidden task
+# Full deep measurement of clean/integration (all scenarios in scripts/measure/shards.txt: snapshot, hidden task
 # fields, mid-turn RNG draws, deep world state, Lua, spatial), the same measurement as neon-full-measure.yml on the branch
-# neon/full-measure-once, but started automatically. Results go to the private release rm-full-measure-<sha10> in
+# neon/full-measure-once. Results go to the private release rm-full-measure-<sha10> in
 # Kofi55533/siedler-data, which the scoreboard reads; scoreboard.yml runs again when this workflow completes.
-# Triggers: every completed fleet-control run (heartbeat, about hourly) and a cron as backup; a push to the branch
-# measure/now starts a measurement at once (manual kick, skips the gap). The gate job takes ~20 s and measures only when
-# clean/integration has a head that is not measured yet AND the last automatic measurement started >= MIN_GAP_MIN ago.
+# Manual only: Neon decides when the runners measure. Start it with a push to the branch measure/now (or a dispatch).
+# The gate job takes ~20 s and skips when the clean/integration head already has a full measurement.
 # Privacy: logs print only fixture names, status words and turn counts (scripts/measure/sanitize.py); full diagnostics
 # and the s5verify binary go only to private releases in siedler-data. The binary release is deleted afterwards.
 on:
-  workflow_run:
-    workflows: [fleet-control]
-    types: [completed]
-  schedule:
-    - cron: '23 */2 * * *'
   push:
     branches: ['measure/now']
   workflow_dispatch:
@@ -22,8 +16,6 @@ permissions:
 concurrency:
   group: full-measure
   cancel-in-progress: false
-env:
-  MIN_GAP_MIN: '120'
 jobs:
   gate:
     runs-on: ubuntu-latest
@@ -49,14 +41,9 @@ jobs:
             [[ "$c" =~ ^[0-9]+$ ]] || c=0
             [ "$c" -gt "$n" ] && n=$c
           done
-          last=$(gh api "repos/$D/releases?per_page=100" --jq '[.[]|select(.tag_name|startswith("rm-full-measure-"))|.created_at]|max // ""' 2>/dev/null || true)
-          age=999999
-          [ -n "$last" ] && age=$(( ( $(date +%s) - $(date -d "$last" +%s) ) / 60 ))
           go=false
           if [ "$n" -ge 150 ]; then why="head $sha already measured ($n files)"
-          elif [ "$EV" = push ] || [ "$EV" = workflow_dispatch ]; then go=true; why="manual start"
-          elif [ "$age" -lt "$MIN_GAP_MIN" ]; then why="last automatic measurement started ${age} min ago (< $MIN_GAP_MIN)"
-          else go=true; why="new head, last measurement ${age} min ago"; fi
+          else go=true; why="manual start ($EV)"; fi
           echo "clean/integration @$sha: go=$go ($why)"
           echo "go=$go" >> "$GITHUB_OUTPUT"
 
