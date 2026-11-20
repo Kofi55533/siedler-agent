@@ -41,12 +41,12 @@ jobs:
           else echo "not a ref name"; exit 1; fi
           # small trials: `[xc-scenarios combat,bc]` runs only those matrix entries, `[xc-turns 60]` compares that
           # many turns, `[xc-runs functions,ticks]` only those runs of try.sh (digits, names and commas only);
-          # `[xc-forks 3]` and `[xc-skip 1]` set S5_CAPTURE_FORKS and S5_CAPTURE_SKIP_COVERED (capture::Forks)
+          # `[xc-skip 0]` compares every sampled call (XC_SKIP_COVERED, scripts/xc/lib.sh; default skips covered ones)
           opt(){ grep -o "\[$1 [a-z0-9,]*\]" <<< "$MSG" | head -1 | sed "s/^\[$1 //; s/\]\$//"; }
-          only=$(opt xc-scenarios); turns=$(opt xc-turns); runs=$(opt xc-runs); forks=$(opt xc-forks); skip=$(opt xc-skip)
+          only=$(opt xc-scenarios); turns=$(opt xc-turns); runs=$(opt xc-runs); skip=$(opt xc-skip)
           if [ -n "$only" ] && [[ ",$only," != *",$SC,"* ]]; then echo "scenario $SC not in [xc-scenarios $only]"; exit 0; fi
-          [[ "$turns" =~ ^[0-9]*$ ]] || turns=; [[ "$forks" =~ ^[0-9]*$ ]] || forks=; [[ "$skip" =~ ^[01]?$ ]] || skip=
-          echo "forks=$forks" >> "$GITHUB_OUTPUT"; echo "skip=$skip" >> "$GITHUB_OUTPUT"
+          [[ "$turns" =~ ^[0-9]*$ ]] || turns=; [[ "$skip" =~ ^[01]?$ ]] || skip=
+          echo "skip=$skip" >> "$GITHUB_OUTPUT"
           echo "ref=$ref" >> "$GITHUB_OUTPUT"; echo "turns=$turns" >> "$GITHUB_OUTPUT"; echo "runs=$runs" >> "$GITHUB_OUTPUT"
       - name: Setup (quiet)
         if: steps.r.outputs.ref != ''
@@ -55,7 +55,7 @@ jobs:
       - name: Try
         if: steps.r.outputs.ref != ''
         env: { XC_TRY_TURNS: '${{ steps.r.outputs.turns }}', XC_TRY_RUNS: '${{ steps.r.outputs.runs }}',
-               S5_CAPTURE_FORKS: '${{ steps.r.outputs.forks }}', S5_CAPTURE_SKIP_COVERED: '${{ steps.r.outputs.skip }}' }
+               XC_SKIP_COVERED: '${{ steps.r.outputs.skip }}' }
         run: scripts/xc/try.sh ${{ matrix.scenario }} | tee $RUNNER_TEMP/try.txt
       - name: Counts to the issue
         if: always() && github.event_name == 'issues' && steps.r.outputs.ref != ''
