@@ -111,8 +111,12 @@ xc_build(){
     | python3 -c 'import sys,json
 for l in sys.stdin:
     d=json.loads(l)
-    if d.get("reason")=="compiler-artifact" and d.get("executable"): print(d["target"]["name"], d["executable"])' > "$XC/bins.txt"
-    rc=${PIPESTATUS[0]}; rm -f crates/s5xcheck/Cargo.lock; exit $rc ) || { echo "xc build failed ($(grep -c '^error' "$XC/build.log") errors)"; return 1; }
+    if d.get("reason")=="compiler-artifact" and d.get("executable"): print(d["target"]["name"], d["executable"])
+    m=d.get("message") or {}
+    if d.get("reason")=="compiler-message" and m.get("level")=="error":
+        sp=[s for s in m.get("spans") or [] if s.get("is_primary")] or [{}]
+        print("xc build error:", m.get("message"), "at", sp[0].get("file_name"), sp[0].get("line_start"), file=sys.stderr)' > "$XC/bins.txt"
+    rc=${PIPESTATUS[0]}; rm -f crates/s5xcheck/Cargo.lock; exit $rc ) || { echo "xc build failed ($(grep -c '^error' "$XC/build.log") errors)"; grep -E '^error' "$XC/build.log" | head -n 5 | cut -c1-200; return 1; }
 }
 xc_bin(){ awk -v n="$1" '$1==n{print $2}' "${XC_BINS:-$XC/bins.txt}"; }
 # xc_keep_bins <dir>: copies of the capture test binaries just built, so runs of this build stay possible after the
