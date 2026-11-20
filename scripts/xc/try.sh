@@ -14,19 +14,22 @@ echo "inventory: $(wc -l < "$XC/inventory.txt") functions"
 one(){ # one <tag> <bin> [env...]
   local tag=$1 bin=$2; shift 2; local t=$(date +%s)
   ( cd "$S5_REPO" && env S5_XCHECK_IMAGE="$img" S5_CAPTURE_SKIP="$skip" S5_CAPTURE_TURNS="$turns" S5_CAPTURE_MAX="$XC_MAX" \
-      S5_CAPTURE_STRIDE="$XC_STRIDE" S5_CAPTURE_JSON="$XC/$tag.json" "$@" \
+      S5_CAPTURE_STRIDE="$XC_STRIDE" S5_CAPTURE_SKIP_COVERED="${XC_SKIP_COVERED:-1}" S5_CAPTURE_JSON="$XC/$tag.json" "$@" \
       timeout -k 30 "$XC_TIMEOUT" "$(xc_bin "$bin")" --nocapture --test-threads=1 ) < /dev/null > "$XC/try-$tag.log" 2>&1
   echo "$tag: exit $? secs=$(( $(date +%s) - t)) json=$([ -s "$XC/$tag.json" ] && echo yes || echo no)"
 }
 # the bound functions' blocks (capture::Want): the functions run names the calls that first ran blocks no compared
 # call ran, the wanted run compares those calls too (what the next census does with the previous one's work list)
 blocks=; [ -f "$S5_REPO/data/scope/fn_blocks.json" ] && blocks=$S5_REPO/data/scope/fn_blocks.json
+# XC_TRY_RUNS (e.g. `functions`): only these runs, for a small trial
+runs(){ [ -z "${XC_TRY_RUNS:-}" ] || [[ ",$XC_TRY_RUNS," == *",$1,"* ]]; }
+rm -f "$XC"/one-*.txt "$XC"/ticks.json "$XC"/functions.json "$XC"/inventory.json "$XC"/wanted.json
 # the runs are single-threaded and independent: side by side on the runner's cores (each ~0.7 GB RSS)
-one ticks capture-ticks > "$XC/one-ticks.txt" &
-one functions capture-functions S5_CAPTURE_BLOCKS="$blocks" > "$XC/one-functions.txt" &
-one inventory capture-functions S5_CAPTURE_FUNCTIONS="$XC/inventory.txt" > "$XC/one-inventory.txt" &
-wait; cat "$XC"/one-ticks.txt "$XC"/one-functions.txt "$XC"/one-inventory.txt
-if [ -n "$blocks" ] && [ -s "$XC/functions.json" ]; then
+runs ticks && one ticks capture-ticks > "$XC/one-ticks.txt" &
+runs functions && one functions capture-functions S5_CAPTURE_BLOCKS="$blocks" > "$XC/one-functions.txt" &
+runs inventory && one inventory capture-functions S5_CAPTURE_FUNCTIONS="$XC/inventory.txt" > "$XC/one-inventory.txt" &
+wait; cat "$XC"/one-*.txt 2>/dev/null
+if runs wanted && [ -n "$blocks" ] && [ -s "$XC/functions.json" ]; then
   python3 "$D/xc.py" want-file "$XC/functions.json" "$XC/want.txt"
   one wanted capture-functions S5_CAPTURE_BLOCKS="$blocks" S5_CAPTURE_WANT="$XC/want.txt"
 fi
@@ -55,9 +58,16 @@ if inv:
     print(f"callers: {sum(1 for x in c if x)} of {len(un)} unbound with callers, "
           f"{sum(1 for x in c if x and all(k in bound for k in x))} only inside bound functions, "
           f"{sum(1 for x in c if 'ROOT' in x)} called from the turn itself")
-for t in ("functions", "inventory", "wanted"):
+for t in ("ticks", "functions", "inventory", "wanted"):
     d = load(t)
     if d: print(f"{t}: {d['entries']} entries, {len(d['import_errors'])} import errors")
+    # where the time went (capture::Profile, seconds and field sizes only)
+    p = (d or {}).get("profile")
+    if p:
+        print(f"{t} profile: " + " ".join(f"{k}={p[k]:.1f}" if isinstance(p[k], float) else f"{k}={p[k]}"
+                                          for k in ("total", "samples", "import", "key", "bind", "native", "port", "diff",
+                                                    "skipped") if k in p))
+        print(f"{t} largest fields: " + " ".join(f"{k}={v}" for k, v in p.get("fields", {}).items()))
     b = (d or {}).get("blocks")
     if b:  # Report::blocks: the recomp blocks the compared calls ran (counts only)
         n = lambda s: len(s.split(",")) if s else 0

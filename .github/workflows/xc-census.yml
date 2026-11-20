@@ -11,6 +11,7 @@ on:
     inputs:
       workers: { description: 'dispatch a worker wave afterwards', default: 'true' }
 permissions:
+  actions: read
   contents: read
   issues: write
 concurrency:
@@ -20,10 +21,10 @@ env:
   XC_PROJECT: ${{ vars.XC_PROJECT || 'Kofi55533/siedler-sim-rs' }}
   XC_DATA: ${{ vars.XC_DATA || 'Kofi55533/siedler-data' }}
   XC_AGENT: ${{ vars.XC_AGENT || 'Kofi55533/siedler-agent' }}
-  # 8 shards of ~4 scenarios: the main account runs 10 fix jobs (XC_WORKERS 10, 2026-11-06: with 0 fix jobs since
-  # 2026-10-30 the merged xc PRs fell from ~110 to ~3 a day), so the census takes 8 of its 20 job slots and the other 2
-  # stay free for trials, hand runs, the watchdog and the scoreboard
-  SHARDS: '8'
+  # the account's 20 job slots: the census takes every slot the other jobs leave free when it starts (pin job), at least
+  # MIN_SHARDS, one slot kept for its cache job
+  SLOTS: '20'
+  MIN_SHARDS: '4'
 jobs:
   pin:
     # every shard measures the same commit, even when clean/integration moves during the census
@@ -33,7 +34,23 @@ jobs:
     outputs:
       sha: ${{ steps.p.outputs.sha }}
       weights: ${{ steps.p.outputs.weights }}
+      shards: ${{ steps.n.outputs.shards }}
+      list: ${{ steps.n.outputs.list }}
     steps:
+      - id: n
+        # free job slots now: the jobs of every other run of this repository that are queued or running (this run's
+        # pin job aside), minus one for the cache job; a slot taken later only queues a shard, it does not fail it
+        env: { GH_TOKEN: '${{ github.token }}' }
+        run: |
+          busy=0
+          for s in in_progress queued; do
+            for r in $(gh api "repos/$GITHUB_REPOSITORY/actions/runs?status=$s&per_page=100" --jq ".workflow_runs[] | select(.id != $GITHUB_RUN_ID) | .id"); do
+              busy=$(( busy + $(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$r/jobs?per_page=100" --jq '[.jobs[] | select(.status == "in_progress" or .status == "queued")] | length') ))
+            done
+          done
+          n=$(( SLOTS - 1 - busy )); [ "$n" -ge "$MIN_SHARDS" ] || n=$MIN_SHARDS; [ "$n" -le $(( SLOTS - 1 )) ] || n=$(( SLOTS - 1 ))
+          echo "$busy jobs busy: $n shards"
+          echo "shards=$n" >> "$GITHUB_OUTPUT"; echo "list=$(seq -s, 0 $(( n - 1 )) | sed 's/^/[/; s/$/]/')" >> "$GITHUB_OUTPUT"
       - id: p
         env: { GH_TOKEN: '${{ secrets.PRIVATE_REPO_TOKEN }}' }
         run: |
@@ -52,7 +69,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+        shard: ${{ fromJSON(needs.pin.outputs.list) }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -71,7 +88,7 @@ jobs:
           SHA=${{ needs.pin.outputs.sha }}
           git -C $S5_REPO cat-file -e "$SHA^{commit}" 2>/dev/null || git -C $S5_REPO fetch -q --depth 1 origin "$SHA"
           git -C $S5_REPO checkout -q --detach "$SHA" && echo "$SHA" > $RUNNER_TEMP/sha.txt
-          scripts/xc/census.sh ${{ matrix.shard }} $SHARDS $RUNNER_TEMP/census
+          scripts/xc/census.sh ${{ matrix.shard }} ${{ needs.pin.outputs.shards }} $RUNNER_TEMP/census
       - name: Upload the shard to the private release (game state never leaves private storage)
         env: { GH_TOKEN: '${{ secrets.PRIVATE_REPO_TOKEN }}' }
         run: |
@@ -118,7 +135,7 @@ jobs:
         env: { GH_TOKEN: '${{ secrets.PRIVATE_REPO_TOKEN }}' }
         run: scripts/build-cache-upload.sh
   merge:
-    needs: shard
+    needs: [pin, shard]
     if: always() && github.repository == 'Kofi55533/siedler-agent' && needs.shard.result != 'skipped'
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -134,7 +151,7 @@ jobs:
         run: |
           cd $RUNNER_TEMP; mkdir -p dl all prev meta
           gh release download xc-census -R $XC_DATA -D dl -p "shard-${{ github.run_id }}-*.tzst"
-          n=$(ls dl | wc -l); echo "$n/$SHARDS shards"
+          n=$(ls dl | wc -l); echo "$n/${{ needs.pin.outputs.shards }} shards"
           # a shard where every scenario gave a result has no _logs entries (the glob stays unmatched)
           mkdir -p logs
           for f in dl/*.tzst; do zstd -dcq "$f" | tar -xf - -C dl && mv dl/census/*.json all/ && mv dl/census/sha.txt sha.txt; { mv dl/census/_logs/* logs/ 2>/dev/null || true; }; { mv -f dl/census/_meta/* meta/ 2>/dev/null || true; }; rm -rf dl/census; done
@@ -149,7 +166,7 @@ jobs:
           fi
           echo "previous ${old:0:8}: $(python3 -c 'import json,sys;print(len(json.loads(sys.argv[1])))' "$regs") regressions"
           # a partial census (failed shards) is published too and marked; regressions only compare scenarios both lists hold
-          [ "$n" = "$SHARDS" ] || python3 -c 'import json;d=json.load(open("worklist.json"));d["partial"]=True;json.dump(d,open("worklist.json","w"))'
+          [ "$n" = "${{ needs.pin.outputs.shards }}" ] || python3 -c 'import json;d=json.load(open("worklist.json"));d["partial"]=True;json.dump(d,open("worklist.json","w"))'
           gh release view xc-worklist -R $XC_DATA > /dev/null 2>&1 || gh release create xc-worklist -R $XC_DATA -t xc-worklist -n "per-call differential work list" > /dev/null
           gh release upload xc-worklist -R $XC_DATA --clobber worklist.json > /dev/null
           # why scenarios gave no result (run log tails, private like the work list itself)
