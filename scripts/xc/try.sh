@@ -65,7 +65,8 @@ for t in ("ticks", "functions", "inventory", "wanted"):
     p = (d or {}).get("profile")
     if p:
         print(f"{t} profile: " + " ".join(f"{k}={p[k]:.1f}" if isinstance(p[k], float) else f"{k}={p[k]}"
-                                          for k in ("total", "samples", "import", "key", "bind", "native", "port", "diff")))
+                                          for k in ("total", "samples", "import", "key", "bind", "native", "port", "diff",
+                                                    "skipped", "forked", "wait") if k in p))
         print(f"{t} largest fields: " + " ".join(f"{k}={v}" for k, v in p.get("fields", {}).items()))
     b = (d or {}).get("blocks")
     if b:  # Report::blocks: the recomp blocks the compared calls ran (counts only)
