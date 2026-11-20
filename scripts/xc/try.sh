@@ -55,9 +55,15 @@ if inv:
     print(f"callers: {sum(1 for x in c if x)} of {len(un)} unbound with callers, "
           f"{sum(1 for x in c if x and all(k in bound for k in x))} only inside bound functions, "
           f"{sum(1 for x in c if 'ROOT' in x)} called from the turn itself")
-for t in ("functions", "inventory", "wanted"):
+for t in ("ticks", "functions", "inventory", "wanted"):
     d = load(t)
     if d: print(f"{t}: {d['entries']} entries, {len(d['import_errors'])} import errors")
+    # where the time went (capture::Profile, seconds and field sizes only)
+    p = (d or {}).get("profile")
+    if p:
+        print(f"{t} profile: " + " ".join(f"{k}={p[k]:.1f}" if isinstance(p[k], float) else f"{k}={p[k]}"
+                                          for k in ("total", "samples", "import", "key", "bind", "native", "port", "diff")))
+        print(f"{t} largest fields: " + " ".join(f"{k}={v}" for k, v in p.get("fields", {}).items()))
     b = (d or {}).get("blocks")
     if b:  # Report::blocks: the recomp blocks the compared calls ran (counts only)
         n = lambda s: len(s.split(",")) if s else 0
