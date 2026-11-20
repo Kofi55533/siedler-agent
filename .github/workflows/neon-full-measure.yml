@@ -143,19 +143,7 @@ jobs:
               line="ERROR exit=$rc"
             fi
             # Strip any field strings from public stdout; keep only safe status + turn/draw/checkpoint counts
-            safe=$(python3 -c '
-import re, sys
-s = sys.argv[1]
-m = re.match(r"^(IDENTICAL \d+ ticks \([^)]+\))", s)
-if m: print(m.group(1)); raise SystemExit
-m = re.match(r"^(DEEP-DIVERGENT \d+ ticks \(snapshot\+tasks\+rng IDENTICAL \d+, \d+ draws); (.+)\)$", s)
-if m:
-    tags = re.findall(r"(world|lua|spatial|ui_meta)@\d+", m.group(2))
-    print(f"{m.group(1)}; cats={','.join(tags)})"); raise SystemExit
-m = re.match(r"^(DIVERGENT (?:entering )?turn \d+|DIVERGENT [^:]+)", s)
-if m: print(m.group(1)[:80]); raise SystemExit
-print(s[:60])
-' "$line")
+            safe=$(python3 "$GITHUB_WORKSPACE/neon-sanitize.py" "$line")
             echo "$f: $safe" | tee "$S5/measure/r/$f"
           }
           export -f run_one
