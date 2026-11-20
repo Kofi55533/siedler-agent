@@ -37,7 +37,11 @@ jobs:
           SHA=$(git rev-parse --short=10 HEAD)
           echo "Measuring clean/integration @ $SHA"
           cd "$GITHUB_WORKSPACE"
-          scripts/s5-build.sh
+          if ! scripts/s5-build.sh; then
+            echo "=== tail build.log (compiler errors) ==="
+            tail -n 100 "$S5/build.log"
+            exit 1
+          fi
           zstd -q -3 "$S5_REPO/recomp/target/release/s5verify" -o /tmp/s5verify.zst
           REL="neon-measure-bin-$SHA"
           D="Kofi55533/siedler-data"
