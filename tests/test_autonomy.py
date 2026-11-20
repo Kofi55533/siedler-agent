@@ -139,8 +139,6 @@ class StateTests(unittest.TestCase):
         # queue full, so the main account gives half its runners to gates.
         self.assertEqual((state.CAPACITY, state.VERIFY_SLOTS), (20, 10))
         self.assertEqual(state.LEGACY_GATE_SLOTS, 4)
-        board = (Path(__file__).resolve().parents[1] / "scripts/scoreboard/build.py").read_text()
-        self.assertIn(f"V2_GATE = {state.VERIFY_SLOTS}  #", board)
 
     def test_provider_error_backoff_is_not_a_new_runner_loop(self):
         s = fixture(); state.claim_unit(s, "battle", "one", 1, 1)

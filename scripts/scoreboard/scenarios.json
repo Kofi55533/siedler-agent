@@ -1,0 +1,725 @@
+{
+"note": "Start turn and length of every scenario (fallback when a measurement line carries no length). New scenarios take their length from the measurement.",
+"scenarios": {
+"01-revenge": {
+"start": 25,
+"turns": 1200
+},
+"01-thalgrund": {
+"start": 25,
+"turns": 1000
+},
+"02-defendingthedrymoat": {
+"start": 25,
+"turns": 1200
+},
+"02-patrol": {
+"start": 25,
+"turns": 1200
+},
+"02-securingthepath": {
+"start": 25,
+"turns": 1200
+},
+"02-therichland": {
+"start": 25,
+"turns": 1200
+},
+"03-neighborhood": {
+"start": 25,
+"turns": 1200
+},
+"04-brutepower": {
+"start": 25,
+"turns": 1200
+},
+"04-taintedlight": {
+"start": 25,
+"turns": 1200
+},
+"05-emeraldfields": {
+"start": 25,
+"turns": 1200
+},
+"07-flood": {
+"start": 25,
+"turns": 1200
+},
+"09-greatmountain": {
+"start": 25,
+"turns": 1200
+},
+"10-floodedland": {
+"start": 25,
+"turns": 1200
+},
+"10-folklung": {
+"start": 25,
+"turns": 1200
+},
+"ai-builds-active": {
+"start": 40,
+"turns": 6000
+},
+"ai-builds-oldkings": {
+"start": 40,
+"turns": 18000
+},
+"ai-long": {
+"start": 165,
+"turns": 12000
+},
+"antrium": {
+"start": 25,
+"turns": 1200
+},
+"bc-0804": {
+"start": 121,
+"turns": 24141
+},
+"bc-full": {
+"start": 121,
+"turns": 23900
+},
+"build": {
+"start": 160,
+"turns": 650
+},
+"build-long": {
+"start": 160,
+"turns": 3000
+},
+"camp-crawford": {
+"start": 20,
+"turns": 6000
+},
+"camp-crawford-long": {
+"start": 20,
+"turns": 12000
+},
+"campaign-01-demondays": {
+"start": 25,
+"turns": 1200
+},
+"campaign-01-hugebridge": {
+"start": 25,
+"turns": 1200
+},
+"campaign-01-newbeginning": {
+"start": 25,
+"turns": 1200
+},
+"campaign-01-restoringthefaith": {
+"start": 25,
+"turns": 1200
+},
+"campaign-02-villageattack": {
+"start": 25,
+"turns": 1200
+},
+"campaign-03-darknessuprise": {
+"start": 25,
+"turns": 1200
+},
+"campaign-03-divineanger": {
+"start": 25,
+"turns": 1200
+},
+"campaign-03-thebeautifulland": {
+"start": 25,
+"turns": 1200
+},
+"campaign-04-intoshadowintolight": {
+"start": 25,
+"turns": 1200
+},
+"campaign-04-tradingcaravans": {
+"start": 25,
+"turns": 1200
+},
+"campaign-04-wolfslair": {
+"start": 25,
+"turns": 1200
+},
+"campaign-05-headhunter": {
+"start": 25,
+"turns": 1200
+},
+"campaign-06-cleycourt": {
+"start": 25,
+"turns": 1200
+},
+"campaign-06-techorresources": {
+"start": 25,
+"turns": 1200
+},
+"campaign-08-barmecia": {
+"start": 25,
+"turns": 1200
+},
+"campaign-08-unexploredland": {
+"start": 25,
+"turns": 1200
+},
+"campaign-11-norfolk": {
+"start": 25,
+"turns": 1200
+},
+"campaign-12-kaloix": {
+"start": 25,
+"turns": 1200
+},
+"campaign-13-plague": {
+"start": 25,
+"turns": 1200
+},
+"campaign-15-oldkingscastle": {
+"start": 25,
+"turns": 1200
+},
+"campaign-17-cloudymountains": {
+"start": 25,
+"turns": 1200
+},
+"campaign-18-evelance": {
+"start": 25,
+"turns": 1200
+},
+"campaign-19-wasteland": {
+"start": 25,
+"turns": 1200
+},
+"campaign-20-battleofevelance": {
+"start": 25,
+"turns": 1200
+},
+"caribeansurf": {
+"start": 25,
+"turns": 1200
+},
+"castrum": {
+"start": 25,
+"turns": 1200
+},
+"colorsofbelief": {
+"start": 25,
+"turns": 1200
+},
+"combat": {
+"start": 166,
+"turns": 600
+},
+"combat-big": {
+"start": 166,
+"turns": 6000
+},
+"combat-long": {
+"start": 166,
+"turns": 6000
+},
+"combat-waves": {
+"start": 166,
+"turns": 8000
+},
+"economy": {
+"start": 0,
+"turns": 360
+},
+"economy-mapstart": {
+"start": 0,
+"turns": 360
+},
+"gen-49b46d-event14004": {
+"start": 165,
+"turns": 900
+},
+"gen-a-dunkelforst": {
+"start": 0,
+"turns": 1500
+},
+"gen-a-dunkelforst-long": {
+"start": 0,
+"turns": 4000
+},
+"gen-a-wintersturm": {
+"start": 160,
+"turns": 2000
+},
+"gen-a-wintersturm-long": {
+"start": 160,
+"turns": 5000
+},
+"gen-attack-building": {
+"start": 166,
+"turns": 400
+},
+"gen-attack-pos": {
+"start": 166,
+"turns": 80
+},
+"gen-barracks-autofill": {
+"start": 22,
+"turns": 1200
+},
+"gen-barracks-recruit": {
+"start": 22,
+"turns": 1200
+},
+"gen-camp-placement": {
+"start": 160,
+"turns": 24000
+},
+"gen-camp-placement-base": {
+"start": 160,
+"turns": 8000
+},
+"gen-campaign": {
+"start": 0,
+"turns": 50000
+},
+"gen-cancel-research": {
+"start": 160,
+"turns": 1000
+},
+"gen-cannon-place": {
+"start": 20,
+"turns": 600
+},
+"gen-civilian-death": {
+"start": 165,
+"turns": 400
+},
+"gen-construct-site": {
+"start": 160,
+"turns": 360
+},
+"gen-conversion-commands": {
+"start": 20,
+"turns": 600
+},
+"gen-diplomacy-tribute": {
+"start": 160,
+"turns": 20000
+},
+"gen-enter-building-0x1500d": {
+"start": 165,
+"turns": 520
+},
+"gen-formation-command": {
+"start": 166,
+"turns": 80
+},
+"gen-foundry-summon": {
+"start": 20,
+"turns": 600
+},
+"gen-hero-activation": {
+"start": 20,
+"turns": 600
+},
+"gen-hero-npc": {
+"start": 20,
+"turns": 600
+},
+"gen-invalid-placement": {
+"start": 160,
+"turns": 6000
+},
+"gen-keep-buy": {
+"start": 20,
+"turns": 24000
+},
+"gen-leader-aggressive": {
+"start": 166,
+"turns": 300
+},
+"gen-leader-attach": {
+"start": 166,
+"turns": 300
+},
+"gen-leader-buy-soldier": {
+"start": 20,
+"turns": 400
+},
+"gen-leader-defend": {
+"start": 166,
+"turns": 104
+},
+"gen-leader-guard": {
+"start": 166,
+"turns": 104
+},
+"gen-leader-hold": {
+"start": 166,
+"turns": 104
+},
+"gen-leader-patrol": {
+"start": 166,
+"turns": 104
+},
+"gen-leader-stance": {
+"start": 166,
+"turns": 104
+},
+"gen-maptools-resource": {
+"start": 0,
+"turns": 300
+},
+"gen-market-trade": {
+"start": 20,
+"turns": 6000
+},
+"gen-mine-depletion": {
+"start": 0,
+"turns": 9000
+},
+"gen-mp-resources": {
+"start": 20,
+"turns": 100
+},
+"gen-overtime-occupied": {
+"start": 160,
+"turns": 11840
+},
+"gen-placer-tools": {
+"start": 20,
+"turns": 600
+},
+"gen-player-commands": {
+"start": 160,
+"turns": 800
+},
+"gen-recruit-attack": {
+"start": 20,
+"turns": 6000
+},
+"gen-sabotage-bomb": {
+"start": 20,
+"turns": 6000
+},
+"gen-sabotage-serfcommands": {
+"start": 20,
+"turns": 3200
+},
+"gen-serf-repair": {
+"start": 20,
+"turns": 3000
+},
+"gen-siege-cannon": {
+"start": 166,
+"turns": 1500
+},
+"gen-tribute-diplomacy": {
+"start": 0,
+"turns": 600
+},
+"gen-upgrade-building-category": {
+"start": 160,
+"turns": 600
+},
+"gen-upgrade-research": {
+"start": 160,
+"turns": 1300
+},
+"gen-weather-time": {
+"start": 160,
+"turns": 18000
+},
+"gen-weather-time-long": {
+"start": 160,
+"turns": 18000
+},
+"gen-weather-time-short": {
+"start": 160,
+"turns": 1500
+},
+"genb-abilities": {
+"start": 20,
+"turns": 6000
+},
+"genb-ailong-mixed": {
+"start": 165,
+"turns": 5000
+},
+"genb-combat-ops": {
+"start": 166,
+"turns": 2000
+},
+"genb-waves-assault": {
+"start": 166,
+"turns": 3000
+},
+"genb-wi-mixed": {
+"start": 20,
+"turns": 10000
+},
+"genb-wi-mixed-long": {
+"start": null,
+"turns": 10000
+},
+"genb-wi-move": {
+"start": 20,
+"turns": 3000
+},
+"genc-campcrawford": {
+"start": null,
+"turns": null
+},
+"genc-campcrawford-5000": {
+"start": 20,
+"turns": 5000
+},
+"genc-combatwaves-5000": {
+"start": 166,
+"turns": 5000
+},
+"genc-winterisland": {
+"start": null,
+"turns": 1000
+},
+"genc-winterisland-5000": {
+"start": 20,
+"turns": 5000
+},
+"genc-wsecon": {
+"start": null,
+"turns": 5000
+},
+"genc-wsecon-5000": {
+"start": 160,
+"turns": 20000
+},
+"genc-wsecon-long": {
+"start": null,
+"turns": 20000
+},
+"genc-wsecon-long-full": {
+"start": null,
+"turns": 20000
+},
+"late-ai": {
+"start": 165,
+"turns": 36000
+},
+"late-ai-long": {
+"start": 165,
+"turns": 100000
+},
+"late-economy": {
+"start": 160,
+"turns": 36000
+},
+"lightridge": {
+"start": 25,
+"turns": 1200
+},
+"map-arcanum": {
+"start": 0,
+"turns": 1200
+},
+"map-atthegates": {
+"start": 25,
+"turns": 1200
+},
+"map-banditforrest": {
+"start": 25,
+"turns": 1200
+},
+"map-battlefieldbarrens": {
+"start": 0,
+"turns": 1200
+},
+"map-battleisle": {
+"start": 25,
+"turns": 1200
+},
+"map-burningsteppe": {
+"start": 25,
+"turns": 1200
+},
+"map-citygates": {
+"start": 25,
+"turns": 1200
+},
+"map-clanwar": {
+"start": 25,
+"turns": 1200
+},
+"map-clashofheroes": {
+"start": 0,
+"turns": 1200
+},
+"map-conquest": {
+"start": 25,
+"turns": 1200
+},
+"map-crater": {
+"start": 25,
+"turns": 1200
+},
+"map-darkland": {
+"start": 25,
+"turns": 1200
+},
+"map-demomap": {
+"start": 25,
+"turns": 1200
+},
+"map-europe": {
+"start": 25,
+"turns": 1200
+},
+"map-evelanceassault": {
+"start": 0,
+"turns": 1200
+},
+"map-fouronone": {
+"start": 25,
+"turns": 1200
+},
+"map-frontiercompanions": {
+"start": 0,
+"turns": 1200
+},
+"map-frozenfjord": {
+"start": 25,
+"turns": 1200
+},
+"map-hauntedruins": {
+"start": 25,
+"turns": 1200
+},
+"map-highland-siege": {
+"start": 25,
+"turns": 1200
+},
+"map-hillsoffriendship": {
+"start": 25,
+"turns": 1200
+},
+"map-intotheforest": {
+"start": 25,
+"turns": 1200
+},
+"map-koenigsforst": {
+"start": 25,
+"turns": 1200
+},
+"map-mediterranean": {
+"start": 0,
+"turns": 1200
+},
+"map-mornheim": {
+"start": 25,
+"turns": 1200
+},
+"map-oldenemies": {
+"start": 25,
+"turns": 1200
+},
+"map-peacefulland": {
+"start": 25,
+"turns": 1200
+},
+"map-resourceconflict": {
+"start": 0,
+"turns": 1200
+},
+"map-sabotagemoor": {
+"start": 25,
+"turns": 1200
+},
+"map-sandbox": {
+"start": 25,
+"turns": 1200
+},
+"map-scarredland": {
+"start": 0,
+"turns": 1200
+},
+"map-siege": {
+"start": 25,
+"turns": 1200
+},
+"map-smalldale": {
+"start": 25,
+"turns": 1200
+},
+"map-solitudeisles": {
+"start": 0,
+"turns": 1200
+},
+"map-spreadland": {
+"start": 25,
+"turns": 1200
+},
+"map-summerisland": {
+"start": 25,
+"turns": 1200
+},
+"map-summerstorm": {
+"start": 25,
+"turns": 1200
+},
+"map-supplylines": {
+"start": 25,
+"turns": 1200
+},
+"map-trade4technology": {
+"start": 25,
+"turns": 1200
+},
+"map-winterassault": {
+"start": 25,
+"turns": 1200
+},
+"map-winterisland": {
+"start": 20,
+"turns": 3000
+},
+"map-winterrealm": {
+"start": 0,
+"turns": 1200
+},
+"production": {
+"start": 160,
+"turns": 840
+},
+"production-long": {
+"start": 160,
+"turns": 3000
+},
+"rivercrossing": {
+"start": 20,
+"turns": 600
+},
+"saveload": {
+"start": 200,
+"turns": 6000
+},
+"saveload-settled": {
+"start": 200,
+"turns": 6000
+},
+"saveload-settled-long": {
+"start": 200,
+"turns": 30000
+},
+"standrockbattle": {
+"start": 25,
+"turns": 1200
+},
+"wintersturm": {
+"start": 0,
+"turns": 1021
+},
+"wintersturm-mapstart": {
+"start": 0,
+"turns": 1021
+},
+"wsecon": {
+"start": 160,
+"turns": 320
+}
+}
+}

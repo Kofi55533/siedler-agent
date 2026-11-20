@@ -1,170 +1,93 @@
-"""Scoreboard (scripts/scoreboard/build.py): both v2 accounts, brother-origin packages, real value timestamp."""
+"""Scoreboard (scripts/scoreboard/build.py): measurement verdict parsing, newest verdict per scenario, maps, compat."""
 import importlib.util
 import sys
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 
-sys.dont_write_bytecode = True  # scripts/scoreboard/__pycache__ is tracked: never rewrite it from a test run
+sys.dont_write_bytecode = True
 _P = Path(__file__).resolve().parents[1] / "scripts/scoreboard/build.py"
 _spec = importlib.util.spec_from_file_location("sb_build", _P)
 b = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(b)
 
 
-def run(i, path, status="in_progress", title="x"):
-    return {"id": i, "path": f".github/workflows/{path}", "status": status, "display_title": title,
-            "created_at": "2026-10-21T18:00:00Z", "html_url": f"https://github.com/x/actions/runs/{i}"}
+def f(name, verdict, sha="aaaa"):
+    return f"fixture {name} on clean/integration @{sha}\n{name}: {verdict}\n"
 
 
-class AccountView(unittest.TestCase):
-    def test_counts_per_account_and_total(self):
-        main = {1: run(1, "fleet-worker.yml"), 2: run(2, "fleet-worker.yml", "queued"), 3: run(3, "fleet-verify.yml"),
-                4: run(4, "fleet-verify.yml"), 5: run(5, "fleet-integrate.yml"), 6: run(6, "scoreboard.yml")}
-        fork = {10 + i: run(10 + i, "fleet-worker.yml") for i in range(20)}
-        fork[99] = run(99, "fleet-pool.yml")
-        accts, total = b.v2_account_view(main, fork, 10)
-        m, f = accts
-        self.assertEqual((m["account"], m["used"], m["running"], m["waiting"], m["capacity"]), ("Kofi55533", 6, 5, 1, 20))
-        parts = {p["key"]: p["used"] for p in m["parts"]}
-        self.assertEqual(parts, {"worker": 2, "preflight": 2, "integration": 1, "regate": 0, "control": 1})
-        self.assertEqual((m["worker_limit"], m["gate_limit"], m["gate_used"]), (10, 10, 3))
-        self.assertEqual((f["account"], f["used"], f["capacity"], f["parts"][0]["used"]), ("Dominickofi00", 21, 0, 20))
-        self.assertEqual((total["used"], total["capacity"], total["workers"], total["worker_limit"]), (27, 20, 22, 10))
+class Parse(unittest.TestCase):
+    def test_identical(self):
+        n, sha, r = b.parse_measure(f("x", "IDENTICAL 1200 ticks (1201 states, 5 deep+lua+spatial checkpoints IDENTICAL)"))
+        self.assertEqual((n, sha, r["status"], r["ticks"], r["turn"]), ("x", "aaaa", "gleich", 1200, None))
 
-    def test_unreadable_fork_counts_zero_and_is_flagged(self):
-        accts, total = b.v2_account_view({1: run(1, "fleet-worker.yml")}, None, 10)
-        self.assertFalse(accts[1]["readable"])
-        self.assertEqual(total["used"], 1)
+    def test_deep_takes_the_earliest_level(self):
+        _, _, r = b.parse_measure(f("x", "DEEP-DIVERGENT 1200 ticks (snapshot+tasks+rng IDENTICAL 1200, 10 draws; "
+                                         "lua@265(lua_graph.1 differs), spatial@200(exploration_circles differs))"))
+        self.assertEqual((r["status"], r["ticks"], r["turn"], r["level"]), ("tief", 1200, 200, "Räumlich"))
+        self.assertEqual(r["levels"], {"Lua": 265, "Räumlich": 200})
 
-    def test_capacity_matches_autonomy_state(self):
-        sys.path.insert(0, str(_P.parents[1]))
-        import autonomy_state as state
-        self.assertEqual((b.V2_CAPACITY, b.V2_GATE), (state.CAPACITY, state.VERIFY_SLOTS))
-        # the brother account's Actions are blocked by GitHub: no capacity unless FLEET_POOL_WORKER_LIMIT gives one
-        self.assertEqual(b.FORK_CAPACITY, 0)
+    def test_divergent_names_only_the_level(self):
+        _, _, r = b.parse_measure(f("x", "DIVERGENT turn 329: tasks.task_state_changes digest: reference 0x1, clean 0x2"))
+        self.assertEqual((r["status"], r["turn"], r["level"]), ("abweichend", 329, "Tasks"))
+        self.assertNotIn("task_state_changes", repr(r))  # no field names on the public page
+
+    def test_no_log_and_missing_image_are_unmeasured(self):
+        self.assertEqual(b.parse_measure("fixture x on b @ab\nno log\n")[2]["status"], "ungemessen")
+        self.assertEqual(b.parse_measure(f("x", "s5verify: reference image starts at 0, scenario starts at 25"))[2]
+                         ["status"], "ungemessen")
+        self.assertEqual(b.parse_measure(f("x", "panicked at something"))[2]["status"], "fehler")
 
 
-class Packages(unittest.TestCase):
-    def test_brother_packages_by_author_then_lease_pool(self):
-        av = {"units": {"a": {}, "b": {}, "c": {}},
-              "leases": {"b": {"run": "7", "pool": b.FORK}},
-              "tickets": {"1": {"unit": "a", "pr": 748, "status": "queued"}, "2": {"unit": "c", "pr": 700, "status": "accepted"}}}
-        prs = {748: {"author": "Dominickofi00", "state": "open", "head": "agent/unit-a-e01"},
-               753: {"author": "someone-else", "state": "open", "head": "agent/unit-b-e01"},  # author unknown -> lease pool
-               700: {"author": "Kofi55533", "state": "merged", "head": "agent/unit-c-e01"},
-               699: {"author": "Kofi55533", "state": "merged", "head": "codex/not-a-package"}}
-        pk = b.v2_packages(av, prs)
-        by = {p["number"]: (p["account"], p["identified_by"], p["unit"]) for p in pk["prs"]}
-        self.assertEqual(by, {748: ("Dominickofi00", "PR-Autor", "a"), 753: ("Dominickofi00", "Lease-Pool", "b"),
-                              700: ("Kofi55533", "PR-Autor", "c")})
-        self.assertEqual(pk["by_account"]["Dominickofi00"]["open"], 2)
-        self.assertEqual(pk["by_account"]["Kofi55533"]["merged"], 1)
-        self.assertEqual(pk["by_account"]["Kofi55533"]["tickets"], {"accepted": 1})
+def rel(sha, done, results):
+    return {"sha": sha, "done": done, "files": {}, "results": results}
 
 
-class ValuesAsOf(unittest.TestCase):
-    def test_newest_measurement_not_matrix_entry(self):
-        rows = [{"name": "build", "measured": True, "when": "2026-10-17 18:50", "source": "Opus Live-Matrix"},
-                {"name": "wsecon", "measured": True, "when": "2026-10-21 19:30", "source": "Gate #697 (Merge 19:30)"},
-                {"name": "x", "measured": False, "when": None, "source": None}]
-        r = b.values_as_of(rows, {"time": "2026-10-17 18:50"})
-        self.assertEqual((r["as_of"], r["as_of_scenario"]), ("2026-10-21 19:30", "wsecon"))
-        self.assertEqual(b.values_as_of([], {"time": "2026-10-17 18:50"})["as_of"], "2026-10-17 18:50")
+G = {"status": "gleich", "ticks": 1000, "turn": None, "level": None, "levels": {}}
+T = {"status": "tief", "ticks": 1000, "turn": 525, "level": "Lua", "levels": {"Lua": 525}}
+A = {"status": "abweichend", "ticks": None, "turn": 125, "level": "Tasks", "levels": {"Tasks": 125}}
+U = {"status": "ungemessen", "ticks": None, "turn": None, "level": None, "levels": {}}
 
 
-class Overview(unittest.TestCase):
+class Build(unittest.TestCase):
     def setUp(self):
-        self.now = b.NOW.timestamp()
-        b._FLEET_STATE[:] = [{"autonomy_v2": {
-            "total": 10, "leases": {}, "events": [], "units": {
-                "u": {"status": "gating", "addresses": ["a1", "a2", "b1"],
-                      "verified": {"a1": {"status": "accepted"}}}},
-            "tickets": {
-                "1": {"status": "queued", "created": self.now - 7200},
-                "2": {"status": "repair", "receipt": {"error": "GATE FAIL: subsystem PR cites 3 function(s) no fixture executes"}},
-                "3": {"status": "repair", "receipt": {"error": "GATE FAIL: frontier PR without live before/after turn numbers"}},
-                "4": {"status": "repair", "receipt": {"error": "GATE FAIL: subsystem PR cites 1 function(s) no fixture executes"}},
-                "5": {"status": "accepted"}},
-            "integration": None}}]
+        self.rels = {"rm-old": rel("old", "2026-11-20T10:00:00Z", {"a": T, "b": A, "c": U, "map-crater": G}),
+                     "rm-new": rel("new", "2026-11-20T12:00:00Z", {"a": G, "b": U})}
+        self.meta = {"a": {"start": 25, "turns": 1000}, "b": {"start": 25, "turns": 1000}}
+        self.d, self.h = b.build(self.rels, self.meta, [], now=datetime(2026, 11, 20, 13, tzinfo=timezone.utc))
 
-    def tearDown(self):
-        b._FLEET_STATE[:] = []
+    def test_newest_real_verdict_wins_and_no_log_does_not_hide_an_older_one(self):
+        sc = {s["name"]: s for s in self.d["scenarios"]}
+        self.assertEqual((sc["a"]["status"], sc["a"]["delta"], sc["a"]["sha"]), ("gleich", "besser", "new"))
+        self.assertEqual((sc["b"]["status"], sc["b"]["sha"], sc["b"]["same"]), ("abweichend", "old", 100))
+        self.assertEqual(sc["c"]["status"], "ungemessen")
 
-    def data(self, head_hours):
-        head = (b.NOW - b.timedelta(hours=head_hours)).astimezone(b.BERLIN).strftime("%Y-%m-%d %H:%M")
-        return {"fleet_v2": {"total": {"workers": 30, "worker_limit": 30}, "groups": [{"key": "gate", "used": 10, "limit": 10}],
-                             "enabled": True, "domain": {"provider_hold": False}},
-                "head": {"time": head}, "errors": [],
-                "percent": {"identical_turns": {"as_of": head}},
-                "scenarios": [{"new": False, "identical": True, "measured": True}, {"new": True, "identical": False, "measured": True}]}
+    def test_summary_and_turn_shares(self):
+        s = self.d["summary"]
+        self.assertEqual((s["gleich"], s["abweichend"], s["ungemessen"], s["besser"]), (2, 1, 1, 1))
+        self.assertEqual((s["turns_total"], s["turns_same"]), (3000, 2100))
 
-    def test_repair_causes_and_scope_counts(self):
-        o = b.overview(self.data(1), [])
-        self.assertEqual([(c["label"], c["count"]) for c in o["pipeline"]["repair_causes"]],
-                         [("Differential-Test fehlt", 2), ("Live-Zahlen fehlen", 1)])
-        a = next(c for c in o["goal"]["scope"] if c["key"] == "A")
-        self.assertEqual((o["goal"]["done"], o["pipeline"]["pending"]), (1, 1))
-        self.assertTrue(a["now"])
-        self.assertEqual((o["scenarios"]["base_identical"], o["scenarios"]["gen_identical"]), (1, 0))
+    def test_maps_and_compat_fields(self):
+        crater = [m for m in self.d["maps"]["list"] if m["name"] == "Crater"][0]
+        self.assertEqual((crater["status"], crater["scenarios"]), ("gleich", ["map-crater"]))
+        sc = {s["name"]: s for s in self.d["scenarios"]}
+        self.assertEqual((sc["a"]["identical"], sc["a"]["turn"], sc["a"]["total"]), (True, 1000, 1000))
+        self.assertIsNone(sc["c"]["turn"])
+        self.assertEqual(self.d["percent"]["test_scope"]["maps"]["total"], 94)
+        self.assertEqual(self.d["generated_berlin"], "20.11.2026 14:00")
 
-    def test_no_merge_for_hours_with_pending_tickets_is_critical(self):
-        o = b.overview(self.data(14), [])
-        self.assertEqual(o["health"], "critical")
-        self.assertIn("nichts Neues integriert", o["attention"][0]["title"])
-        self.assertEqual(b.overview(self.data(1), [])["health"], "warning")  # 3 of 4 open tickets in repair
+    def test_history_has_one_point_per_newest_release(self):
+        self.assertEqual([h["tag"] for h in self.h], ["rm-old", "rm-new"])
+        self.assertEqual([h["gleich"] for h in self.h], [1, 2])
+        _, h2 = b.build(self.rels, self.meta, self.h)
+        self.assertEqual(len(h2), 2)
 
-    def test_merges_per_day_and_last_24h(self):
-        t = lambda h: b.utc(b.NOW - b.timedelta(hours=h))
-        merges = [{"time": t(1)}, {"time": t(2)}, {"time": t(30)}, {"time": t(24 * 20)}]
-        ig = b.overview(self.data(1), merges)["integrations"]
-        self.assertEqual((ig["last_24h"], ig["prev_24h"], len(ig["per_day"])), (2, 1, 7))
-        self.assertEqual(sum(d["count"] for d in ig["per_day"]), 3)
-
-
-class Plan(unittest.TestCase):
-    PLAN = {"start": "2026-11-01", "phases": [
-        {"key": "a", "title": "A", "from": 0, "to": 2, "status": "running"},
-        {"key": "b", "title": "B", "from": 2, "to": 400, "status": "open"},
-        {"key": "whole", "title": "W", "from": 3, "to": 400, "status": "open"}]}
-    CLASSES = {"A": 1000, "B": 500, "C": 300, "D": 10}
-
-    def at(self, hours, v):
-        return {"recorded": (b.NOW - b.timedelta(hours=hours)).astimezone(b.BERLIN).strftime("%Y-%m-%d %H:%M"), "fn_ok": v}
-
-    def test_census_counts_rate_and_eta(self):
-        data = {"xc": {"worklist": {"functions": {"done": 150, "covered": 50, "fix": 10, "observe": 40, "port": 5}}}}
-        hist = [self.at(48, 0), self.at(24, 100)]  # 100 a day up to now's 200
-        p = b.plan_view(data, hist, plan=self.PLAN, classes=self.CLASSES)
-        a = p["classes"][0]
-        self.assertEqual((a["verified"], a["unverified"], a["open"]), (200, 50, 750))
-        self.assertEqual(p["source"], "census")
-        self.assertAlmostEqual(p["rate_per_day"], 100, delta=1)
-        self.assertAlmostEqual(p["eta"]["A"]["days"], 8, delta=0.1)
-        self.assertEqual(p["eta"]["AB"]["left"], 1300)
-        self.assertTrue(p["phases"][0]["late"])  # day 2 is past (start 2026-11-01)
-        self.assertFalse(p["phases"][1]["late"])
-
-    def test_pipeline_progress_wins_and_no_pace_without_history(self):
-        prog = {"updated": "x", "classes": {"A": {"verified": 300, "ported": 400}, "B": {"verified": 1, "ported": 1}},
-                "stages": {"script": {"ported": 350, "verified": 280}}}
-        p = b.plan_view({}, [], plan=self.PLAN, classes=self.CLASSES, progress=prog)
-        a, bb = p["classes"][0], p["classes"][1]
-        self.assertEqual((a["verified"], a["unverified"], a["open"]), (300, 100, 600))
-        self.assertEqual((bb["verified"], bb["open"]), (1, 499))
-        self.assertEqual(p["source"], "pipeline")
-        self.assertIsNone(p["rate_per_day"])
-        self.assertIsNone(p["eta"]["A"]["date"])
-        self.assertEqual(p["stages"]["script"]["verified"], 280)
-
-    def test_rate_ignores_points_older_than_72h(self):
-        t = b.NOW
-        pts = [(t - b.timedelta(hours=200), 0), (t - b.timedelta(hours=48), 1000), (t, 1100)]
-        self.assertAlmostEqual(b.rate_per_day(pts), 50, delta=0.5)
-
-    def test_shipped_plan_and_classes_load(self):
-        p = b.plan_view({}, [])
-        self.assertEqual(sum(c["total"] for c in p["classes"]), 29723)
-        self.assertTrue(all(ph["to"] >= ph["from"] for ph in p["phases"]))
+    def test_scenario_to_map(self):
+        self.assertEqual(b.scenario_map("campaign-04-tradingcaravans"), "tradingcaravans")
+        self.assertEqual(b.scenario_map("genc-campcrawford-5000"), "crawford")
+        self.assertEqual(b.scenario_map("map-frozenfjord-mapstart"), "frozenfjord")
+        self.assertEqual(b.group("combat-waves"), "Kampf")
+        self.assertEqual(b.group("castrum"), "Kartenstart")
 
 
 if __name__ == "__main__":
