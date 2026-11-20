@@ -4,11 +4,19 @@ name: scoreboard
 # repo Kofi55533/siedler-data. Publishes only status words, turn numbers, level names and commit titles (data.json),
 # never game state. Parsed measurement files are cached in gh-pages messungen.json, so a build downloads only new files
 # (~5 REST calls when nothing changed). A failed build writes SKIP_PUBLISH and the last good page stays.
-# Cadence: the cron below plus fleet-control.yml, which dispatches this file when no run was created in the last 14 min.
+# Cadence: the cron below, every push of a scoreboard change to main, every completed full-measure run, plus fleet-control.yml, which dispatches this file when no run was created in the last 14 min.
 on:
   schedule:
     - cron: '*/15 * * * *'
   workflow_dispatch:
+  push:
+    # a merged page or builder change goes live at once
+    branches: [main]
+    paths: ['scripts/scoreboard/**', '.github/workflows/scoreboard.yml']
+  workflow_run:
+    # fresh numbers right after each automatic full measurement (full-measure.yml)
+    workflows: [full-measure]
+    types: [completed]
 permissions:
   contents: write
   actions: read

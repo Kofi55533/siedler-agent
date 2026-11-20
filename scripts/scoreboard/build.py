@@ -269,6 +269,8 @@ def running():
                 continue
             seen.add(run["id"])
             jobs = (api(f"repos/{PUB}/actions/runs/{run['id']}/jobs?per_page=100") or {}).get("jobs", [])
+            if len(jobs) < 3:  # only the gate or the build step yet: nothing is being measured
+                continue
             out.append({"name": run["name"], "started": berlin(run.get("run_started_at") or run["created_at"]),
                         "jobs": len(jobs), "jobs_done": sum(1 for j in jobs if j.get("status") == "completed"),
                         "url": run["html_url"]})
