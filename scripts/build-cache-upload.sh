@@ -7,7 +7,12 @@ set -euo pipefail
 D=$(cd "$(dirname "$0")" && pwd); source "$D/s5-env.sh"
 R=Kofi55533/siedler-data
 SHA=$(git -C $S5_REPO rev-parse HEAD)
-[ -z "$(git -C $S5_REPO status --porcelain --untracked-files=no)" ] || { echo "build cache: checkout has local changes, not uploaded"; exit 1; }
+# a Cargo.lock the build re-resolved is the lock this commit builds with anywhere (same registry), so it does not
+# make the cache stale; any other changed source does (its paths are named, never contents)
+changed=$(git -C $S5_REPO status --porcelain --untracked-files=no | awk '{print $NF}' | grep -v 'Cargo\.lock$' || true)
+[ -z "$changed" ] || { echo "build cache: checkout has local changes, not uploaded:"; echo "$changed" | head -20; exit 1; }
+git -C $S5_REPO status --porcelain --untracked-files=no | awk '{print "build cache: re-resolved " $NF}'
+
 W=$(mktemp -d); cd "$W"; echo "$SHA" > cache-sha.txt; P=target-${SHA:0:12}.tzst.
 find $S5_REPO/recomp/target/release -maxdepth 1 -type f -perm -u+x ! -name s5verify ! -name s5check -delete
 rm -rf $S5_REPO/recomp/target/verify

@@ -18,12 +18,14 @@ one(){ # one <tag> <bin> [env...]
       timeout -k 30 "$XC_TIMEOUT" "$(xc_bin "$bin")" --nocapture --test-threads=1 ) < /dev/null > "$XC/try-$tag.log" 2>&1
   echo "$tag: exit $? secs=$(( $(date +%s) - t)) json=$([ -s "$XC/$tag.json" ] && echo yes || echo no)"
 }
-one ticks capture-ticks
 # the bound functions' blocks (capture::Want): the functions run names the calls that first ran blocks no compared
 # call ran, the wanted run compares those calls too (what the next census does with the previous one's work list)
 blocks=; [ -f "$S5_REPO/data/scope/fn_blocks.json" ] && blocks=$S5_REPO/data/scope/fn_blocks.json
-one functions capture-functions S5_CAPTURE_BLOCKS="$blocks"
-one inventory capture-functions S5_CAPTURE_FUNCTIONS="$XC/inventory.txt"
+# the runs are single-threaded and independent: side by side on the runner's cores (each ~0.7 GB RSS)
+one ticks capture-ticks > "$XC/one-ticks.txt" &
+one functions capture-functions S5_CAPTURE_BLOCKS="$blocks" > "$XC/one-functions.txt" &
+one inventory capture-functions S5_CAPTURE_FUNCTIONS="$XC/inventory.txt" > "$XC/one-inventory.txt" &
+wait; cat "$XC"/one-ticks.txt "$XC"/one-functions.txt "$XC"/one-inventory.txt
 if [ -n "$blocks" ] && [ -s "$XC/functions.json" ]; then
   python3 "$D/xc.py" want-file "$XC/functions.json" "$XC/want.txt"
   one wanted capture-functions S5_CAPTURE_BLOCKS="$blocks" S5_CAPTURE_WANT="$XC/want.txt"
