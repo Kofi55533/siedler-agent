@@ -155,6 +155,8 @@ xc_run_point(){
   for t in "$first" "$short"; do
     ( cd "$S5_REPO" && export S5_XCHECK_IMAGE=$img S5_CAPTURE_SKIP=$skip S5_CAPTURE_TURNS=$t S5_CAPTURE_MAX=$XC_MAX \
         S5_CAPTURE_STRIDE=$XC_STRIDE S5_CAPTURE_JSON=$out.$bin.part && { [ -z "$only" ] || export S5_CAPTURE_ONLY=$only; } &&
+      # samples whose blocks all already ran in an equal comparison are not compared (same equal blocks, ~8x faster)
+      export S5_CAPTURE_SKIP_COVERED=${XC_SKIP_COVERED:-1} S5_CAPTURE_FORKS=${XC_FORKS:-0} &&
       { [ -z "${XC_NO_CMDS:-}" ] && [ -s "$XC/cmds/$name.bin" ] && export S5_XCHECK_COMMANDS=$XC/cmds/$name.bin || :; } &&
       { [ "$bin" != capture-functions ] || export S5_CAPTURE_FUNCTIONS=$XC/inventory.txt; } &&
       # the bound functions' blocks (s5xcheck capture::Want): which call first ran a block no compared call ran, and
