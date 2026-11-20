@@ -95,12 +95,15 @@ def fn_state(k):
         return "covered" if k.get("covered") else "port"
     if k["failing"]:
         return "fix"
-    return "done" if k["samples"] and k.get("observed", 0) else "observe"
+    if not (k["samples"] and k.get("observed", 0)):
+        return "observe"
+    # identical where sampled, but blocks of it ran that no equal compared call ran: not finished
+    return "partial" if k.get("blocks_open") else "done"
 
 
 def merge(directory, sha, out, meta=None):
     kinds, scenarios, functions = {}, {}, set()
-    blocks = {"equal": set(), "differing": set()}
+    blocks = {"equal": set(), "differing": set(), "executed": set()}
     for f in sorted(Path(directory).glob("*.json")):
         doc = load(f)
         name = f.stem
@@ -141,6 +144,14 @@ def merge(directory, sha, out, meta=None):
                 for c in calls.get(address(kind), []):
                     if c in executed:
                         fns[executed[c]]["callers_static_open"] += 1
+    if meta and Path(meta, "fn_blocks.json").is_file():
+        # per function: its blocks that ran (blocks.executed) and those no equal compared call ran (data/scope/
+        # fn_blocks.json, tools/function_inventory.py --blocks-map). A function is finished when none is open.
+        own = load(Path(meta, "fn_blocks.json"))["blocks"]
+        for kind, k in fns.items():
+            ran = {b for b in own.get(address(kind), ()) if b.upper() in blocks["executed"]}
+            k["blocks_run"] = len(ran)
+            k["blocks_open"] = sum(1 for b in ran if b.upper() not in blocks["equal"])
     if meta and Path(meta, "cited.txt").is_file():
         cited = set(Path(meta, "cited.txt").read_text().split())
         for kind, k in fns.items():
@@ -150,7 +161,7 @@ def merge(directory, sha, out, meta=None):
            "summary": {"kinds": len(kinds), "failing_kinds": sum(1 for k in kinds.values() if k["failing"]),
                        "samples": sum(k["samples"] for k in kinds.values()),
                        "failing": sum(k["failing"] for k in kinds.values()),
-                       "functions": {s: states.count(s) for s in ("port", "covered", "fix", "observe", "done")},
+                       "functions": {s: states.count(s) for s in ("port", "covered", "fix", "observe", "partial", "done")},
                        "blocks": {side: len(seen) for side, seen in blocks.items()}},
            "blocks": {side: ",".join(sorted(seen, key=lambda a: int(a, 16))) for side, seen in blocks.items()}}
     Path(out).write_text(json.dumps(doc, indent=1))
@@ -168,7 +179,7 @@ def covered(fns):
     written. Each kind also gets callers_open (its calls inside functions still to port, or from the turn itself)
     and children_open (the functions still to port called inside it), the top-down order of the rest."""
     verified = {kind for kind, k in fns.items()
-                if fn_state(k) == "done" or (kind in COVERED and k["samples"] and not k["failing"])}
+                if fn_state(k) in ("done", "partial") or (kind in COVERED and k["samples"] and not k["failing"])}
     # a recursive function's inner calls run inside its outer call (the innermost enclosing function of a self call
     # is the function itself; mutual recursion likewise), so a cycle of unbound functions counts as one unit: covered
     # when every call into it from outside runs inside verified functions (2026-10-31: 21 recursive helpers such as

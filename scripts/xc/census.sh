@@ -19,7 +19,7 @@ done < "$XC/shard.txt"
 # the order of the function units (xc.py merge): static calls between class-A functions, and the native addresses the
 # clean code cites; addresses only, private like the shard
 mkdir -p "$OUT/_meta"
-[ -f "$S5_REPO/data/scope/fn_calls.json" ] && cp "$S5_REPO/data/scope/fn_calls.json" "$OUT/_meta/"
+for f in fn_calls fn_blocks; do [ -f "$S5_REPO/data/scope/$f.json" ] && cp "$S5_REPO/data/scope/$f.json" "$OUT/_meta/"; done
 grep -rhoiE '0x0*[4-6][0-9a-f]{5}\b' "$S5_REPO/crates/s5clean/src" | tr 'A-F' 'a-f' | sed 's/^0x0*//' | sort -u > "$OUT/_meta/cited.txt"
 while read -r name _; do
   [ -s "$OUT/$name.json" ] && python3 -c "import json,sys;d=json.load(open(sys.argv[1]));g=d['groups'].values()

@@ -160,7 +160,11 @@ jobs:
           print(f"### census {d['sha'][:8]}: {s['failing_kinds']}/{s['kinds']} kinds differ, {s['failing']}/{s['samples']} sampled calls\n")
           f = s.get("functions") or {}
           print(f"executed class-A functions: {sum(f.values())} ({f.get('port', 0)} to port, {f.get('fix', 0)} bound and differing, "
-                f"{f.get('observe', 0)} bound but unobserved, {f.get('done', 0)} identical)\n")
+                f"{f.get('observe', 0)} bound but unobserved, {f.get('partial', 0)} identical where sampled but with "
+                f"unverified blocks, {f.get('done', 0)} identical in every block that ran)\n")
+          b = s.get("blocks") or {}
+          if b.get("executed"):
+              print(f"blocks: {b.get('equal', 0)} verified (ran in an equal compared call) of {b['executed']} that ran\n")
           print("| kind | failing scenarios | sampled calls differing |\n|---|---|---|")
           for k, v in sorted(d["kinds"].items(), key=lambda kv: -kv[1]["failing"]):
               if v["failing"] or not k.startswith("FN_"):

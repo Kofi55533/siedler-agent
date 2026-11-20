@@ -191,7 +191,7 @@ if docs:
            "groups": {k: v for d in docs for k, v in d["groups"].items()},
            # the recomp blocks the compared calls ran (s5xcheck Report::blocks), unioned over the points
            "blocks": {side: ",".join(sorted({a for d in docs for a in (d.get("blocks") or {}).get(side, "").split(",") if a},
-                                            key=lambda a: int(a, 16))) for side in ("equal", "differing")},
+                                            key=lambda a: int(a, 16))) for side in ("equal", "differing", "executed")},
            # a point without its document (crash, timeout) is named, so a missing kind is not read as fixed
            "missing_points": [Path(p).suffixes[-2][1:] for p in sys.argv[3:] if not (Path(p).is_file() and Path(p).stat().st_size)],
            # the player commands the play ran with (xc_cmds)

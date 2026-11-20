@@ -51,5 +51,7 @@ for t in ("functions", "inventory"):
     if b:  # Report::blocks: the recomp blocks the compared calls ran (counts only)
         n = lambda s: len(s.split(",")) if s else 0
         eq, df = set(b["equal"].split(",")) - {""}, set(b["differing"].split(",")) - {""}
-        print(f"{t}: blocks equal={n(b['equal'])} differing={n(b['differing'])} only-differing={len(df - eq)}")
+        ex = set(b.get("executed", "").split(",")) - {""}
+        print(f"{t}: blocks equal={n(b['equal'])} differing={n(b['differing'])} only-differing={len(df - eq)} "
+              f"executed={len(ex)} executed-unverified={len(ex - eq)}")
 P
