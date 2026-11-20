@@ -22,7 +22,7 @@ h1{font-size:20px;font-weight:650;margin:0;letter-spacing:-.01em}
 .stand{color:var(--ink3);font-size:14px}
 h2{font-size:15px;font-weight:650;margin:0 0 14px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:24px;margin-bottom:20px}
-.hero{display:grid;grid-template-columns:1.4fr 1fr;gap:20px;margin-bottom:20px}
+.hero{display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:20px;margin-bottom:20px}
 .hero>.card{margin:0}
 .big{font-size:64px;font-weight:700;line-height:1;letter-spacing:-.03em;font-variant-numeric:tabular-nums}
 .big small{font-size:28px;color:var(--ink3);font-weight:600;letter-spacing:0}
@@ -92,6 +92,12 @@ footer{color:var(--ink3);font-size:13px;margin-top:8px}
       <div class="bar" id="mpbar"></div>
       <div class="note" id="mpnote"></div>
     </div>
+    <div class="card">
+      <div class="mid" id="fn">–</div>
+      <p class="what" id="fnwhat">Funktionen des Originals, deren gelaufene Blöcke alle im Vergleich gleich waren.</p>
+      <div class="bar" id="fnbar"></div>
+      <div class="note" id="fnnote"></div>
+    </div>
   </section>
 
   <section class="card">
@@ -158,6 +164,15 @@ function render(){
   $("mp").innerHTML=`${M.gleich}<small> / ${M.total}</small>`;
   bar($("mpbar"),[[M.gleich/M.total*100,"var(--done)"],[notyet/M.total*100,"var(--open)"],[untested/M.total*100,"var(--none)"]]);
   $("mpnote").textContent=`${notyet} noch nicht gleich · ${untested} noch nicht getestet`;
+  const F=D.functions;
+  if(F&&F.ran){
+    $("fn").innerHTML=`${F.done}<small> / ${F.ran}</small>`;
+    bar($("fnbar"),[[F.done/F.ran*100,"var(--done)"],[(F.ran-F.done-F.port)/F.ran*100,"var(--open)"],[F.port/F.ran*100,"var(--none)"]]);
+    // a census before the block lists (20.11.) only knows whether its sampled calls were equal
+    if(!F.blocks_ran)$("fnwhat").textContent="Funktionen des Originals, deren Stichproben-Aufrufe im Vergleich gleich waren (Blockprüfung ab dem nächsten Zensus).";
+    const b=F.blocks_ran?` · Blöcke ${Math.round(F.blocks_verified/F.blocks_ran*100)} % geprüft`:"";
+    $("fnnote").textContent=`${F.partial} teilweise geprüft · ${F.port} noch zu portieren${b}`;
+  }
   const R=D.running||[];
   $("live").innerHTML=R.length?`<div class="live"><i class="dot pulse"></i><span>Eine neue Messung läuft gerade`+
     (R[0].jobs?` (${R[0].jobs_done} von ${R[0].jobs} Teilen fertig)`:"")+`. Die Zahlen werden danach aktualisiert.</span></div>`:"";

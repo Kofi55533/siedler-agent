@@ -10,6 +10,8 @@ checked level (state, tasks, random draws, deep world fields, Lua, spatial). Eve
   files. Published are only status words, turn numbers and level names; never field names, entity ids or game state.
 - running measurements: in-progress workflow runs of Kofi55533/siedler-agent whose name contains "measure".
 - recent merges: the last commits on clean/integration of Kofi55533/siedler-sim-rs.
+- functions: the summary counts of the xc census (private release xc-worklist of Kofi55533/siedler-data,
+  worklist.json): executed functions by state, recomp blocks run and verified (ran in an equal compared call).
 - maps: scripts/scoreboard/map_list.json (the 94 official maps); a scenario belongs to a map by its name.
 
 env: GH_TOKEN (read access to the private repos), OUT (output dir), PREV_DIR (optional: previous gh-pages files),
@@ -261,6 +263,22 @@ def map_rows(rows):
 # ---------------- other sources ----------------
 
 
+def functions():
+    """counts of the last xc census (never its kinds, diffs or addresses); None when it cannot be read"""
+    try:
+        rel = api(f"repos/{DATA}/releases/tags/xc-worklist")
+        a = next(a for a in rel.get("assets", []) if a["name"] == "worklist.json")
+        d = json.loads(api(f"repos/{DATA}/releases/assets/{a['id']}", raw=True))
+    except Exception as e:
+        print("functions: no census counts:", type(e).__name__, file=sys.stderr)
+        return None
+    s = d.get("summary") or {}
+    f, b = s.get("functions") or {}, s.get("blocks") or {}
+    return {"sha": (d.get("sha") or "")[:10], "time": berlin(a["updated_at"]), "partial_census": bool(d.get("partial")),
+            "ran": sum(f.values()), **{k: f.get(k, 0) for k in ("done", "partial", "observe", "fix", "port", "covered")},
+            "blocks_ran": b.get("executed", 0), "blocks_verified": b.get("equal", 0), "wanted": s.get("wanted", 0)}
+
+
 def running():
     out, seen = [], set()
     for st in ("in_progress", "queued"):
@@ -295,7 +313,7 @@ def behind(sha):
 # ---------------- main ----------------
 
 
-def build(rels, meta, hist, run=(), mg=(), ahead=(None, None), now=None):
+def build(rels, meta, hist, run=(), mg=(), ahead=(None, None), now=None, fns=None):
     """Pure part: measurements -> data.json dict (+ updated history). Testable without network."""
     now = now or datetime.now(timezone.utc)
     order = sorted(rels, key=lambda t: rels[t]["done"], reverse=True)
@@ -336,6 +354,7 @@ def build(rels, meta, hist, run=(), mg=(), ahead=(None, None), now=None):
                                  for t in order]},
         "summary": summ,
         "maps": {"total": len(maps), **mcount, "list": maps},
+        "functions": fns,
         "running": list(run),
         "merges": list(mg),
         "history": hist[-40:],
@@ -372,7 +391,7 @@ def main():
         return
     main_sha = rels[max(rels, key=lambda t: rels[t]["done"])]["sha"]
     data, hist = build(rels, meta, load_prev(prev_dir, "verlauf.json", []), run, mg,
-                       behind(main_sha) if main_sha else (None, None))
+                       behind(main_sha) if main_sha else (None, None), fns=functions())
     json.dump(data, open(os.path.join(out, "data.json"), "w"), ensure_ascii=False, separators=(",", ":"))
     json.dump({"releases": {t: {"files": rels[t]["files"]} for t in rels}},
               open(os.path.join(out, "messungen.json"), "w"), ensure_ascii=False, separators=(",", ":"))
