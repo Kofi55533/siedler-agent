@@ -100,10 +100,13 @@ def fn_state(k):
 
 def merge(directory, sha, out, meta=None):
     kinds, scenarios, functions = {}, {}, set()
+    blocks = {"equal": set(), "differing": set()}
     for f in sorted(Path(directory).glob("*.json")):
         doc = load(f)
         name = f.stem
         functions.update(doc["function"].split(","))
+        for side, seen in blocks.items():  # s5xcheck Report::blocks: tools/function_inventory.py --capture
+            seen.update(a for a in (doc.get("blocks") or {}).get(side, "").split(",") if a)
         scenarios[name] = {"turns": doc["turns"], "entries": doc["entries"], "import_errors": len(doc["import_errors"]),
                            "missing_points": doc.get("missing_points", []), "commands": doc.get("commands", 0),
                            "secs": doc.get("secs")}
@@ -147,7 +150,9 @@ def merge(directory, sha, out, meta=None):
            "summary": {"kinds": len(kinds), "failing_kinds": sum(1 for k in kinds.values() if k["failing"]),
                        "samples": sum(k["samples"] for k in kinds.values()),
                        "failing": sum(k["failing"] for k in kinds.values()),
-                       "functions": {s: states.count(s) for s in ("port", "covered", "fix", "observe", "done")}}}
+                       "functions": {s: states.count(s) for s in ("port", "covered", "fix", "observe", "done")},
+                       "blocks": {side: len(seen) for side, seen in blocks.items()}},
+           "blocks": {side: ",".join(sorted(seen, key=lambda a: int(a, 16))) for side, seen in blocks.items()}}
     Path(out).write_text(json.dumps(doc, indent=1))
     s = doc["summary"]
     print(f"worklist {sha[:8]}: {len(scenarios)} scenarios, {s['kinds']} kinds, {s['failing_kinds']} failing kinds, "
