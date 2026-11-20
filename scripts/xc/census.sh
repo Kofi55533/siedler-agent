@@ -10,6 +10,8 @@ xc_build || exit 2
 xc_scenarios | python3 "$D/xc.py" shard "$I" "$N" > "$XC/shard.txt"
 echo "shard $I/$N: $(wc -l < "$XC/shard.txt") scenarios on $(git -C "$S5_REPO" rev-parse --short HEAD)"
 rm -f "$XC"/secs-*
+# the calls the previous census found running blocks no equal compared call ran (XC_PREV: its private work list)
+rm -rf "$XC/want"; [ -s "${XC_PREV:-}" ] && python3 "$D/xc.py" want "$XC_PREV" "$XC/want"
 t0=$(date +%s); xc_runs "$OUT" < "$XC/shard.txt"
 # each scenario's run seconds (its points summed) go into its document, so the next census can balance its shards
 while read -r name _; do
@@ -19,7 +21,7 @@ done < "$XC/shard.txt"
 # the order of the function units (xc.py merge): static calls between class-A functions, and the native addresses the
 # clean code cites; addresses only, private like the shard
 mkdir -p "$OUT/_meta"
-[ -f "$S5_REPO/data/scope/fn_calls.json" ] && cp "$S5_REPO/data/scope/fn_calls.json" "$OUT/_meta/"
+for f in fn_calls fn_blocks; do [ -f "$S5_REPO/data/scope/$f.json" ] && cp "$S5_REPO/data/scope/$f.json" "$OUT/_meta/"; done
 grep -rhoiE '0x0*[4-6][0-9a-f]{5}\b' "$S5_REPO/crates/s5clean/src" | tr 'A-F' 'a-f' | sed 's/^0x0*//' | sort -u > "$OUT/_meta/cited.txt"
 while read -r name _; do
   [ -s "$OUT/$name.json" ] && python3 -c "import json,sys;d=json.load(open(sys.argv[1]));g=d['groups'].values()

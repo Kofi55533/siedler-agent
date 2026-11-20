@@ -7,6 +7,8 @@ D=$(cd "$(dirname "$0")" && pwd); source "$D/lib.sh"
 t0=$(date +%s); xc_build || exit 2; echo "build secs=$(( $(date +%s) - t0 ))"
 read -r name img skip turns < <(xc_scenarios | awk -v n="$1" '$1==n')
 [ -n "${img:-}" ] || { echo "no scenario $1"; exit 2; }
+# a trial compares at most XC_TRY_TURNS turns: the census plays 1200 in about 2400 s, past XC_TIMEOUT
+turns=$(( turns < ${XC_TRY_TURNS:-300} ? turns : ${XC_TRY_TURNS:-300} )); echo "turns: $turns"
 # the inventory (xc_build): every class-A function of scripts/scope_classes.json, as the census counts them
 echo "inventory: $(wc -l < "$XC/inventory.txt") functions"
 one(){ # one <tag> <bin> [env...]
@@ -16,9 +18,18 @@ one(){ # one <tag> <bin> [env...]
       timeout -k 30 "$XC_TIMEOUT" "$(xc_bin "$bin")" --nocapture --test-threads=1 ) < /dev/null > "$XC/try-$tag.log" 2>&1
   echo "$tag: exit $? secs=$(( $(date +%s) - t)) json=$([ -s "$XC/$tag.json" ] && echo yes || echo no)"
 }
-one ticks capture-ticks
-one functions capture-functions
-one inventory capture-functions S5_CAPTURE_FUNCTIONS="$XC/inventory.txt"
+# the bound functions' blocks (capture::Want): the functions run names the calls that first ran blocks no compared
+# call ran, the wanted run compares those calls too (what the next census does with the previous one's work list)
+blocks=; [ -f "$S5_REPO/data/scope/fn_blocks.json" ] && blocks=$S5_REPO/data/scope/fn_blocks.json
+# the runs are single-threaded and independent: side by side on the runner's cores (each ~0.7 GB RSS)
+one ticks capture-ticks > "$XC/one-ticks.txt" &
+one functions capture-functions S5_CAPTURE_BLOCKS="$blocks" > "$XC/one-functions.txt" &
+one inventory capture-functions S5_CAPTURE_FUNCTIONS="$XC/inventory.txt" > "$XC/one-inventory.txt" &
+wait; cat "$XC"/one-ticks.txt "$XC"/one-functions.txt "$XC"/one-inventory.txt
+if [ -n "$blocks" ] && [ -s "$XC/functions.json" ]; then
+  python3 "$D/xc.py" want-file "$XC/functions.json" "$XC/want.txt"
+  one wanted capture-functions S5_CAPTURE_BLOCKS="$blocks" S5_CAPTURE_WANT="$XC/want.txt"
+fi
 python3 - "$XC" <<'P'
 import json, sys
 from pathlib import Path
@@ -44,7 +55,15 @@ if inv:
     print(f"callers: {sum(1 for x in c if x)} of {len(un)} unbound with callers, "
           f"{sum(1 for x in c if x and all(k in bound for k in x))} only inside bound functions, "
           f"{sum(1 for x in c if 'ROOT' in x)} called from the turn itself")
-for t in ("functions", "inventory"):
+for t in ("functions", "inventory", "wanted"):
     d = load(t)
     if d: print(f"{t}: {d['entries']} entries, {len(d['import_errors'])} import errors")
+    b = (d or {}).get("blocks")
+    if b:  # Report::blocks: the recomp blocks the compared calls ran (counts only)
+        n = lambda s: len(s.split(",")) if s else 0
+        eq, df = set(b["equal"].split(",")) - {""}, set(b["differing"].split(",")) - {""}
+        ex = set(b.get("executed", "").split(",")) - {""}
+        print(f"{t}: blocks equal={n(b['equal'])} differing={n(b['differing'])} only-differing={len(df - eq)} "
+              f"executed={len(ex)} executed-unverified={len(ex - eq)} fresh={n(b.get('fresh', ''))}")
+        print(f"{t}: compared calls={sum(g.get('samples', 0) for g in d['groups'].values())}")
 P

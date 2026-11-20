@@ -60,9 +60,13 @@ jobs:
       - name: Setup (quiet)
         env: { T: '${{ secrets.PRIVATE_REPO_TOKEN }}', GIT_LFS_SKIP_SMUDGE: '1' }
         run: scripts/s5-setup.sh clean/integration 1
+      - name: Previous work list (private; its wanted calls, xc.py want)
+        env: { GH_TOKEN: '${{ secrets.PRIVATE_REPO_TOKEN }}' }
+        run: gh release download xc-worklist -R $XC_DATA -D $RUNNER_TEMP/prev -p worklist.json > /dev/null 2>&1 || echo "none"
       - name: Census shard ${{ matrix.shard }} (counts only)
         env: { XC_WEIGHTS: '${{ needs.pin.outputs.weights }}' }
         run: |
+          export XC_PREV=$RUNNER_TEMP/prev/worklist.json
           source scripts/s5-env.sh
           SHA=${{ needs.pin.outputs.sha }}
           git -C $S5_REPO cat-file -e "$SHA^{commit}" 2>/dev/null || git -C $S5_REPO fetch -q --depth 1 origin "$SHA"
@@ -158,7 +162,12 @@ jobs:
           print(f"### census {d['sha'][:8]}: {s['failing_kinds']}/{s['kinds']} kinds differ, {s['failing']}/{s['samples']} sampled calls\n")
           f = s.get("functions") or {}
           print(f"executed class-A functions: {sum(f.values())} ({f.get('port', 0)} to port, {f.get('fix', 0)} bound and differing, "
-                f"{f.get('observe', 0)} bound but unobserved, {f.get('done', 0)} identical)\n")
+                f"{f.get('observe', 0)} bound but unobserved, {f.get('partial', 0)} identical where sampled but with "
+                f"unverified blocks, {f.get('done', 0)} identical in every block that ran)\n")
+          b = s.get("blocks") or {}
+          if b.get("executed"):
+              print(f"blocks: {b.get('equal', 0)} verified (ran in an equal compared call) of {b['executed']} that ran; "
+                    f"{s.get('wanted', 0)} calls wanted for the next census\n")
           print("| kind | failing scenarios | sampled calls differing |\n|---|---|---|")
           for k, v in sorted(d["kinds"].items(), key=lambda kv: -kv[1]["failing"]):
               if v["failing"] or not k.startswith("FN_"):

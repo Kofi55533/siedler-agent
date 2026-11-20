@@ -153,6 +153,11 @@ xc_run_point(){
         S5_CAPTURE_STRIDE=$XC_STRIDE S5_CAPTURE_JSON=$out.$bin.part && { [ -z "$only" ] || export S5_CAPTURE_ONLY=$only; } &&
       { [ -z "${XC_NO_CMDS:-}" ] && [ -s "$XC/cmds/$name.bin" ] && export S5_XCHECK_COMMANDS=$XC/cmds/$name.bin || :; } &&
       { [ "$bin" != capture-functions ] || export S5_CAPTURE_FUNCTIONS=$XC/inventory.txt; } &&
+      # the bound functions' blocks (s5xcheck capture::Want): which call first ran a block no compared call ran, and
+      # the calls of the previous census' such blocks (xc.py want), compared beyond the sampling
+      { [ "$bin" != capture-functions ] || [ ! -f "$S5_REPO/data/scope/fn_blocks.json" ] ||
+        export S5_CAPTURE_BLOCKS=$S5_REPO/data/scope/fn_blocks.json; } &&
+      { [ "$bin" != capture-functions ] || [ ! -s "$XC/want/$name.txt" ] || export S5_CAPTURE_WANT=$XC/want/$name.txt; } &&
       timeout -k 30 "$XC_TIMEOUT" "$(xc_bin "$bin")" --nocapture --test-threads=1 ) \
       < /dev/null >> "$log" 2>&1
     r=$?
@@ -189,6 +194,11 @@ if docs:
     out = {"function": ",".join(d["function"] for d in docs), "turns": docs[0]["turns"],
            "entries": sum(d["entries"] for d in docs), "import_errors": [e for d in docs for e in d["import_errors"]],
            "groups": {k: v for d in docs for k, v in d["groups"].items()},
+           # the recomp blocks the compared calls ran (s5xcheck Report::blocks), unioned over the points
+           "blocks": {side: ",".join(sorted({a for d in docs for a in (d.get("blocks") or {}).get(side, "").split(",") if a},
+                                            key=lambda a: int(a, 16))) for side in ("equal", "differing", "executed")}
+                    # BLOCK:FN:KEY, the call that first ran a block no compared call ran (s5xcheck capture::Want)
+                    | {"fresh": ",".join(t for d in docs for t in (d.get("blocks") or {}).get("fresh", "").split(",") if t)},
            # a point without its document (crash, timeout) is named, so a missing kind is not read as fixed
            "missing_points": [Path(p).suffixes[-2][1:] for p in sys.argv[3:] if not (Path(p).is_file() and Path(p).stat().st_size)],
            # the player commands the play ran with (xc_cmds)
