@@ -56,6 +56,11 @@ t0=$(date +%s)
 xc_build || exit 2
 xc_keep_bins "$XC/base-bin"
 BIND=$(xc_binding "$KIND")
+# lead with a kind still unbound on clean/integration: when the first kind is already bound and identical there, the
+# others in the batch would otherwise be reported "already identical" without ever being compared
+for k in ${KINDS//,/ }; do
+  b=$(xc_binding "$k"); if [ -n "$b" ] && [ ! -f "$b" ]; then KIND=$k; BIND=$b; break; fi
+done
 base_only(){
   rm -rf "$XC/base"; mkdir -p "$XC/base/only"
   xc_scenarios | awk -v s=" $(cat "$XC/scenarios-all.txt") " 'index(s, " "$1" ")' | xc_runs "$XC/base/only" "$KINDS"
