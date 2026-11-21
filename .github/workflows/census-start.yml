@@ -1,0 +1,19 @@
+name: census-start
+# Deliberate start of one xc census: every push to the branch claude/census-start dispatches xc-census on main once.
+# Measurements start by hand only (20.11.); this is the hand for sessions whose token cannot dispatch workflows.
+on:
+  push:
+    branches: [claude/census-start]
+permissions:
+  actions: write
+jobs:
+  start:
+    if: github.repository == 'Kofi55533/siedler-agent'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - env: { GH_TOKEN: '${{ github.token }}', MSG: '${{ github.event.head_commit.message }}' }
+        run: |
+          w=true; [[ "$MSG" == *"[no-workers]"* ]] && w=false
+          gh api -X POST "repos/${{ github.repository }}/actions/workflows/xc-census.yml/dispatches" -f ref=main -f "inputs[workers]=$w"
+          echo "xc-census dispatched (workers=$w)"
