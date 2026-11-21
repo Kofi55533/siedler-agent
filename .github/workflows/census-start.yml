@@ -1,19 +1,37 @@
 name: census-start
-# Deliberate start of one xc census: every push to the branch claude/census-start dispatches xc-census on main once.
-# Measurements start by hand only (20.11.); this is the hand for sessions whose token cannot dispatch workflows.
+# Deliberate start of one xc census (measurements start by hand only, 20.11.), for sessions whose token cannot dispatch
+# workflows:
+#   - the label xc-census, set by Kofi55533 on an issue: dispatches xc-census on main once, links the run in a comment
+#     and closes the issue (`[no-workers]` in the issue title skips the worker wave afterwards);
+#   - a push to the branch claude/census-start (`[no-workers]` in the commit message).
 on:
   push:
     branches: [claude/census-start]
-permissions:
-  actions: write
+  issues:
+    types: [labeled]
+permissions: { actions: write, issues: write }
+concurrency:
+  group: census-start
+  cancel-in-progress: false
 jobs:
   start:
-    if: github.repository == 'Kofi55533/siedler-agent'
+    if: >-
+      github.repository == 'Kofi55533/siedler-agent' && (github.event_name == 'push' ||
+      (github.event.label.name == 'xc-census' && github.event.sender.login == 'Kofi55533'))
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
-      - env: { GH_TOKEN: '${{ github.token }}', MSG: '${{ github.event.head_commit.message }}' }
+      - env:
+          GH_TOKEN: '${{ github.token }}'
+          MSG: '${{ github.event.head_commit.message || github.event.issue.title }}'
+          N: '${{ github.event.issue.number }}'
         run: |
           w=true; [[ "$MSG" == *"[no-workers]"* ]] && w=false
-          gh api -X POST "repos/${{ github.repository }}/actions/workflows/xc-census.yml/dispatches" -f ref=main -f "inputs[workers]=$w"
+          R=$GITHUB_REPOSITORY
+          gh api -X POST "repos/$R/actions/workflows/xc-census.yml/dispatches" -f ref=main -f "inputs[workers]=$w"
           echo "xc-census dispatched (workers=$w)"
+          [ -n "$N" ] || exit 0
+          sleep 10
+          run=$(gh api "repos/$R/actions/workflows/xc-census.yml/runs?per_page=1" --jq '.workflow_runs[0].html_url')
+          gh api "repos/$R/issues/$N/comments" -f body="xc-census started (workers=$w): $run" > /dev/null
+          gh api -X PATCH "repos/$R/issues/$N" -f state=closed -f state_reason=completed > /dev/null
