@@ -141,6 +141,8 @@ $summary" || exit 2
 
 merge_pr(){
   local i m out
+  # a draft cannot be merged (HTTP 405): a verified PR is ready
+  [ "$(gh api "repos/$PROJECT/pulls/$1" --jq .draft 2>/dev/null)" = true ] && gh pr ready "$1" -R "$PROJECT" > /dev/null 2>&1
   for i in 1 2 3 4; do
     out=$(gh api -X PUT "repos/$PROJECT/pulls/$1/merge" -f merge_method=squash -f sha="$(git rev-parse HEAD)" 2>&1 >/dev/null) && return 0
     for _ in 1 2 3 4 5 6; do
