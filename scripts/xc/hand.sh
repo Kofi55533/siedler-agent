@@ -47,6 +47,9 @@ if ! grep -q . "$XC/scenarios-failing.txt"; then
   python3 "$D/xc.py" scenarios "$WL" "$KIND" | cut -d' ' -f1-3 > "$XC/scenarios-failing.txt"
 fi
 grep -q . "$XC/scenarios-all.txt" || { sum "$KINDS: no scenarios in the work list"; exit 2; }
+# the calls the census found differing: every call of the kind in its failing examples' turns (a kind-only run
+# samples other calls, so without them a census difference can read as "already identical")
+rm -rf "$XC/want"; log "$(python3 "$D/xc.py" want-failing "$WL" "$KINDS" "$XC/want")"
 
 log "build + baseline of $KINDS on ${BASE:0:8}: scenarios $(cat "$XC/scenarios-all.txt")"
 t0=$(date +%s)
@@ -138,6 +141,8 @@ $summary" || exit 2
 
 merge_pr(){
   local i m out
+  # a draft cannot be merged (HTTP 405): a verified PR is ready
+  [ "$(gh api "repos/$PROJECT/pulls/$1" --jq .draft 2>/dev/null)" = true ] && gh pr ready "$1" -R "$PROJECT" > /dev/null 2>&1
   for i in 1 2 3 4; do
     out=$(gh api -X PUT "repos/$PROJECT/pulls/$1/merge" -f merge_method=squash -f sha="$(git rev-parse HEAD)" 2>&1 >/dev/null) && return 0
     for _ in 1 2 3 4 5 6; do
