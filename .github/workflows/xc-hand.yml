@@ -19,6 +19,10 @@ on:
         required: false
         default: ''
         type: string
+  # the same from an issue labeled xc-hand by the owner, titled `[xc-hand <ref> <kinds> [pr]]` (for sessions whose
+  # token cannot dispatch workflows); the verdict goes to the issue as a comment, then it is closed
+  issues:
+    types: [labeled]
 permissions:
   contents: read
   issues: write
@@ -29,11 +33,26 @@ env:
   XC_AGENT: ${{ vars.XC_AGENT || 'Kofi55533/siedler-agent' }}
 jobs:
   hand:
+    if: >-
+      github.event_name == 'workflow_dispatch' || (github.event.label.name == 'xc-hand'
+      && github.event.sender.login == 'Kofi55533' && contains(github.event.issue.title, '[xc-hand '))
     runs-on: ubuntu-latest
     timeout-minutes: 180
     steps:
       - name: Job start
         run: echo "XC_T0=$(date +%s)" >> "$GITHUB_ENV"
+      - name: Arguments
+        id: a
+        env: { TITLE: '${{ github.event.issue.title }}', IREF: '${{ inputs.ref }}', IKINDS: '${{ inputs.kinds }}', IPR: '${{ inputs.pr }}' }
+        # an issue title is anyone's text: only a plain ref name, FN_/TICK_ kinds and a PR number pass
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = issues ]; then
+            read -r IREF IKINDS IPR < <(grep -o '\[xc-hand [^]]*\]' <<< "$TITLE" | head -1 | sed 's/^\[xc-hand //; s/\]$//')
+          fi
+          [[ "$IREF" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]] || { echo "not a ref name"; exit 1; }
+          [[ "$IKINDS" =~ ^[A-Z0-9_]+(,[A-Z0-9_]+)*$ ]] || { echo "not a kind list"; exit 1; }
+          [[ "${IPR:-}" =~ ^[0-9]*$ ]] || { echo "not a PR number"; exit 1; }
+          { echo "ref=$IREF"; echo "kinds=$IKINDS"; echo "pr=${IPR:-}"; } >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v4
         with: { repository: '${{ env.XC_AGENT }}', ref: "${{ github.repository == 'Kofi55533/siedler-agent' && github.sha || 'main' }}" }
       - uses: actions/setup-python@v5
@@ -46,13 +65,13 @@ jobs:
           # no credential stays in a checkout scripts push with GH_TOKEN explicitly
           git -C /opt/s5/siedler-sim-rs remote set-url origin "https://github.com/$XC_PROJECT.git"
           mkdir -p /opt/s5/xc && GH_TOKEN=$T gh release download xc-worklist -R $XC_DATA -D /opt/s5/xc -p worklist.json --clobber
-      - name: Verify and merge ${{ inputs.kinds }} from ${{ inputs.ref }}
+      - name: Verify and merge ${{ steps.a.outputs.kinds }} from ${{ steps.a.outputs.ref }}
         env:
           GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
-          XC_CLAIM_TOKEN: ${{ github.run_id }}/hand-${{ inputs.ref }}
-          REF: ${{ inputs.ref }}
-          KINDS: ${{ inputs.kinds }}
-          PR: ${{ inputs.pr }}
+          XC_CLAIM_TOKEN: ${{ github.run_id }}/hand-${{ steps.a.outputs.ref }}
+          REF: ${{ steps.a.outputs.ref }}
+          KINDS: ${{ steps.a.outputs.kinds }}
+          PR: ${{ steps.a.outputs.pr }}
         run: |
           # 0 merged / already identical, 1 verify FAIL (commented), 2 infrastructure
           rc=0
@@ -62,3 +81,9 @@ jobs:
           [ $rc = 2 ] && exit 1
           [ $rc = 1 ] && exit 1
           exit 0
+      - name: Verdict to the issue
+        if: always() && github.event_name == 'issues'
+        env: { GH_TOKEN: '${{ github.token }}', N: '${{ github.event.issue.number }}' }
+        run: |
+          gh api repos/$GITHUB_REPOSITORY/issues/$N/comments -f body="xc-hand ${{ job.status }}: $(tail -n 1 $GITHUB_STEP_SUMMARY 2>/dev/null) (counts in the run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)" > /dev/null
+          gh api -X PATCH repos/$GITHUB_REPOSITORY/issues/$N -f state=closed -f state_reason=completed > /dev/null
