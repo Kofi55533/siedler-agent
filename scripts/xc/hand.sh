@@ -47,6 +47,9 @@ if ! grep -q . "$XC/scenarios-failing.txt"; then
   python3 "$D/xc.py" scenarios "$WL" "$KIND" | cut -d' ' -f1-3 > "$XC/scenarios-failing.txt"
 fi
 grep -q . "$XC/scenarios-all.txt" || { sum "$KINDS: no scenarios in the work list"; exit 2; }
+# the calls the census found differing: every call of the kind in its failing examples' turns (a kind-only run
+# samples other calls, so without them a census difference can read as "already identical")
+rm -rf "$XC/want"; log "$(python3 "$D/xc.py" want-failing "$WL" "$KINDS" "$XC/want")"
 
 log "build + baseline of $KINDS on ${BASE:0:8}: scenarios $(cat "$XC/scenarios-all.txt")"
 t0=$(date +%s)

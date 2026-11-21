@@ -701,6 +701,24 @@ def main(argv):
                 Path(argv[3], f"{name}.txt").write_text(v["want"].replace(",", "\n") + "\n")
                 n += len(v["want"].split(","))
         print(f"wanted calls: {n}")
+    elif cmd == "want-failing":
+        # xc.py want-failing <worklist> <kinds> <dir>: per scenario every call of a failing FN kind in the turns of
+        # its census examples (s5xcheck capture::Want FUNCTION@TURN), so a kind-only run compares the calls the census
+        # found differing whatever its own sampling reaches
+        kinds = load(argv[2]).get("kinds", {})
+        out, n = {}, 0
+        for kind in argv[3].split(","):
+            if not kind.startswith("FN_"):
+                continue
+            for name, sc in kinds.get(kind, {}).get("scenarios", {}).items():
+                for ex in sc.get("examples") or []:
+                    out.setdefault(name, set()).add(f"{address(kind)}@{ex['turn']}")
+        Path(argv[4]).mkdir(parents=True, exist_ok=True)
+        for name, tokens in out.items():
+            with open(Path(argv[4], f"{name}.txt"), "a") as f:
+                f.write("".join(t + "\n" for t in sorted(tokens)))
+            n += len(tokens)
+        print(f"wanted function turns: {n}")
     elif cmd == "want-file":
         b = load(argv[2]).get("blocks") or {}
         calls = want_calls([t for t in b.get("fresh", "").split(",") if t], set(b.get("equal", "").split(",")))
