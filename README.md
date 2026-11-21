@@ -8,6 +8,16 @@ Runs [OpenCode](https://opencode.ai) on GitHub's public runners to work on priva
 Triggered by `/opencode <task>` comments from the owner only. Results go exclusively as branches /
 draft PRs to the private repos; this repo contains only the workflow, and comments contain only short summaries.
 
+## Starting xc runs by issue label (2026-11-21)
+When push or workflow_dispatch is blocked, an issue opened by the owner starts exactly one run; the result comes back
+as a comment (counts and verdicts only) and the issue is closed:
+- `xc-try`: title `[xc-try <sim-rs ref>] ...` (options `[xc-scenarios a,b]`, `[xc-turns N]`, `[xc-runs ...]`,
+  `[xc-skip 0]`), workflow `xc-try.yml`.
+- `xc-hand`: title `[xc-hand <sim-rs ref> <FN_KIND,FN_KIND> [sim-rs PR]]`, workflow `xc-hand.yml`; verifies the kinds,
+  runs the regression check and squash-merges the PR into `clean/integration` on PASS.
+- `xc-census`: workflow `census-start.yml`, exactly one census (`[no-workers]` in the title skips the worker wave).
+  Never started automatically.
+
 ## Live data and self-merge gate (2026-10-16)
 - `data-v2` (private `siedler-data`) now also carries `newfix.tzst`: the extra Codex box fixtures/images
   (ai-long, late-ai, late-economy, camp-crawford, map-winterisland, combat-waves/big/long), extracted to `/opt/s5/data/newfix`.
