@@ -1,0 +1,44 @@
+[
+{
+"tag": "rm-neon-measure-ff9d7d6302",
+"sha": "ff9d7d6302",
+"time": "20.11. 11:49",
+"done": "2026-11-20T10:49:32Z",
+"total": 176,
+"gleich": 42,
+"tief": 87,
+"abweichend": 5,
+"ungemessen": 42,
+"turns_pct": 29.2,
+"turns_state_pct": 96.2,
+"maps_gleich": 29
+},
+{
+"tag": "rm-neon-measure-a19b094a9b",
+"sha": "a19b094a9b",
+"time": "20.11. 14:35",
+"done": "2026-11-20T13:35:37Z",
+"total": 176,
+"gleich": 71,
+"tief": 97,
+"abweichend": 7,
+"ungemessen": 1,
+"turns_pct": 33.3,
+"turns_state_pct": 96.5,
+"maps_gleich": 55
+},
+{
+"tag": "rm-full-measure-1bdaff2664",
+"sha": "1bdaff2664",
+"time": "20.11. 16:25",
+"done": "2026-11-20T15:25:07Z",
+"total": 176,
+"gleich": 88,
+"tief": 80,
+"abweichend": 7,
+"ungemessen": 1,
+"turns_pct": 39.5,
+"turns_state_pct": 96.5,
+"maps_gleich": 64
+}
+]
