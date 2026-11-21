@@ -19,7 +19,7 @@ on:
         required: false
         default: ''
         type: string
-  # the same from an issue labeled xc-hand by the owner, titled `[xc-hand <ref> <kinds> [pr]]` (for sessions whose
+  # the same from an issue labeled xc-hand by the owner, titled `[xc-hand <ref> <kinds> [pr]]` (optional `[xc-direct [scenarios]]`, `[xc-drive FN_...]`; for sessions whose
   # token cannot dispatch workflows); the verdict goes to the issue as a comment, then it is closed
   issues:
     types: [labeled]
@@ -48,6 +48,18 @@ jobs:
         run: |
           if [ "$GITHUB_EVENT_NAME" = issues ]; then
             read -r IREF IKINDS IPR < <(grep -o '\[xc-hand [^]]*\]' <<< "$TITLE" | head -1 | sed 's/^\[xc-hand //; s/\]$//')
+            # [xc-direct] or [xc-direct <scenario>,...]: the direct-call check instead of the census runs
+            if grep -q '\[xc-direct' <<< "$TITLE"; then
+              IDIRECT=$(grep -o '\[xc-direct[^]]*\]' <<< "$TITLE" | head -1 | sed 's/^\[xc-direct *//; s/\]$//')
+              [[ "$IDIRECT" =~ ^[a-z0-9_,-]*$ ]] || { echo "not a scenario list"; exit 1; }
+              echo "direct=${IDIRECT:-bc,combat,economy}" >> "$GITHUB_OUTPUT"
+            fi
+            # [xc-drive FN_<method>,...]: the kind is not virtual, so drive mode calls these methods reaching it
+            IDRIVE=$(grep -o '\[xc-drive [^]]*\]' <<< "$TITLE" | head -1 | sed 's/^\[xc-drive //; s/\]$//')
+            if [ -n "$IDRIVE" ]; then
+              [[ "$IDRIVE" =~ ^FN_[A-F0-9]+(,FN_[A-F0-9]+)*$ ]] || { echo "not a method list"; exit 1; }
+              echo "drive=$IDRIVE" >> "$GITHUB_OUTPUT"
+            fi
           fi
           [[ "$IREF" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]] || { echo "not a ref name"; exit 1; }
           [[ "$IKINDS" =~ ^[A-Z0-9_]+(,[A-Z0-9_]+)*$ ]] || { echo "not a kind list"; exit 1; }
@@ -72,7 +84,11 @@ jobs:
           REF: ${{ steps.a.outputs.ref }}
           KINDS: ${{ steps.a.outputs.kinds }}
           PR: ${{ steps.a.outputs.pr }}
+          DIRECT: ${{ steps.a.outputs.direct }}
+          DRIVE: ${{ steps.a.outputs.drive }}
         run: |
+          if [ -n "$DIRECT" ]; then export XC_MODE=direct XC_DIRECT_SCENARIOS="${DIRECT//,/ }"; fi
+          if [ -n "$DIRECT" ] && [ -n "$DRIVE" ]; then export S5_DRIVE_METHODS=$DRIVE; fi
           # 0 merged / already identical, 1 verify FAIL (commented), 2 infrastructure
           rc=0
           if [ -n "$PR" ]; then scripts/xc/hand.sh "$REF" "$KINDS" "$PR" || rc=$?

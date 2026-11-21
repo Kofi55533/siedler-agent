@@ -36,6 +36,12 @@ sum "hand: ref=$REF kinds=$KINDS base=${BASE:0:8} pr=${PR_IN:-find}"
 # claim each kind so fleet workers do not race the same unit while this job runs
 for k in ${KINDS//,/ }; do python3 "$D/xc.py" issue "$k" claim; done
 
+DIRECT=; [ "${XC_MODE:-}" = direct ] && DIRECT=1
+if [ -n "$DIRECT" ]; then
+  # the direct-call check (verify.sh XC_MODE=direct): kinds no recording calls, called on their live objects in the
+  # scenarios of $XC_DIRECT_SCENARIOS; no work-list scenarios and no base measurement (the kind is unbound there)
+  echo "${XC_DIRECT_SCENARIOS:-bc combat economy}" > "$XC/scenarios-all.txt"; : > "$XC/scenarios-failing.txt"
+else
 # scenarios: union of every kind (failing first for the primary), at most 12
 {
   python3 "$D/xc.py" failing "$WL" "$KIND"
@@ -50,7 +56,15 @@ grep -q . "$XC/scenarios-all.txt" || { sum "$KINDS: no scenarios in the work lis
 # the calls the census found differing: every call of the kind in its failing examples' turns (a kind-only run
 # samples other calls, so without them a census difference can read as "already identical")
 rm -rf "$XC/want"; log "$(python3 "$D/xc.py" want-failing "$WL" "$KINDS" "$XC/want")"
+fi
 
+if [ -n "$DIRECT" ]; then
+  log "build of $KINDS on ${BASE:0:8} (direct-call check in $(cat "$XC/scenarios-all.txt"))"
+  xc_build || exit 2
+  xc_keep_bins "$XC/base-bin"
+  rm -rf "$XC/base"; mkdir -p "$XC/base/only"
+  ( : ) & AHEAD=$!
+else
 log "build + baseline of $KINDS on ${BASE:0:8}: scenarios $(cat "$XC/scenarios-all.txt")"
 t0=$(date +%s)
 xc_build || exit 2
@@ -93,6 +107,7 @@ log "base measured in $(( $(date +%s) - t0 ))s, work at $XC_TURNS turns"
   xc_scenarios | awk -v s=" $(cat "$XC/scenarios-failing.txt") " 'index(s, " "$1" ")' \
     | XC_BINS=$XC/base-bin/bins.txt XC_TIMEOUT=$XC_TIMEOUT_FULL xc_runs "$XC/base/full" ) > /dev/null 2>&1 &
 AHEAD=$!
+fi
 
 log "apply clean/integration...$REF"
 if ! gh api -H 'Accept: application/vnd.github.diff' "repos/$PROJECT/compare/clean/integration...$REF" \
