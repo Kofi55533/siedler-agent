@@ -16,7 +16,9 @@ as a comment (counts and verdicts only) and the issue is closed:
 - `xc-hand`: title `[xc-hand <sim-rs ref> <FN_KIND,FN_KIND> [sim-rs PR]]`, workflow `xc-hand.yml`; verifies the kinds,
   runs the regression check and squash-merges the PR into `clean/integration` on PASS.
   `[xc-direct]` or `[xc-direct <scenario>,...]` in the title uses the direct-call check (kinds no recording calls;
-  default scenarios bc, combat, economy), `[xc-drive FN_<method>,...]` adds the methods drive mode calls.
+  default scenarios bc, combat, economy), `[xc-drive FN_<method>,...]` adds the methods drive mode calls,
+  `[xc-max N]` the objects per method (drive: samples), `[xc-args <hex>,...]` the stack words, `[xc-free]` calls on a
+  zeroed scratch object where no live object holds the kind.
 - `xc-census`: workflow `census-start.yml`, exactly one census (`[no-workers]` in the title skips the worker wave).
   Never started automatically.
 
