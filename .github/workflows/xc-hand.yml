@@ -19,7 +19,7 @@ on:
         required: false
         default: ''
         type: string
-  # the same from an issue labeled xc-hand by the owner, titled `[xc-hand <ref> <kinds> [pr]]` (optional `[xc-direct [scenarios]]`, `[xc-drive FN_...]`; for sessions whose
+  # the same from an issue labeled xc-hand by the owner, titled `[xc-hand <ref> <kinds> [pr]]` (optional `[xc-direct [scenarios]]`, `[xc-drive FN_...]`, `[xc-max N]`, `[xc-args w,...]`, `[xc-free]`; for sessions whose
   # token cannot dispatch workflows); the verdict goes to the issue as a comment, then it is closed
   issues:
     types: [labeled]
@@ -60,6 +60,16 @@ jobs:
               [[ "$IDRIVE" =~ ^FN_[A-F0-9]+(,FN_[A-F0-9]+)*$ ]] || { echo "not a method list"; exit 1; }
               echo "drive=$IDRIVE" >> "$GITHUB_OUTPUT"
             fi
+            # direct-call knobs: [xc-max N] objects per method (drive: samples), [xc-args <hex>,...] stack words,
+            # [xc-free] calls kinds no live object holds on a zeroed scratch object
+            IMAX=$(grep -o '\[xc-max [^]]*\]' <<< "$TITLE" | head -1 | sed 's/^\[xc-max //; s/\]$//')
+            if [ -n "$IMAX" ]; then [[ "$IMAX" =~ ^[0-9]{1,3}$ ]] || { echo "not a count"; exit 1; }; echo "dmax=$IMAX" >> "$GITHUB_OUTPUT"; fi
+            IARGS=$(grep -o '\[xc-args [^]]*\]' <<< "$TITLE" | head -1 | sed 's/^\[xc-args //; s/\]$//')
+            if [ -n "$IARGS" ]; then
+              [[ "$IARGS" =~ ^(0x)?[0-9a-fA-F]{1,8}(,(0x)?[0-9a-fA-F]{1,8}){0,7}$ ]] || { echo "not a word list"; exit 1; }
+              echo "dargs=$IARGS" >> "$GITHUB_OUTPUT"
+            fi
+            if grep -q '\[xc-free\]' <<< "$TITLE"; then echo "dfree=1" >> "$GITHUB_OUTPUT"; fi
           fi
           [[ "$IREF" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]] || { echo "not a ref name"; exit 1; }
           [[ "$IKINDS" =~ ^[A-Z0-9_]+(,[A-Z0-9_]+)*$ ]] || { echo "not a kind list"; exit 1; }
@@ -86,9 +96,15 @@ jobs:
           PR: ${{ steps.a.outputs.pr }}
           DIRECT: ${{ steps.a.outputs.direct }}
           DRIVE: ${{ steps.a.outputs.drive }}
+          DMAX: ${{ steps.a.outputs.dmax }}
+          DARGS: ${{ steps.a.outputs.dargs }}
+          DFREE: ${{ steps.a.outputs.dfree }}
         run: |
           if [ -n "$DIRECT" ]; then export XC_MODE=direct XC_DIRECT_SCENARIOS="${DIRECT//,/ }"; fi
           if [ -n "$DIRECT" ] && [ -n "$DRIVE" ]; then export S5_DRIVE_METHODS=$DRIVE; fi
+          if [ -n "$DIRECT" ] && [ -n "$DMAX" ]; then export S5_DIRECT_MAX=$DMAX S5_DRIVE_SAMPLES=$DMAX; fi
+          if [ -n "$DIRECT" ] && [ -n "$DARGS" ]; then export S5_DIRECT_ARGS=$DARGS; fi
+          if [ -n "$DIRECT" ] && [ -n "$DFREE" ]; then export S5_DIRECT_FREE=1; fi
           # 0 merged / already identical, 1 verify FAIL (commented), 2 infrastructure
           rc=0
           if [ -n "$PR" ]; then scripts/xc/hand.sh "$REF" "$KINDS" "$PR" || rc=$?
