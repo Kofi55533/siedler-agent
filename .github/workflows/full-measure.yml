@@ -1,4 +1,5 @@
-name: full-measure
+name: neon-ref-measure
+# measure/neon-ref: one-off copy of full-measure on Neon's branch SHA (antigravity/neon-scripted-start); results to rm-neonref-measure-<sha10>, not read by the scoreboard.
 # Full deep measurement of clean/integration (all scenarios in scripts/measure/shards.txt: snapshot, hidden task
 # fields, mid-turn RNG draws, deep world state, Lua, spatial), the same measurement as neon-full-measure.yml on the branch
 # neon/full-measure-once. Results go to the private release rm-full-measure-<sha10> in
@@ -14,7 +15,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: full-measure
+  group: neon-ref-measure
   cancel-in-progress: false
 jobs:
   gate:
@@ -31,12 +32,12 @@ jobs:
         run: |
           set -uo pipefail
           D=Kofi55533/siedler-data
-          full=$(gh api "repos/Kofi55533/siedler-sim-rs/commits/clean%2Fintegration" --jq .sha 2>/dev/null || true)
+          full=ee0a0cf7951d16faaf45c57c47d853c291f615f2
           [ -n "$full" ] || { echo "go=false" >> "$GITHUB_OUTPUT"; echo "clean/integration head not readable"; exit 0; }
           sha=${full:0:10}
           echo "full_sha=$full" >> "$GITHUB_OUTPUT"
           n=0
-          for tag in "rm-full-measure-$sha" "rm-neon-measure-$sha"; do
+          for tag in "rm-neonref-measure-$sha"; do
             c=$(gh api "repos/$D/releases/tags/$tag" --jq '[.assets[]|select(.name|startswith("measure-"))]|length' 2>/dev/null || true)
             [[ "$c" =~ ^[0-9]+$ ]] || c=0
             [ "$c" -gt "$n" ] && n=$c
@@ -73,10 +74,12 @@ jobs:
           source scripts/s5-env.sh
           cd "$S5_REPO"
           git fetch -q origin "+refs/heads/clean/integration:refs/remotes/origin/clean/integration"
-          git checkout -q --detach "$WANT" 2>/dev/null || git checkout -q --detach origin/clean/integration
+          git fetch -q origin "$WANT"
+          git checkout -q --detach "$WANT"
+          test "$(git rev-parse HEAD)" = "$WANT"
           SHA=$(git rev-parse --short=10 HEAD)
           FULL_SHA=$(git rev-parse HEAD)
-          echo "Measuring clean/integration @ $SHA"
+          echo "Measuring neon ref @ $SHA"
           cd "$GITHUB_WORKSPACE"
           if ! scripts/s5-build.sh; then
             echo "=== build failed; the build log tail goes to the private release measure-buildlog ==="
@@ -234,7 +237,7 @@ jobs:
             l="$S5/live/$x.log"
             o="/tmp/up/measure-$x.txt"
             {
-              echo "fixture $x on clean/integration @$SHA"
+              echo "fixture $x on neon ref @$SHA"
               if [ -f "$l" ]; then
                 head -n 80 "$l"
               else
@@ -242,7 +245,7 @@ jobs:
               fi
             } > "$o" 2>/dev/null || true
           done
-          REL="rm-full-measure-$SHA"
+          REL="rm-neonref-measure-$SHA"
           D="Kofi55533/siedler-data"
           gh release view "$REL" -R "$D" >/dev/null 2>&1 || gh release create "$REL" -R "$D" --prerelease --title "$REL" --notes "Automatic full deep measurement for $SHA" >/dev/null 2>&1 || true
           for i in 1 2 3 4; do
