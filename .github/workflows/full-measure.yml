@@ -35,7 +35,7 @@ jobs:
         run: |
           set -uo pipefail
           D=Kofi55533/siedler-data
-          full=ee0a0cf7951d16faaf45c57c47d853c291f615f2
+          full=8f7bb25619ea3a447a61682122e658822814c014
           [ -n "$full" ] || { echo "go=false" >> "$GITHUB_OUTPUT"; echo "clean/integration head not readable"; exit 0; }
           sha=${full:0:10}
           echo "full_sha=$full" >> "$GITHUB_OUTPUT"
