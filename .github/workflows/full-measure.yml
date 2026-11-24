@@ -8,6 +8,9 @@ name: neon-ref-measure
 # The gate job takes ~20 s and skips when the clean/integration head already has a full measurement.
 # Privacy: logs print only fixture names, status words and turn counts (scripts/measure/sanitize.py); full diagnostics
 # and the s5verify binary go only to private releases in siedler-data. The binary release is deleted afterwards.
+# After each completed measurement, archive-logs commits the measure-*.txt files (plus summary.tsv and the Actions log when it is under 50 MB) to branch
+# diagnostics/measure-logs in Kofi55533/siedler-data as regular files, in a folder named <sha10>-run<run_id>. It reuses secrets.PRIVATE_REPO_TOKEN
+# (already used to write the siedler-data releases). It does not merge and does not start another measurement.
 on:
   push:
     branches: ['measure/now']
@@ -265,3 +268,186 @@ jobs:
           GH_TOKEN: '${{ secrets.PRIVATE_REPO_TOKEN }}'
           SHA: '${{ needs.build.outputs.sha }}'
         run: gh release delete "measure-bin-$SHA" -R Kofi55533/siedler-data -y --cleanup-tag >/dev/null 2>&1 || true
+
+  archive-logs:
+    needs: [build, measure]
+    if: always() && needs.build.outputs.sha != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Commit measure logs to siedler-data branch diagnostics/measure-logs
+        env:
+          GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          SHA: ${{ needs.build.outputs.sha }}
+          FULL_SHA: ${{ needs.build.outputs.full_sha }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          REL: rm-neonref-measure-${{ needs.build.outputs.sha }}
+          LABEL: neon ref
+        run: |
+          set -euo pipefail
+          # Reuse PRIVATE_REPO_TOKEN (already used to write siedler-data releases). Do not set -x.
+          DATA=Kofi55533/siedler-data
+          BRANCH=diagnostics/measure-logs
+          DIR="${SHA}-run${RUN_ID}"
+          WORK=/tmp/measure-archive
+          rm -rf "$WORK"
+          mkdir -p "$WORK/files"
+          ok=0
+          for i in 1 2 3 4 5 6; do
+            if gh release download "$REL" -R "$DATA" -D "$WORK/files" -p 'measure-*.txt' --clobber >/dev/null 2>&1; then
+              n=$(find "$WORK/files" -name 'measure-*.txt' -type f | wc -l)
+              if [ "$n" -gt 0 ]; then
+                echo "downloaded $n measure files from $REL"
+                ok=1
+                break
+              fi
+            fi
+            sleep $((i * 10))
+          done
+          if [ "$ok" != 1 ]; then
+            echo "no measure assets downloaded for $REL"
+            exit 1
+          fi
+          if gh run view "$RUN_ID" --repo "$GITHUB_REPOSITORY" --log > "$WORK/files/run-${RUN_ID}.log" 2>"$WORK/log.err"; then
+            sz=$(wc -c < "$WORK/files/run-${RUN_ID}.log")
+            if [ "$sz" -gt 50000000 ]; then
+              echo "omitting actions log ($sz bytes, over 50 MB)"
+              rm -f "$WORK/files/run-${RUN_ID}.log"
+            else
+              echo "saved actions log ($sz bytes)"
+            fi
+          else
+            echo "actions log not fetched (not fatal)"
+            rm -f "$WORK/files/run-${RUN_ID}.log"
+          fi
+          DATE=$(TZ=Europe/Berlin date '+%Y-%m-%d %H:%M %Z')
+          export DIR SHA FULL_SHA RUN_ID RUN_URL REL LABEL DATE
+          python3 - <<'PY'
+          import os, re, collections, pathlib
+          files = pathlib.Path("/tmp/measure-archive/files")
+          rows = []
+          for p in sorted(files.glob("measure-*.txt")):
+              scenario = p.name[len("measure-"):-len(".txt")]
+              text = p.read_text(errors="replace")
+              verdict, first = "NO-RESULT", ""
+              for line in text.splitlines():
+                  m = re.match(r"^[A-Za-z0-9_-]+: (IDENTICAL|DEEP-DIVERGENT|DIVERGENT)(.*)$", line)
+                  if m:
+                      verdict, rest = m.group(1), m.group(2)
+                      if verdict == "DIVERGENT":
+                          tm = re.search(r"turn (\d+)", rest) or re.search(r"turn (\d+)", text)
+                          first = f"turn {tm.group(1)}" if tm else rest.strip()
+                      elif verdict == "DEEP-DIVERGENT":
+                          pairs = [(c, int(t)) for c, t in re.findall(r"([a-z_]+)@(\d+)", rest)]
+                          pairs.sort(key=lambda z: (z[1], z[0]))
+                          first = ",".join(f"{c}@{t}" for c, t in pairs) if pairs else rest.strip()
+                      break
+                  m2 = re.match(r"^[A-Za-z0-9_-]+: ERROR(.*)$", line)
+                  if m2:
+                      verdict = "ERROR"
+                      first = m2.group(1).strip()
+                      for l2 in text.splitlines():
+                          if l2.startswith("s5verify:") or "starts at" in l2:
+                              first = (first + "; " if first else "") + l2.strip()
+                              break
+                      break
+              if verdict == "NO-RESULT":
+                  for l2 in text.splitlines():
+                      if l2.startswith("s5verify:") or "starts at" in l2:
+                          verdict, first = "ERROR", l2.strip()
+                          break
+              rows.append((scenario, verdict, first))
+          counts = collections.Counter(v for _, v, _ in rows)
+          (files / "summary.tsv").write_text(
+              "scenario\tverdict\tfirst_divergence\n" + "".join(f"{s}\t{v}\t{f}\n" for s, v, f in rows)
+          )
+          n_txt = sum(1 for _ in files.glob("measure-*.txt"))
+          order = ("IDENTICAL", "DEEP-DIVERGENT", "DIVERGENT", "ERROR", "NO-RESULT")
+          result = ", ".join(f"{counts[k]} {k}" for k in order if counts.get(k, 0))
+          has_log = (files / f"run-{os.environ['RUN_ID']}.log").exists()
+          rel = os.environ["REL"]
+          lines = [
+              f"# Messprotokolle: {os.environ['LABEL']} `{os.environ['SHA']}`",
+              "",
+              "Automatisch abgelegte Ergebnisdateien eines full-measure-Laufs, als normale Textdateien.",
+              "",
+              "| Feld | Wert |",
+              "|---|---|",
+              f"| Gemessener Commit | `{os.environ.get('FULL_SHA') or os.environ['SHA']}` |",
+              f"| Label | {os.environ['LABEL']} |",
+              f"| Actions-Run | [{os.environ['RUN_ID']}]({os.environ['RUN_URL']}) |",
+              f"| Zeitpunkt (Europe/Berlin) | {os.environ['DATE']} |",
+              f"| Private Release | [{rel}](https://github.com/Kofi55533/siedler-data/releases/tag/{rel}) |",
+              "",
+              "## Ergebnis",
+              "",
+              f"{n_txt} Szenario-Protokolle. {result}. Siehe `summary.tsv`.",
+              "",
+              "### Bedeutung der Verdicts",
+              "",
+              "- **IDENTICAL:** Spielzustand (Snapshot, Tasks, RNG) und die zusätzlichen Prüfungen (Lua-Speicher, Weltdaten) stimmen an allen Checkpoints überein.",
+              "- **DEEP-DIVERGENT:** Spielzustand und RNG sind identisch, aber Lua-Speicher und/oder Weltdaten weichen ab. Die erste Abweichung steht in `summary.tsv`.",
+              "- **DIVERGENT:** Der Spielzustand selbst weicht ab.",
+              "- **ERROR:** Die Messung selbst ist fehlgeschlagen, kein Vergleichsergebnis.",
+              "",
+              "## Dateien",
+              "",
+              "- `measure-*.txt` — ein Protokoll pro Szenario (die ersten 80 Zeilen des `s5verify measure-live`-Logs).",
+              "- `summary.tsv` — Spalten: `scenario`, `verdict`, `first_divergence`.",
+          ]
+          if has_log:
+              lines.append(f"- `run-{os.environ['RUN_ID']}.log` — GitHub-Actions-Log des Laufs.")
+          lines.append("")
+          (files / "README.md").write_text("\n".join(lines))
+          print(result)
+          PY
+          gh auth setup-git
+          git clone --depth 1 https://github.com/Kofi55533/siedler-data.git "$WORK/repo"
+          cd "$WORK/repo"
+          if git ls-remote --heads origin "$BRANCH" | grep -q "$BRANCH"; then
+            git fetch --depth 1 origin "$BRANCH"
+            git checkout -B "$BRANCH" FETCH_HEAD
+          else
+            git checkout -B "$BRANCH"
+          fi
+          mkdir -p "$DIR"
+          cp -a "$WORK/files/." "$DIR/"
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          p = Path("README.md")
+          text = p.read_text() if p.exists() else "# siedler-data\n"
+          bullet = (
+              f"- [{os.environ['DIR']}/]({os.environ['DIR']}/) — {os.environ['LABEL']} `{os.environ['SHA']}`, "
+              f"Run [{os.environ['RUN_ID']}]({os.environ['RUN_URL']}), {os.environ['DATE']}."
+          )
+          if os.environ["DIR"] not in text:
+              if "diagnostics/measure-logs" not in text:
+                  text = text.rstrip() + (
+                      "\n\n## Diagnose-Branch `diagnostics/measure-logs`\n\n"
+                      "Dieser Branch enthält Messprotokolle als normale Textdateien (ohne Release-Asset-Download).\n\n"
+                  )
+              text = text.rstrip() + "\n" + bullet + "\n"
+              p.write_text(text)
+          PY
+          git config user.name "siedler-measure-archive"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$DIR" README.md
+          if git diff --cached --quiet; then
+            echo "nothing new to commit"
+            exit 0
+          fi
+          git commit -m "Archive $REL run $RUN_ID measure logs"
+          pushed=0
+          for i in 1 2 3 4 5 6; do
+            if git push origin "HEAD:$BRANCH"; then
+              echo "pushed $DIR to $DATA branch $BRANCH"
+              pushed=1
+              break
+            fi
+            git fetch origin "$BRANCH"
+            git pull --rebase origin "$BRANCH" || { git rebase --abort || true; echo "rebase failed on try $i"; }
+            sleep $((i * 8))
+          done
+          [ "$pushed" = 1 ]
