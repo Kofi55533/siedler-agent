@@ -125,18 +125,17 @@ jobs:
             sleep 10
           done
           if [ "${IN_MODE:-full}" = "fast" ]; then
-            SHARDS=$(cat <<'EOF' | jq -R . | jq -sc .
-combat-waves combat-big combat-long combat
-genb-waves-assault genc-combatwaves-5000 map-supplylines map-mornheim
-campaign-03-thebeautifulland gen-diplomacy-tribute gen-upgrade-building-category map-spreadland
-build production build-long production-long
-gen-attack-pos gen-attack-building gen-civilian-death gen-enter-building-0x1500d gen-formation-command
-gen-leader-aggressive gen-leader-attach gen-leader-defend gen-leader-guard gen-leader-hold gen-leader-patrol gen-leader-stance
-gen-siege-cannon genb-combat-ops gen-player-commands gen-upgrade-research gen-cancel-research
-ai-long genb-ailong-mixed gen-49b46d-event14004 gen-a-wintersturm gen-weather-time-short
-saveload-settled-long
-EOF
-)
+            SHARDS=$(printf '%s\n' \
+              "combat-waves combat-big combat-long combat" \
+              "genb-waves-assault genc-combatwaves-5000 map-supplylines map-mornheim" \
+              "campaign-03-thebeautifulland gen-diplomacy-tribute gen-upgrade-building-category map-spreadland" \
+              "build production build-long production-long" \
+              "gen-attack-pos gen-attack-building gen-civilian-death gen-enter-building-0x1500d gen-formation-command" \
+              "gen-leader-aggressive gen-leader-attach gen-leader-defend gen-leader-guard gen-leader-hold gen-leader-patrol gen-leader-stance" \
+              "gen-siege-cannon genb-combat-ops gen-player-commands gen-upgrade-research gen-cancel-research" \
+              "ai-long genb-ailong-mixed gen-49b46d-event14004 gen-a-wintersturm gen-weather-time-short" \
+              "saveload-settled-long" \
+              | jq -R . | jq -sc .)
           else
             SHARDS=$(grep -v '^#' scripts/measure/shards.txt | grep . | jq -R . | jq -sc .)
           fi
