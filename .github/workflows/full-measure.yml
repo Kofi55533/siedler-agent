@@ -128,12 +128,13 @@ jobs:
             SHARDS=$(printf '%s\n' \
               "combat-waves combat-big combat-long combat" \
               "genb-waves-assault genc-combatwaves-5000 map-supplylines map-mornheim" \
-              "campaign-03-thebeautifulland gen-diplomacy-tribute gen-upgrade-building-category map-spreadland" \
+              "campaign-03-thebeautifulland gen-diplomacy-tribute gen-upgrade-building-category map-spreadland map-sandbox" \
               "build production build-long production-long" \
               "gen-attack-pos gen-attack-building gen-civilian-death gen-enter-building-0x1500d gen-formation-command" \
               "gen-leader-aggressive gen-leader-attach gen-leader-defend gen-leader-guard gen-leader-hold gen-leader-patrol gen-leader-stance" \
               "gen-siege-cannon genb-combat-ops gen-player-commands gen-upgrade-research gen-cancel-research" \
-              "ai-long genb-ailong-mixed gen-49b46d-event14004 gen-a-wintersturm gen-weather-time-short" \
+              "ai-long" \
+              "genb-ailong-mixed gen-49b46d-event14004 gen-a-wintersturm gen-weather-time-short" \
               "saveload-settled-long" \
               | jq -R . | jq -sc .)
           else
@@ -195,6 +196,7 @@ jobs:
           zstd -dcq "$S5/dl/libunicorn.tzst" | tar -xf - -C "$S5/lib"
           wait $P1 $P2 $P3 $P4 $P5
           ls "$S5/dl"/opus-extra.tzst.* >/dev/null 2>&1 && { cat "$S5/dl"/opus-extra.tzst.* | zstd -dcq | tar -x --skip-old-files --strip-components=2 -C "$S5_NF" artifacts/new-fixtures 2>/dev/null || true; }
+          rm -rf "$S5_NF/fixtures/map-sandbox" "$S5_NF/images/map-sandbox"
           sed -i -e "s#/workspace/siedler/artifacts/new-fixtures#$S5_NF#g" -e "s#/workspace/siedler/artifacts/codex-verify-infra#$S5_V#g" "$S5_NF"/fixtures/*/scenario.json
           rm -f "$S5/dl"/*.tzst* "$S5/dl"/s5verify.zst
           echo "setup complete for $SHA"
