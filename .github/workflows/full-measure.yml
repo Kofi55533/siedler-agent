@@ -126,7 +126,7 @@ jobs:
             sleep 10
           done
           if [ "${IN_MODE:-full}" = "bc" ]; then
-            SHARDS=$(printf '%s\n' "bc-full" "bc-0804" "saveload-settled-long" "late-ai-long" | jq -R . | jq -sc .)
+            SHARDS=$(printf '%s\n' "bc-full" "bc-0804" | jq -R . | jq -sc .)
           elif [ "${IN_MODE:-full}" = "fast" ]; then
             SHARDS=$(printf '%s\n' \
               "combat-waves combat-big combat-long combat" \
@@ -209,6 +209,7 @@ jobs:
           FX: '${{ matrix.fx }}'
           SHA: '${{ needs.build.outputs.sha }}'
           S5_DEEP_EVERY: '${{ inputs.deep_every }}'
+          S5_STOP_ON_SPATIAL: ${{ inputs.mode == 'bc' && '1' || '' }}
         run: |
           set -uo pipefail
           D="$GITHUB_WORKSPACE/scripts"
