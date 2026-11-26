@@ -60,6 +60,18 @@ h2{font-size:15px;font-weight:650;margin:0 0 14px}
 .more button{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:999px;padding:8px 18px;font:inherit;font-size:14px;cursor:pointer;width:100%}
 footer{color:var(--ink3);font-size:13px;margin-top:8px}
 #err{display:none;color:#d03b3b;margin-bottom:16px}
+.warn{background:var(--open-soft);border-radius:12px;padding:14px 16px;margin-bottom:20px;font-size:15px}
+.src{font-size:13px;color:var(--ink3);margin-top:10px}
+table.t{width:100%;border-collapse:collapse;font-size:14px}
+table.t td,table.t th{text-align:left;padding:7px 6px;border-top:1px solid var(--line);vertical-align:top}
+table.t th{color:var(--ink3);font-weight:600;border-top:0}
+table.t td.num{white-space:nowrap;font-variant-numeric:tabular-nums}
+ul.chk{margin:6px 0 0;padding-left:0;list-style:none;font-size:14px}
+ul.chk li{padding:4px 0 4px 26px;position:relative}
+ul.chk li:before{content:"";position:absolute;left:2px;top:8px;width:14px;height:14px;border:2px solid var(--open);border-radius:4px}
+.grp{font-weight:650;font-size:14px;margin:14px 0 2px}
+a{color:inherit}
+.old{opacity:.75}
 @media (max-width:680px){
   main{padding-top:20px}
   .hero{grid-template-columns:1fr}
@@ -78,35 +90,60 @@ footer{color:var(--ink3);font-size:13px;margin-top:8px}
   </header>
   <div id="err">Die Daten konnten nicht geladen werden.</div>
   <div id="live"></div>
+  <div class="warn" id="warn"></div>
 
   <section class="hero">
     <div class="card">
       <div class="big" id="sc">–</div>
-      <p class="what">Szenarien laufen Zug für Zug genau wie das Originalspiel.</p>
+      <p class="what">Testszenarien laufen Zug für Zug bitgenau wie das Originalspiel (letzte volle Messung).</p>
       <div class="bar" id="scbar"></div>
       <div class="note" id="scnote"></div>
     </div>
     <div class="card">
-      <div class="mid" id="mp">–</div>
-      <p class="what">Karten laufen genau wie im Original.</p>
-      <div class="bar" id="mpbar"></div>
-      <div class="note" id="mpnote"></div>
+      <div class="mid" id="lua">–</div>
+      <p class="what">Lua-Funktionen der Spiellogik, die der Nachbau kennt (von denen, die offizielle Skripte nutzen).</p>
+      <div class="bar" id="luabar"></div>
+      <div class="note" id="luanote"></div>
     </div>
     <div class="card">
-      <div class="mid" id="fn">–</div>
-      <p class="what" id="fnwhat">Funktionen des Originals, deren gelaufene Blöcke alle im Vergleich gleich waren.</p>
-      <div class="bar" id="fnbar"></div>
-      <div class="note" id="fnnote"></div>
+      <div class="mid" id="sv">–</div>
+      <p class="what">Dateien eines Original-Spielstands (.s5s), die der Nachbau lesen und schreiben kann.</p>
+      <div class="bar" id="svbar"></div>
+      <div class="note" id="svnote"></div>
     </div>
   </section>
 
   <section class="card">
-    <h2>Verlauf: Szenarien, die genau wie das Original laufen</h2>
+    <h2>Was noch fehlt</h2>
+    <div id="areas"></div>
+    <div id="open"></div>
+    <div class="src" id="compsrc"></div>
+  </section>
+
+  <section class="card">
+    <h2>Volle Messungen (alle Szenarien)</h2>
+    <div id="fulls"></div>
+    <div class="src">Gleich = alles bitgenau. Tief = Spielzustand und Zufall gleich, aber Lua-Speicher oder Weltdaten anders. Abweichend = Spielzustand anders. Fehler = nicht messbar. Teilmessungen (nur einzelne Szenarien) zählen hier nicht.</div>
+  </section>
+
+  <section class="card">
+    <h2>Noch nicht nachgebaute Stellen, die die letzte Messung getroffen hat</h2>
+    <div id="unmod"></div>
+  </section>
+
+  <section class="card">
+    <h2>Neons Branch</h2>
+    <div id="ref"></div>
+  </section>
+
+  <section class="card">
+    <h2>Verlauf: gleiche Szenarien je voller Messung</h2>
     <svg id="chart" role="img" aria-label="Verlauf der gleichen Szenarien je Messung"></svg>
   </section>
 
   <section class="card">
-    <h2>Karten</h2>
+    <h2>Karten mit Testszenario</h2>
+    <p class="src" style="margin-top:-6px">Grün heißt: alle Szenarien dieser Karte sind gleich. Gemessen wird meist nur ein Ausschnitt (z. B. die ersten 1.000 bis 1.200 Züge), nicht ein ganzes Spiel.</p>
     <div class="legend">
       <span><i class="dot" style="background:var(--done)"></i>fertig</span>
       <span><i class="dot" style="background:var(--open)"></i>noch nicht gleich</span>
@@ -125,6 +162,11 @@ footer{color:var(--ink3);font-size:13px;margin-top:8px}
     </div>
     <div id="rows"></div>
     <div class="more" id="more"></div>
+  </section>
+
+  <section class="card old">
+    <h2>Entfernt oder zurückgestuft</h2>
+    <div id="stale"></div>
   </section>
 
   <footer id="foot"></footer>
@@ -150,39 +192,53 @@ let D,filter="offen",all=false;
 fetch("data.json?"+Date.now()).then(r=>r.json()).then(d=>{D=d;render()}).catch(()=>{$("err").style.display="block"});
 
 function render(){
-  const S=D.summary, M=D.maps, me=D.measurement||{};
-  $("stand").textContent="Stand "+D.generated_berlin;
-  const open=S.total-S.gleich-S.ungemessen;
-  $("sc").innerHTML=`${S.gleich}<small> / ${S.total}</small>`;
-  bar($("scbar"),[[S.gleich/S.total*100,"var(--done)"],[open/S.total*100,"var(--open)"],[S.ungemessen/S.total*100,"var(--none)"]]);
-  const n=[];
-  if(S.besser)n.push(`<span class="up">+${S.besser}</span> seit der vorigen Messung`);
-  if(S.schlechter)n.push(`<span class="up">${S.schlechter}</span> schlechter geworden`);
-  n.push(`${open} noch offen`+(S.ungemessen?`, ${S.ungemessen} nicht gemessen`:""));
-  $("scnote").innerHTML=n.join(" · ");
-  const untested=(M["kein Szenario"]||0)+(M.ungemessen||0), notyet=M.total-M.gleich-untested;
-  $("mp").innerHTML=`${M.gleich}<small> / ${M.total}</small>`;
-  bar($("mpbar"),[[M.gleich/M.total*100,"var(--done)"],[notyet/M.total*100,"var(--open)"],[untested/M.total*100,"var(--none)"]]);
-  $("mpnote").textContent=`${notyet} noch nicht gleich · ${untested} noch nicht getestet`;
-  const F=D.functions;
-  if(F&&F.ran){
-    $("fn").innerHTML=`${F.done}<small> / ${F.ran}</small>`;
-    bar($("fnbar"),[[F.done/F.ran*100,"var(--done)"],[(F.ran-F.done-F.port)/F.ran*100,"var(--open)"],[F.port/F.ran*100,"var(--none)"]]);
-    // a census before the block lists (20.11.) only knows whether its sampled calls were equal
-    if(!F.blocks_ran)$("fnwhat").textContent="Funktionen des Originals, deren Stichproben-Aufrufe im Vergleich gleich waren (Blockprüfung ab dem nächsten Zensus).";
-    const b=F.blocks_ran?` · Blöcke ${Math.round(F.blocks_verified/F.blocks_ran*100)} % geprüft`:"";
-    $("fnnote").textContent=`${F.partial} teilweise geprüft · ${F.port} noch zu portieren${b}`;
+  const S=D.summary, M=D.maps, me=D.measurement||{}, C=D.completeness||{};
+  $("stand").textContent="Stand "+D.generated_berlin+" MEZ";
+  const FH=(D.full_history||[]), LF=FH.at(-1);
+  // headline = the newest FULL measurement (a subset run never sets the headline)
+  const O=h=>h.own?{g:h.own.gleich,t:h.files,ti:h.own.tief,a:h.own.abweichend,f:h.own.fehler}:{g:h.gleich,t:h.total,ti:h.tief,a:h.abweichend,f:h.ungemessen};
+  const H=LF?O(LF):{g:S.gleich,t:S.total,ti:S.tief,a:S.abweichend,f:S.ungemessen};
+  $("warn").innerHTML=esc(C.warning||"176 von 176 heißt nur: die Testszenarien laufen bitgenau. Es heißt nicht, dass das ganze Spiel nachgebaut ist.");
+  $("sc").innerHTML=`${H.g}<small> / ${H.t}</small>`;
+  bar($("scbar"),[[H.g/H.t*100,"var(--done)"],[(H.ti+H.a)/H.t*100,"var(--open)"],[H.f/H.t*100,"var(--none)"]]);
+  $("scnote").innerHTML=LF?`${H.ti} tief · ${H.a} abweichend · ${H.f} Fehler<br>Messung ${esc(LF.time)} MEZ, Commit <code>${esc((LF.sha||"?").slice(0,9))}</code>`+
+    (LF.run?` · <a href="${esc(LF.run)}">Lauf</a>`:""):"";
+  const A=Object.fromEntries((C.areas||[]).map(a=>[a.key||a.name,a]));
+  const hero=(id,a)=>{ if(!a)return; $(id).innerHTML=`${a.done}<small> / ${a.total}</small>`;
+    bar($(id+"bar"),[[a.done/a.total*100,"var(--done)"],[(a.total-a.done)/a.total*100,"var(--open)"]]);
+    $(id+"note").textContent=`Fehlt: ${a.missing} · Angabe Neon, ${C.stand||"?"}`;};
+  hero("lua",A.lua_logic); hero("sv",A.saves);
+  $("areas").innerHTML=(C.areas||[]).length?`<table class="t"><tr><th>Bereich</th><th>erledigt</th><th>was fehlt</th></tr>`+
+    C.areas.map(a=>`<tr><td>${esc(a.name)}</td><td class="num">${a.live&&LF?`${H.g} / ${H.t}`:`${a.done} / ${a.total}`}</td><td>${esc(a.missing)}</td></tr>`).join("")+"</table>":"";
+  $("open").innerHTML=(C.open||[]).map(g=>`<div class="grp">${esc(g.group)}</div><ul class="chk">`+g.items.map(i=>`<li>${esc(i)}</li>`).join("")+"</ul>").join("");
+  $("compsrc").innerHTML=C.source?`Quelle: ${esc(C.source)}, Commit <code>${esc(C.source_commit||"")}</code>. ${esc(C.method||"")}`+(C.stale_docs?` ${esc(C.stale_docs)}`:""):"Keine Bestandsaufnahme hinterlegt.";
+  $("fulls").innerHTML=FH.length?`<table class="t"><tr><th>Zeit (MEZ)</th><th>Commit</th><th>gleich</th><th>tief</th><th>abw.</th><th>Fehler</th><th></th></tr>`+
+    FH.slice().reverse().map(h=>{const o=O(h);return `<tr><td class="num">${esc(h.time)}</td><td><code>${esc((h.sha||"?").slice(0,9))}</code></td><td class="num">${o.g} / ${o.t}</td><td class="num">${o.ti}</td><td class="num">${o.a}</td><td class="num">${o.f}</td><td>${h.run?`<a href="${esc(h.run)}">Lauf</a>`:""}</td></tr>`}).join("")+"</table>":"Noch keine volle Messung.";
+  const U=D.unmodelled_hit||[];
+  $("unmod").innerHTML=U.length?`<p class="src" style="margin-top:0">Der Nachbau meldet diese Stellen selbst als „nicht modelliert“. Das Ergebnis war trotzdem gleich, weil sie dort keine Wirkung hatten.</p><ul class="chk">`+
+    U.map(u=>`<li>${esc(u.tag)} <span class="src">(${u.scenarios.map(esc).join(", ")})</span></li>`).join("")+"</ul>":"Keine gemeldet (oder die Messung kennt diese Meldung noch nicht).";
+  const R0=D.ref;
+  if(R0){
+    const measured=new Set(FH.map(h=>(h.sha||"").slice(0,9)));
+    const idx=R0.commits.findIndex(c=>measured.has(c.sha.slice(0,9)));
+    $("ref").innerHTML=`<p class="src" style="margin-top:0"><code>${esc(R0.branch)}</code> ist ${R0.ahead_of_integration??"?"} Commits vor <code>clean/integration</code> (noch nicht übernommen).</p><table class="t"><tr><th>Zeit (MEZ)</th><th>Commit</th><th>Titel</th><th>voll gemessen</th></tr>`+
+      R0.commits.map((c,i)=>`<tr><td class="num">${esc(c.time)}</td><td><code>${esc(c.sha.slice(0,9))}</code></td><td>${esc(c.title)}</td><td>${measured.has(c.sha.slice(0,9))?"ja":(idx<0||i<idx)?"<b>nein</b>":"–"}</td></tr>`).join("")+"</table>";
   }
+  const F=D.functions, st=D.stale||{};
+  $("stale").innerHTML=`<ul class="chk">`+
+    (F&&F.ran?`<li>„Funktionen des Originals gleich“ (${F.done} / ${F.ran}): ${esc(st.functions||"")}. Sagt nichts über Neons Stand.</li>`:"")+
+    `<li>„Karten fertig“ als Kopfzahl: zeigt nur, dass die gemessenen Ausschnitte gleich sind. Jetzt unten bei den Karten.</li>`+
+    `<li>Teilmessungen (Modus bc/fast mit wenigen Szenarien) setzen die Kopfzahl nicht mehr.</li></ul>`;
   const R=D.running||[];
   $("live").innerHTML=R.length?`<div class="live"><i class="dot pulse"></i><span>Eine neue Messung läuft gerade`+
-    (R[0].jobs?` (${R[0].jobs_done} von ${R[0].jobs} Teilen fertig)`:"")+`. Die Zahlen werden danach aktualisiert.</span></div>`:"";
+    (R[0].jobs?` (${R[0].jobs_done} von ${R[0].jobs} Teilen fertig)`:"")+(R[0].url?` · <a href="${esc(R[0].url)}">Lauf</a>`:"")+`. Die Zahlen werden danach aktualisiert.</span></div>`:"";
   chart(); maps(); rows();
-  $("foot").textContent=`Gemessen am ${me.finished||"?"} auf Code-Stand ${(me.sha||"").slice(0,7)}`+
-    (me.commits_since?`. Seitdem ${me.commits_since} neue Änderungen, die noch nicht gemessen sind.`:".");
+  $("foot").textContent=`Neueste Messdatei ${me.finished||"?"} MEZ (${me.full?"volle Messung":"Teilmessung, "+(me.files||"?")+" Szenarien"}) auf Code-Stand ${(me.sha||"?").slice(0,9)}`+
+    (me.commits_since?`. Seitdem ${me.commits_since} neue Commits auf Neons Branch, die noch nicht gemessen sind.`:".");
 }
 
 function chart(){
-  const H=(D.history||[]).filter(h=>h.gleich!=null), svg=$("chart");
+  const H=(D.full_history||D.history||[]).filter(h=>h.gleich!=null), svg=$("chart");
   const W=Math.max(280,svg.clientWidth||800), Hh=220, L=40, Rp=16, T=12, B=28;
   const total=Math.max(D.summary.total,...H.map(h=>h.total||0));
   const y=v=>T+(1-v/total)*(Hh-T-B);

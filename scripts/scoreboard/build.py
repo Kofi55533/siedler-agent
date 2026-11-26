@@ -27,6 +27,9 @@ PRIV = "Kofi55533/siedler-sim-rs"
 PUB = "Kofi55533/siedler-agent"
 DATA = "Kofi55533/siedler-data"
 BRANCH = "clean/integration"
+REF_BRANCH = "antigravity/neon-scripted-start"  # the branch the full measurements run on (measure/neon-ref)
+PARSE_V = 2  # bump when parse_measure learns a new field: cached files are parsed again
+FULL_MIN = 170  # a release with at least this many files is a full measurement (mode=full), fewer = subset (bc/fast)
 BERLIN = ZoneInfo("Europe/Berlin")
 HERE = os.path.dirname(os.path.abspath(__file__))
 KEEP_RELEASES = 6  # newest measurement releases kept in the cache
@@ -79,12 +82,19 @@ def parse_measure(text):
     """measure-<name>.txt -> (name, sha, public verdict). Turns are absolute game turns (the scenario's start turn
     included); "ticks" is the scenario length."""
     lines = text.splitlines()
-    m = re.match(r"fixture (\S+) on \S+ @([0-9a-f]+)", lines[0] if lines else "")
+    m = re.match(r"fixture (\S+) on .+? @([0-9a-f]+)", lines[0] if lines else "")  # branch may hold a space ("neon ref")
     name, sha = (m.group(1), m.group(2)) if m else (None, None)
     v = lines[1].strip() if len(lines) > 1 else ""
     if re.match(r"^[A-Za-z0-9_.-]+: ", v):
         v = v.split(": ", 1)[1]
     r = {"status": "fehler", "ticks": None, "turn": None, "level": None, "levels": {}}
+    # mechanics the clean engine hit but does not model yet (verify-infra observe.rs, since a8703fb6c)
+    um = next((l for l in lines if l.startswith("measure-live unmodelled")), None)
+    if um:
+        try:
+            r["unmodelled"] = [str(x)[:120] for x in json.loads(um.split(":", 1)[1])]
+        except ValueError:
+            pass
     if v.startswith("IDENTICAL"):
         t = re.match(r"IDENTICAL (\d+)", v)
         r.update(status="gleich", ticks=int(t.group(1)) if t else None)
@@ -127,9 +137,9 @@ def measurements(prev):
         for a in sorted(files, key=lambda a: a["name"]):
             key = f"{a['id']}:{a['updated_at']}"
             c = cache.get(a["name"])
-            if not c or c.get("key") != key:
+            if not c or c.get("key") != key or c.get("v") != PARSE_V:
                 name, sha, r = parse_measure(api(f"repos/{DATA}/releases/assets/{a['id']}", raw=True))
-                c = {"key": key, "name": a["name"][len("measure-"):-len(".txt")], "sha": sha, "r": r}
+                c = {"key": key, "v": PARSE_V, "name": a["name"][len("measure-"):-len(".txt")], "sha": sha, "r": r}
             e["files"][a["name"]] = c
             e["results"][c["name"]] = c["r"]
             e["sha"] = e["sha"] or c.get("sha")
@@ -301,10 +311,57 @@ def merges(n=12):
              "title": c["commit"]["message"].split("\n", 1)[0][:160]} for c in cs]
 
 
-def behind(sha):
-    """(commits on clean/integration since the measured commit, time of the measured commit)."""
+def measure_runs(n=30):
+    """recent full-measure workflow runs (to link a release to its run)"""
     try:
-        c = api(f"repos/{PRIV}/compare/{sha}...{urllib.parse.quote(BRANCH, safe='')}")
+        rs = (api(f"repos/{PUB}/actions/workflows/full-measure.yml/runs?per_page={n}") or {}).get("workflow_runs", [])
+    except Exception as e:
+        print("measure_runs:", type(e).__name__, file=sys.stderr)
+        return []
+    return [{"id": r["id"], "url": r["html_url"], "created": r["created_at"], "updated": r["updated_at"],
+             "conclusion": r.get("conclusion"), "branch": r.get("head_branch")} for r in rs]
+
+
+def run_for(done, runs):
+    """the run that wrote a release: started before its newest file and ended at most 15 min after it"""
+    if not done:
+        return None
+    t = datetime.fromisoformat(done.replace("Z", "+00:00"))
+    best = None
+    for r in runs:
+        c = datetime.fromisoformat(r["created"].replace("Z", "+00:00"))
+        u = datetime.fromisoformat(r["updated"].replace("Z", "+00:00"))
+        if c <= t and 0 <= (u - t).total_seconds() <= 900 and (best is None or c > best[0]):
+            best = (c, r)
+    return best[1] if best else None
+
+
+def ref_commits(n=10):
+    """newest commits on the measured branch, plus how far it is ahead of clean/integration"""
+    try:
+        cs = api(f"repos/{PRIV}/commits?sha={urllib.parse.quote(REF_BRANCH, safe='')}&per_page={n}") or []
+        cmp_ = api(f"repos/{PRIV}/compare/{urllib.parse.quote(BRANCH, safe='')}...{urllib.parse.quote(REF_BRANCH, safe='')}")
+    except Exception as e:
+        print("ref_commits:", type(e).__name__, file=sys.stderr)
+        return None
+    return {"branch": REF_BRANCH, "ahead_of_integration": cmp_.get("ahead_by"), "behind_integration": cmp_.get("behind_by"),
+            "commits": [{"sha": c["sha"][:10], "time": berlin(c["commit"]["committer"]["date"]),
+                         "title": c["commit"]["message"].split("\n", 1)[0][:140]} for c in cs]}
+
+
+def completeness():
+    """hand-kept list of what is still missing (scripts/scoreboard/vollstaendigkeit.json, with source and date)"""
+    try:
+        return json.load(open(os.path.join(HERE, "vollstaendigkeit.json")))
+    except Exception as e:
+        print("completeness:", type(e).__name__, file=sys.stderr)
+        return None
+
+
+def behind(sha):
+    """(commits on the measured branch since the measured commit, time of the measured commit)."""
+    try:
+        c = api(f"repos/{PRIV}/compare/{sha}...{urllib.parse.quote(REF_BRANCH, safe='')}")
         return c.get("ahead_by"), berlin(c["base_commit"]["commit"]["committer"]["date"])
     except Exception:
         return None, None
@@ -313,7 +370,7 @@ def behind(sha):
 # ---------------- main ----------------
 
 
-def build(rels, meta, hist, run=(), mg=(), ahead=(None, None), now=None, fns=None):
+def build(rels, meta, hist, run=(), mg=(), ahead=(None, None), now=None, fns=None, runs=(), ref=None, comp=None):
     """Pure part: measurements -> data.json dict (+ updated history). Testable without network."""
     now = now or datetime.now(timezone.utc)
     order = sorted(rels, key=lambda t: rels[t]["done"], reverse=True)
@@ -340,14 +397,36 @@ def build(rels, meta, hist, run=(), mg=(), ahead=(None, None), now=None, fns=Non
         if not s_["measured"]:  # a release without a single verdict (broken run) is no point of the curve
             continue
         mg_ = sum(1 for m in (maps if i == 0 else map_rows(r_)) if m["status"] == "gleich")
+        own = rels[t]["results"]  # this release's own verdicts (a subset run carries only a few)
+        oc = {k: sum(1 for v in own.values() if (v["status"] if v["status"] in RANK else "fehler") == k)
+              for k in ("gleich", "tief", "abweichend", "fehler")}
+        rr = run_for(rels[t]["done"], runs)
         hist.append({"tag": t, "sha": rels[t]["sha"], "time": berlin(rels[t]["done"]), "done": rels[t]["done"],
+                     "files": len(own), "full": len(own) >= FULL_MIN, "own": oc, "run": rr["url"] if rr else None,
                      **{k: s_[k] for k in ("total", "gleich", "tief", "abweichend", "ungemessen", "turns_pct",
                                            "turns_state_pct")}, "maps_gleich": mg_})
     hist.sort(key=lambda h: h.get("done") or "")
+    for h in hist:  # older history points: fill run links and the full/subset flag where they are missing
+        if not h.get("run"):
+            rr = run_for(h.get("done"), runs)
+            h["run"] = rr["url"] if rr else None
+        if "files" not in h:  # points from before 26.11.: only the tag tells a full run (-measure-) from a subset (-bc-, -fast-)
+            h["full"] = not re.search(r"-(bc|fast)-", str(h.get("tag", "")))
+        if not h.get("sha"):
+            m_ = re.search(r"-([0-9a-f]{10})$", str(h.get("tag", "")))
+            h["sha"] = m_.group(1) if m_ else None
+    newest_run = run_for(newest["done"], runs)
+    unmod = {}
+    for r in rows:
+        for u in (rels.get(order[0], {}).get("results", {}).get(r["name"], {}) or {}).get("unmodelled", []) or []:
+            unmod.setdefault(u, []).append(r["name"])
+    full_hist = [h for h in hist if h.get("full")]
     data = {
         "generated_utc": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
         "generated_berlin": now.astimezone(BERLIN).strftime("%d.%m.%Y %H:%M"),
         "measurement": {"tag": order[0], "sha": newest["sha"], "finished": berlin(newest["done"]),
+                        "files": len(newest["results"]), "full": len(newest["results"]) >= FULL_MIN,
+                        "run": newest_run["url"] if newest_run else None, "branch": REF_BRANCH,
                         "commits_since": ahead[0], "commit_time": ahead[1],
                         "runs": [{"sha": rels[t]["sha"], "when": berlin(rels[t]["done"]),
                                   "files": len(rels[t]["results"]), "used": used.get(rels[t]["sha"], 0)}
@@ -358,6 +437,13 @@ def build(rels, meta, hist, run=(), mg=(), ahead=(None, None), now=None, fns=Non
         "running": list(run),
         "merges": list(mg),
         "history": hist[-40:],
+        "full_history": full_hist[-20:],
+        "unmodelled_hit": [{"tag": k, "scenarios": v} for k, v in sorted(unmod.items())],
+        "ref": ref,
+        "completeness": comp,
+        "stale": {"functions": "xc-Zensus vom " + (fns or {}).get("time", "?") + " auf clean/integration "
+                  + (fns or {}).get("sha", "") + "; Zensus und Worker laufen nicht mehr, Neons Branch wird dort nicht gezählt"
+                  if fns else None},
         # also read by scripts/planner_state.py, known_done.py, s5-remeasure.sh: name, turn, total, identical
         "scenarios": [{**r, "identical": r["status"] == "gleich", "measured": bool(RANK.get(r["status"], 0)),
                        "turn": r["total"] if r["status"] == "gleich" else r["turn"],
@@ -391,7 +477,8 @@ def main():
         return
     main_sha = rels[max(rels, key=lambda t: rels[t]["done"])]["sha"]
     data, hist = build(rels, meta, load_prev(prev_dir, "verlauf.json", []), run, mg,
-                       behind(main_sha) if main_sha else (None, None), fns=functions())
+                       behind(main_sha) if main_sha else (None, None), fns=functions(), runs=measure_runs(),
+                       ref=ref_commits(), comp=completeness())
     json.dump(data, open(os.path.join(out, "data.json"), "w"), ensure_ascii=False, separators=(",", ":"))
     json.dump({"releases": {t: {"files": rels[t]["files"]} for t in rels}},
               open(os.path.join(out, "messungen.json"), "w"), ensure_ascii=False, separators=(",", ":"))

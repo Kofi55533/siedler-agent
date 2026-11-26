@@ -1,0 +1,120 @@
+{
+ "note": "Von Hand gepflegt. Was dem Nachbau trotz gleicher Testszenarien noch fehlt. Jede Zahl mit Quelle und Datum; bei neuer Bestandsaufnahme hier ersetzen.",
+ "source": "Neon (Antigravity) im T3-Chat, 26.11.2026 17:33 MEZ, Antwort auf Dominics Frage von 17:22 MEZ",
+ "source_commit": "c2c7f8073",
+ "method": "Laut Neon gemessen gegen data/engine/mechanics.json und alle 3.025 offiziellen Lua-Skripte (tools/lua_inventory.py). Nicht unabhängig nachgeprüft.",
+ "stand": "26.11.2026 17:33 MEZ",
+ "warning": "176 von 176 heißt nur: diese Testszenarien laufen bitgenau wie das Original. Es heißt nicht, dass das ganze Spiel nachgebaut ist. Mechaniken, die kein Szenario auslöst, werden nicht geprüft.",
+ "areas": [
+  {
+   "name": "Testszenarien (bitgenau)",
+   "done": 176,
+   "total": 176,
+   "missing": "nur Mechaniken, die keines der 176 Szenarien auslöst",
+   "live": true
+  },
+  {
+   "name": "Spieler-Befehle (Net-Kommandos)",
+   "done": 74,
+   "total": 74,
+   "missing": "einzelne Rand-Befehle, z. B. Hero_BuyMerchantOffer (0x17027)"
+  },
+  {
+   "name": "Task-Handler",
+   "done": 191,
+   "total": 195,
+   "missing": "4 seltene Task-Handler"
+  },
+  {
+   "name": "State-Handler",
+   "done": 44,
+   "total": 46,
+   "missing": "2 seltene, u. a. CBarrierBehavior"
+  },
+  {
+   "name": "Event-Handler",
+   "done": 333,
+   "total": 434,
+   "missing": "rund 101, vor allem in den Spezial-Behaviors unten"
+  },
+  {
+   "name": "Lua-Funktionen der Spiellogik (Logic, AI, Game, Trigger, Script, CRandom)",
+   "done": 252,
+   "total": 349,
+   "missing": "97: 82 Logic.*, 11 AI.*, 3 Game.*, 1 Trigger.*. Nachtrag: Commit 3eabf89b5 (26.11. 18:03 MEZ) meldet alle 97 umgesetzt (349/349), noch nicht gemessen",
+   "key": "lua_logic"
+  },
+  {
+   "name": "Lua-Funktionen gesamt (alle Namespaces)",
+   "done": 485,
+   "total": 768,
+   "missing": "vor allem XNetwork (48) und XNetworkUbiCom (64), dazu GUI (16), Framework (15), XGUIEng (12), Display/Optionen (22)"
+  },
+  {
+   "name": "Original-Spielstände (.s5s), Binärdateien",
+   "done": 10,
+   "total": 14,
+   "missing": "EntityItemMgr.bin (~120 Klassen), EffectItemMgr.bin, EGLPlayerManager.bin, GGLPlayerManager.bin",
+   "key": "saves"
+  },
+  {
+   "name": "Offizielle Karten starten fehlerfrei",
+   "done": 95,
+   "total": 95,
+   "missing": "Start geprüft, nicht durchgespielt"
+  }
+ ],
+ "open": [
+  {
+   "group": "Spezial-Behaviors (Extra1/Extra2)",
+   "items": [
+    "Dieb (CThiefBehavior, 13/19 Handler): Stehlen, Diebesgut sichern, Abbruch, Modellwechsel",
+    "Kundschafter (CAbilityScoutBinocular, 3/5): Fernglas-Abbruch bei Bewegung/Angriff",
+    "Neutrale/zerstörte Brücken (CNeutralBridgeBehavior, 1/4): Wiederaufbau-Fortschritt",
+    "Felder & Getreide (CBehaviorFieldDoodad 2/11, CBehaviorCropDoodad 0/8): Säen, Wachstum",
+    "Auto-Kanone (CAutoCannonBehavior, 15/22): Zielwechsel, Angriffsbefehl",
+    "Kämpfende Arbeiter (CWorkerBattleBehavior, 4/11)",
+    "Kampf-Leibeigene (CBattleSerfBehavior, 2/7): Rückverwandlung, Timer",
+    "Falke (CHeroHawkBehavior, 1/3)",
+    "CBarrierBehavior (0/1), CSummonedBehavior (0/1)",
+    "Händler-Angebote (CBuildingMerchantBehavior, 4/7): Hero_BuyMerchantOffer und Angebots-Abfragen"
+   ]
+  },
+  {
+   "group": "97 fehlende Lua-Funktionen der Spiellogik (wichtigste nach Anzahl Skripte)",
+   "items": [
+    "Logic.GetCurrentTaskList (251), Logic.GetResourceDoodadGoodAmount (190), Logic.GetEntitiesInArea (181)",
+    "Logic.SetEntityScriptingValue (129), Logic.GetEntityScriptingValue (90)",
+    "Logic.GroupAttack (123), Logic.GroupStand (32), Logic.SetTaskList (54)",
+    "Logic.SuspendEntity / ResumeEntity (90 / 113), SuspendAllEntities / ResumeAllEntities (je 38)",
+    "Logic.GetSoldiersAttachedToLeader (112), Logic.SubFromPlayersGlobalResource (102), Logic.GetSector (88)",
+    "Logic.GetSettlerTypesInUpgradeCategory (81), Logic.LeaderGetBarrack (81), Logic.IsSettlerAtFarm / IsSettlerAtResidence (je 72)",
+    "Logic.GetNextLeader (67), Logic.UpdateBlocking (63), Logic.GetNumberOfAttractedSoldiers (59)",
+    "Logic.GetCurrentPrice / SetCurrentPrice (je 55), Logic.CreateConstructionSite (53), Logic.BarracksBuyLeader (30)",
+    "Terrain/Wasser: Logic.SetTerrainNodeHeight (53), WaterSetAbsoluteHeight (35), SetTerrainNodeType (34), SetTerrainVertexColor (33)",
+    "11 AI.*, u. a. AI.Player_GetNumberOfLeaders (43), AI.Army_GetPosition, AI.Entity_ConnectWithArmy, AI.Village_Clear*Queue"
+   ]
+  },
+  {
+   "group": "Original-Spielstände (.s5s)",
+   "items": [
+    "4 fehlende Binärdateien: EntityItemMgr.bin, EffectItemMgr.bin, EGLPlayerManager.bin, GGLPlayerManager.bin. Bis dahin kein Laden/Export echter Spielstände der SettlersHoK.exe"
+   ]
+  },
+  {
+   "group": "Desktop, Multiplayer, Editor (keine Spiellogik)",
+   "items": [
+    "Kamera-, Shader- und 3D-Audio-Feinschliff",
+    "LockstepPeer in s5bevy (--host/--join, Lobby)",
+    "Entity- und Skript-Editor"
+   ]
+  },
+  {
+   "group": "Übernahme",
+   "items": [
+    "Neons Arbeit liegt nur auf antigravity/neon-scripted-start, noch nicht in clean/integration"
+   ]
+  }
+ ],
+ "stale_docs": "docs/clean/LUA_NATIVES.md und MECHANICS.md auf Neons Branch sind vom 14.11.2026 (z. B. Logic: 44 von 222 genutzten beantwortet) und laut Neon veraltet."
+}
