@@ -1,46 +1,22 @@
-# Full deep measurement shards (one GitHub Actions job per line), from neon/full-measure-once 11a9155.
-bc-full
-bc-0804
+# 20 LPT-balanced measure shards (176 scenarios) tuned from run 45854443884 (a8703fb6c2).
+# Fits GitHub's 20-runner concurrency limit in a single wave (~19 min wall clock).
 late-ai-long
-late-ai
-late-economy
-gen-campaign
-saveload-settled-long
+bc-0804
 gen-keep-buy
-gen-camp-placement
-genc-wsecon-long
-ai-builds-oldkings
-gen-weather-time-long
-camp-crawford-long
-ai-long
-gen-overtime-occupied
-genb-wi-mixed-long
-gen-mine-depletion
-gen-weather-time
-combat-waves combat-big
-combat-long camp-crawford
-ai-builds-active gen-camp-placement-base
-genb-abilities gen-recruit-attack gen-sabotage-bomb
-gen-market-trade gen-invalid-placement saveload-settled
-saveload gen-a-wintersturm-long genb-ailong-mixed
-genc-campcrawford-5000 genc-combatwaves-5000 genc-winterisland-5000 genc-wsecon-5000
-gen-a-dunkelforst-long gen-sabotage-serfcommands gen-serf-repair genb-waves-assault genb-wi-mixed genb-wi-move
-build-long production-long map-winterisland gen-a-wintersturm gen-diplomacy-tribute genb-combat-ops
-gen-a-dunkelforst gen-siege-cannon gen-upgrade-research gen-weather-time-short gen-barracks-autofill gen-barracks-recruit
-gen-cancel-research gen-49b46d-event14004 gen-player-commands gen-cannon-place gen-conversion-commands gen-foundry-summon
-gen-hero-activation gen-hero-npc gen-placer-tools gen-tribute-diplomacy gen-upgrade-building-category gen-enter-building-0x1500d
-gen-attack-building gen-civilian-death gen-leader-buy-soldier gen-construct-site gen-leader-aggressive gen-leader-attach gen-maptools-resource
-gen-leader-defend gen-leader-guard gen-leader-hold gen-leader-patrol gen-leader-stance gen-mp-resources gen-attack-pos gen-formation-command
-wintersturm wintersturm-mapstart economy economy-mapstart wsecon build production combat
-01-revenge 01-thalgrund 02-defendingthedrymoat 02-patrol 02-securingthepath 02-therichland 03-neighborhood
-04-brutepower 04-taintedlight 05-emeraldfields 07-flood 09-greatmountain 10-floodedland 10-folklung
-antrium caribeansurf castrum colorsofbelief lightridge rivercrossing standrockbattle
-campaign-01-demondays campaign-01-hugebridge campaign-01-newbeginning campaign-01-restoringthefaith campaign-02-villageattack campaign-03-darknessuprise campaign-03-divineanger
-campaign-03-thebeautifulland campaign-04-intoshadowintolight campaign-04-tradingcaravans campaign-04-wolfslair campaign-05-headhunter campaign-06-cleycourt campaign-06-techorresources
-campaign-08-barmecia campaign-08-unexploredland campaign-11-norfolk campaign-12-kaloix campaign-13-plague campaign-15-oldkingscastle campaign-17-cloudymountains
-campaign-18-evelance campaign-19-wasteland campaign-20-battleofevelance map-arcanum map-atthegates map-banditforrest map-battlefieldbarrens
-map-battleisle map-burningsteppe map-citygates map-clanwar map-clashofheroes map-conquest map-crater
-map-darkland map-demomap map-europe map-evelanceassault map-fouronone map-frontiercompanions map-frozenfjord
-map-hauntedruins map-highland-siege map-hillsoffriendship map-intotheforest map-koenigsforst map-mediterranean map-mornheim
-map-oldenemies map-peacefulland map-resourceconflict map-sabotagemoor map-sandbox map-scarredland map-siege
-map-smalldale map-solitudeisles map-spreadland map-summerisland map-summerstorm map-supplylines map-trade4technology map-winterassault map-winterrealm
+bc-full
+gen-market-trade map-sabotagemoor saveload-settled 10-folklung production-long genb-combat-ops map-winterisland map-scarredland map-hillsoffriendship map-crater gen-leader-hold
+genc-wsecon-long gen-overtime-occupied gen-invalid-placement gen-sabotage-serfcommands genb-waves-assault campaign-19-wasteland gen-a-wintersturm map-peacefulland campaign-01-hugebridge gen-upgrade-research gen-leader-patrol gen-leader-guard
+late-ai map-banditforrest 02-securingthepath campaign-04-tradingcaravans map-atthegates 09-greatmountain map-siege genb-wi-mixed gen-upgrade-building-category gen-leader-aggressive gen-maptools-resource
+combat-waves gen-weather-time gen-camp-placement-base genc-wsecon-5000 genc-winterisland-5000 map-winterassault map-clanwar gen-siege-cannon gen-weather-time-short map-sandbox gen-construct-site gen-leader-stance
+ai-long map-evelanceassault 05-emeraldfields campaign-06-techorresources gen-serf-repair map-summerisland campaign-03-divineanger gen-hero-npc gen-49b46d-event14004 gen-tribute-diplomacy gen-leader-attach gen-mp-resources
+gen-weather-time-long gen-mine-depletion genb-ailong-mixed map-oldenemies castrum gen-diplomacy-tribute map-solitudeisles 02-defendingthedrymoat gen-cancel-research campaign-04-wolfslair map-trade4technology gen-formation-command
+saveload-settled-long combat-big map-spreadland gen-a-wintersturm-long map-burningsteppe colorsofbelief campaign-01-newbeginning map-darkland campaign-11-norfolk campaign-17-cloudymountains map-conquest economy-mapstart
+late-economy antrium 10-floodedland map-winterrealm campaign-08-barmecia gen-placer-tools genb-wi-move map-battleisle map-koenigsforst gen-leader-defend
+genb-abilities gen-sabotage-bomb 04-taintedlight campaign-04-intoshadowintolight map-citygates standrockbattle map-arcanum map-highland-siege map-summerstorm campaign-15-oldkingscastle map-resourceconflict gen-attack-pos
+camp-crawford-long campaign-01-demondays genb-wi-mixed-long campaign-18-evelance rivercrossing campaign-01-restoringthefaith 03-neighborhood gen-enter-building-0x1500d gen-player-commands campaign-13-plague economy
+genc-campcrawford-5000 ai-builds-active map-hauntedruins caribeansurf build-long gen-a-dunkelforst-long campaign-05-headhunter 01-thalgrund map-intotheforest gen-attack-building wsecon
+gen-recruit-attack campaign-03-darknessuprise combat-long map-frontiercompanions map-mornheim map-clashofheroes 01-revenge gen-barracks-autofill gen-cannon-place production gen-leader-buy-soldier
+gen-campaign map-battlefieldbarrens 04-brutepower lightridge campaign-02-villageattack campaign-06-cleycourt gen-civilian-death map-europe
+camp-crawford genc-combatwaves-5000 saveload map-supplylines campaign-08-unexploredland 07-flood map-fouronone gen-hero-activation gen-conversion-commands campaign-12-kaloix build
+gen-camp-placement map-frozenfjord 02-patrol campaign-03-thebeautifulland campaign-20-battleofevelance gen-barracks-recruit gen-foundry-summon map-mediterranean wintersturm
+ai-builds-oldkings map-demomap 02-therichland map-smalldale gen-a-dunkelforst combat wintersturm-mapstart
