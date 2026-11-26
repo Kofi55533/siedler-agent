@@ -28,6 +28,10 @@ on:
         description: 'Optional S5_DEEP_EVERY override (empty = total_turns/5)'
         required: false
         default: ''
+      scenarios:
+        description: 'Optional comma/space-separated scenario filter (overrides mode, e.g. gen-mine-depletion,bc-full)'
+        required: false
+        default: ''
 permissions:
   contents: read
 concurrency:
@@ -48,6 +52,7 @@ jobs:
           EV: '${{ github.event_name }}'
           IN_SHA: '${{ inputs.target_sha }}'
           IN_MODE: '${{ inputs.mode }}'
+          IN_SCENARIOS: '${{ inputs.scenarios }}'
         run: |
           set -uo pipefail
           D=Kofi55533/siedler-data
@@ -58,10 +63,11 @@ jobs:
           prefix="rm-neonref-measure"
           [ "$mode" = "fast" ] && prefix="rm-neonref-fast"
           [ "$mode" = "bc" ] && prefix="rm-neonref-bc"
+          [ -n "${IN_SCENARIOS:-}" ] && prefix="rm-neonref-custom"
           echo "full_sha=$full" >> "$GITHUB_OUTPUT"
           echo "rel_prefix=$prefix" >> "$GITHUB_OUTPUT"
           n=0
-          if [ "$mode" = "full" ]; then
+          if [ "$mode" = "full" ] && [ -z "${IN_SCENARIOS:-}" ]; then
             for tag in "${prefix}-${sha}"; do
               c=$(gh api "repos/$D/releases/tags/$tag" --jq '[.assets[]|select(.name|startswith("measure-"))]|length' 2>/dev/null || true)
               [[ "$c" =~ ^[0-9]+$ ]] || c=0
@@ -96,6 +102,7 @@ jobs:
           GH_TOKEN: '${{ secrets.PRIVATE_REPO_TOKEN }}'
           WANT: '${{ needs.gate.outputs.full_sha }}'
           IN_MODE: '${{ inputs.mode }}'
+          IN_SCENARIOS: '${{ inputs.scenarios }}'
           CARGO_BUILD_JOBS: '4'
         run: |
           set -euo pipefail
@@ -125,7 +132,9 @@ jobs:
             gh release upload "$REL" -R "$D" --clobber /tmp/s5verify.zst /tmp/libunicorn.tzst >/dev/null 2>&1 && break
             sleep 10
           done
-          if [ "${IN_MODE:-full}" = "bc" ]; then
+          if [ -n "${IN_SCENARIOS:-}" ]; then
+            SHARDS=$(printf '%s\n' "$IN_SCENARIOS" | tr ',' ' ' | xargs -n 4 | jq -R . | jq -sc .)
+          elif [ "${IN_MODE:-full}" = "bc" ]; then
             SHARDS=$(printf '%s\n' "bc-full" "bc-0804" | jq -R . | jq -sc .)
           elif [ "${IN_MODE:-full}" = "fast" ]; then
             SHARDS=$(printf '%s\n' \
