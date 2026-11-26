@@ -57,10 +57,11 @@ jobs:
           mode="${IN_MODE:-full}"
           prefix="rm-neonref-measure"
           [ "$mode" = "fast" ] && prefix="rm-neonref-fast"
+          [ "$mode" = "bc" ] && prefix="rm-neonref-bc"
           echo "full_sha=$full" >> "$GITHUB_OUTPUT"
           echo "rel_prefix=$prefix" >> "$GITHUB_OUTPUT"
           n=0
-          if [ "$mode" != "fast" ]; then
+          if [ "$mode" = "full" ]; then
             for tag in "${prefix}-${sha}"; do
               c=$(gh api "repos/$D/releases/tags/$tag" --jq '[.assets[]|select(.name|startswith("measure-"))]|length' 2>/dev/null || true)
               [[ "$c" =~ ^[0-9]+$ ]] || c=0
@@ -124,7 +125,9 @@ jobs:
             gh release upload "$REL" -R "$D" --clobber /tmp/s5verify.zst /tmp/libunicorn.tzst >/dev/null 2>&1 && break
             sleep 10
           done
-          if [ "${IN_MODE:-full}" = "fast" ]; then
+          if [ "${IN_MODE:-full}" = "bc" ]; then
+            SHARDS=$(printf '%s\n' "bc-full" "bc-0804" "saveload-settled-long" "late-ai-long" | jq -R . | jq -sc .)
+          elif [ "${IN_MODE:-full}" = "fast" ]; then
             SHARDS=$(printf '%s\n' \
               "combat-waves combat-big combat-long combat" \
               "genb-waves-assault genc-combatwaves-5000 map-supplylines map-mornheim" \
